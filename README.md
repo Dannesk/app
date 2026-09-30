@@ -38,8 +38,6 @@
 
 ## Download
 
-Linux desktop. Debian packages for amd64 and arm64.
-
 **apt repository** — Install and update from the command line:
 
 ```sh
