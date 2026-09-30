@@ -26,8 +26,8 @@
 
 ## Security
 
-- Transactions are built and signed locally; only the signed transaction blob leaves your device.
-- **Encryption at rest** — On-device storage, uses AES-256-GCM encryption with Argon2id for password-based key derivation.
+- **Locally signed** — Transactions are built and signed locally on the users device; only the signed transaction blob goes out to the network.
+- **Encryption at rest** — On-device storage uses AES-256-GCM encryption with Argon2id for password-based key derivation.
 - **Memory protection** — Sensitive memory is zeroized and wiped.
 - **Hardened builds** — Release builds use security hardening measures.
 
@@ -38,7 +38,24 @@
 
 ## Download
 
-Download the latest release from the project's [Releases page](https://github.com/Dannesk/app/releases).
+Linux desktop. Debian packages for amd64 and arm64.
+
+**apt repository** — Install and update from the command line:
+
+```sh
+sudo curl -fsSL -o /usr/share/keyrings/dannesk-archive-keyring.gpg https://apt.dannesk.com/dannesk-archive-keyring.gpg
+sudo tee /etc/apt/sources.list.d/dannesk.sources > /dev/null <<EOF
+Types: deb
+URIs: https://apt.dannesk.com
+Suites: stable
+Components: main
+Architectures: amd64 arm64
+Signed-By: /usr/share/keyrings/dannesk-archive-keyring.gpg
+EOF
+sudo apt update && sudo apt install dannesk
+```
+
+**Direct download** — Get the `.deb` from [dannesk.com](https://dannesk.com) or the [Releases page](https://github.com/Dannesk/app/releases). Installing it enrolls the apt repository, so updates arrive through your system updater.
 
 ## Building from Source
 
