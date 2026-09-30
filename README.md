@@ -18,8 +18,8 @@
 - **XRPL DEX** — Trade stablecoins directly on the XRP Ledger's decentralized exchange, with routing across order books and AMM pools.
 - **Bitcoin HD wallet** — Fee tiers, custom transaction fees, rotating addresses, and Replace-by-Fee (RBF).
 - **Live market data** — Prices, charts, and network data.
-- **Destination Tags** Create destination tags when sending or receiving.
-- **Custom dashboard** — Arrange panes to build your own workspace.
+- **Destination Tags** — Supports destination tags when sending or receiving.
+- **Custom dashboard** — Drag, Drop, and arrange panes on the dashboard.
 - **Light & dark themes** — Multiple themes available.
 - **Zero platform fees** — No wallet platform fees. You pay only the applicable blockchain fees. 
 
