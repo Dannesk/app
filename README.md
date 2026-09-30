@@ -10,7 +10,7 @@
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-2024_edition-000000?logo=rust&logoColor=white" alt="Rust"></a>
   <a href="https://iced.rs"><img src="https://iced.rs/badge.svg" alt="Made with iced"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-3B3F43" alt="License: GPL-3.0"></a>
-  <a href="https://dannesk.com"><img src="https://img.shields.io/badge/Dannesk-dannesk.com-1E2227?labelColor=272C33&logoColor=F2F4F7&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjI2MiAyNjIgNTAwIDUwMCI%2BPGcgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjI2IiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2UtbGluZWNhcD0icm91bmQiPjxwYXRoIGQ9Ik0zMzksMzE3IEw2NTgsMzE3IEw1OTgsNDM0IEwyNzgsNDM0IFoiLz48cGF0aCBkPSJNNDI2LDU5MCBMNzQ2LDU5MCBMNjg1LDcwNyBMMzY2LDcwNyBaIi8%2BPC9nPjwvc3ZnPg%3D%3D" alt="dannesk.com"></a>
+  <a href="https://dannesk.com"><img src="https://img.shields.io/badge/Dannesk-1E2227?logoColor=F2F4F7&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjI2MiAyNjIgNTAwIDUwMCI%2BPGcgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjI2IiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2UtbGluZWNhcD0icm91bmQiPjxwYXRoIGQ9Ik0zMzksMzE3IEw2NTgsMzE3IEw1OTgsNDM0IEwyNzgsNDM0IFoiLz48cGF0aCBkPSJNNDI2LDU5MCBMNzQ2LDU5MCBMNjg1LDcwNyBMMzY2LDcwNyBaIi8%2BPC9nPjwvc3ZnPg%3D%3D" alt="Dannesk"></a>
 </p>
 
 ## Features
