@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Dannesk
+Comment=DeFi wallet for XRPL and Bitcoin
+Exec=dannesk
+Icon=dannesk
+Terminal=false
+Categories=Finance;Network;
+Keywords=wallet;bitcoin;btc;xrp;xrpl;defi;
+StartupWMClass=dannesk

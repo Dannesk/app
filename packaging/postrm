@@ -1,0 +1,13 @@
+#!/bin/sh
+# The sources file is written by postinst (not owned by the package), so it
+# must be cleaned up by hand when the package goes away. The keyring is a
+# package file — dpkg removes it on its own.
+set -e
+
+case "$1" in
+    remove|purge)
+        rm -f /etc/apt/sources.list.d/dannesk.sources
+        ;;
+esac
+
+exit 0

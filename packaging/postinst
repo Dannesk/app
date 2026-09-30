@@ -1,0 +1,25 @@
+#!/bin/sh
+# Enrolls the Dannesk apt repository so the app updates through the system
+# updater (the VS Code / Brave pattern). Self-guarding: does nothing if this
+# build shipped without the keyring, and never touches an existing sources file.
+set -e
+
+KEYRING=/usr/share/keyrings/dannesk-archive-keyring.gpg
+SOURCES=/etc/apt/sources.list.d/dannesk.sources
+
+case "$1" in
+    configure)
+        if [ -f "$KEYRING" ] && [ ! -e "$SOURCES" ]; then
+            cat > "$SOURCES" <<EOF
+Types: deb
+URIs: https://apt.dannesk.com
+Suites: stable
+Components: main
+Architectures: amd64 arm64
+Signed-By: $KEYRING
+EOF
+        fi
+        ;;
+esac
+
+exit 0
