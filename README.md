@@ -53,7 +53,7 @@ EOF
 sudo apt update && sudo apt install dannesk
 ```
 
-**Direct download** — Get the `.deb` from [dannesk.com](https://dannesk.com) or the [Releases page](https://github.com/Dannesk/app/releases). Installing it enrolls the apt repository, so updates arrive through your system updater.
+**Direct download** — Get the `.deb` from [dannesk.com](https://dannesk.com) or the [Releases page](https://github.com/Dannesk/app/releases). 
 
 ## Building from Source
 

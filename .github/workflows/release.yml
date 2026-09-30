@@ -1,0 +1,114 @@
+# Builds the Debian packages and drafts a GitHub Release.
+#
+# Trigger: a version tag (v0.1.0). The tag must match Cargo.toml's version.
+# One job per architecture, each on a native runner, each running the same
+# packaging/build-deb.sh inside an ubuntu:22.04 container so the glibc floor
+# is 2.35: Ubuntu 22.04+, Debian 12+, Mint 21+. A build on a newer host floors
+# at that host's glibc (2.39 on Debian 13) and shuts those users out.
+#
+# CI never signs. apt trusts the repository's signed InRelease, which
+# packaging/publish-repo.sh produces on the machine that holds the key. The
+# release is created as a DRAFT: the .debs carry the keyring and enrol
+# apt.dannesk.com, so they must not be public before that repository is live.
+# Publishing the release by hand is the last step of publish-repo.sh's list.
+#
+# workflow_dispatch builds both packages without releasing, to test the
+# pipeline on any branch.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  deb:
+    name: deb ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: ubuntu:22.04
+    steps:
+      # build-essential: C toolchain for secp256k1, zstd and aws-lc, and the
+      # objdump build-deb.sh reads the glibc floor with. cmake: aws-lc-sys,
+      # rustls' crypto provider. git: so checkout clones rather than fetching
+      # a tarball. dpkg-deb ships with the image.
+      - name: Build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config curl ca-certificates git
+
+      - uses: actions/checkout@v4
+
+      - name: Tag matches Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but Cargo.toml says $v"; exit 1; }
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build package
+        run: sh packaging/build-deb.sh
+
+      - name: Check the package
+        run: |
+          deb=$(ls packaging/out/*.deb)
+          dpkg-deb --info "$deb"
+          arch=$(dpkg-deb -f "$deb" Architecture)
+          [ "$arch" = "${{ matrix.arch }}" ] || { echo "built $arch, expected ${{ matrix.arch }}"; exit 1; }
+          floor=$(dpkg-deb -f "$deb" Depends | grep -o 'libc6 (>= [0-9.]*)' | grep -o '[0-9.]*$')
+          dpkg --compare-versions "$floor" le 2.35 || { echo "glibc floor $floor is above 2.35"; exit 1; }
+          echo "glibc floor $floor"
+          if dpkg-deb -c "$deb" | grep -q dannesk-archive-keyring.gpg; then
+            echo "keyring: shipped"
+          else
+            echo "keyring: NOT shipped — packaging/dannesk-archive-keyring.gpg is not in the repo; this .deb will not enrol apt"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: packaging/out/*.deb
+          if-no-files-found: error
+
+  draft-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: deb
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: deb-*
+          merge-multiple: true
+          path: dist
+
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ls -l dist
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+              --title "Dannesk $GITHUB_REF_NAME" --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" dist/*.deb --clobber
