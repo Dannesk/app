@@ -80,11 +80,13 @@ install -m644 "$KEYRING" "$REPO_DIR/dannesk-archive-keyring.gpg"
 cd "$REPO_DIR"
 
 # From the repository root, so each Filename: is pool/main/d/dannesk/… —
-# relative to the URIs line, which is how apt resolves it.
+# relative to the URIs line, which is how apt resolves it. --multiversion
+# lists every version in the pool: apt still installs the newest, and an
+# older one stays reachable as `apt install dannesk=<version>`.
 for arch in $ARCHES; do
     d="dists/stable/main/binary-$arch"
     mkdir -p "$d"
-    dpkg-scanpackages --arch "$arch" pool/ > "$d/Packages"
+    dpkg-scanpackages --multiversion --arch "$arch" pool/ > "$d/Packages"
     gzip -9nkf "$d/Packages"
 done
 
@@ -112,11 +114,10 @@ gpg --batch --yes --local-user "$SIGNING_KEY" --digest-algo SHA256 --detach-sign
 gpg --verify dists/stable/InRelease >/dev/null 2>&1 || { echo "InRelease does not verify" >&2; exit 1; }
 
 echo
-echo "Repository built in $REPO_DIR for $VERSION. In this order:"
-echo "  1. Upload the whole tree to the R2 bucket behind apt.dannesk.com"
-echo "     (rclone sync $REPO_DIR <remote>:<bucket>, or the Cloudflare dashboard)."
-echo "  2. Check:  curl -4 -fsS https://apt.dannesk.com/dists/stable/InRelease | head -3"
-echo "  3. On a clean Ubuntu 22.04 or Debian 12: the README's apt block, then apt install dannesk."
-echo "  4. Publish the draft release on GitHub — not before step 2 passes; the .deb enrols this repository."
-echo "  5. Landing: SHA256SUMS, SHA256SUMS.asc (here) and packaging/out/dannesk.pub into landing/public,"
-echo "     then drop the hrefs into Hero.astro's DOWNLOADS, APT and VERIFY."
+echo "Repository built in $REPO_DIR for $VERSION. Next:"
+echo "  1. Upload to the bucket, the .debs first and the index last: the new .debs (pool/ and"
+echo "     the top level), SHA256SUMS + SHA256SUMS.asc, each Packages pair, then dists/stable/."
+echo "     Delete nothing; every version stays."
+echo "  2. On an install of the previous version: apt update && apt install --only-upgrade dannesk"
+echo "  3. Publish the draft release on GitHub as a pre-release, not before step 2 passes."
+echo "  4. Landing: VERSION in src/consts.ts, and SHA256SUMS + SHA256SUMS.asc from here into public/."
