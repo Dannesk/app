@@ -1,6 +1,6 @@
-pub const VERSION: &str = "0.1.0";
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-use iced::{Font, Task, Subscription};
+use iced::{Task, Subscription};
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 
@@ -14,6 +14,7 @@ pub mod gate;
 pub mod icon;
 pub mod secure;
 pub mod startup;
+pub mod startup_trace;
 pub mod ui;
 pub mod wallet;
 pub mod utils;
@@ -27,8 +28,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Disable core dumps + (Linux) ptrace/proc-mem access before anything runs,
     // so a crash or same-user process can't extract mlocked secrets. Release-only.
     secure::harden_process();
+    startup_trace::stamp("main");
 
     startup::init_globals();
+
+    // iced indexes every system font before its first frame, twice (text, then
+    // the SVG renderer) — seconds on the first launch after a boot. Turn both
+    // scans off and build the font system now (utils/fonts.rs); the fonts are
+    // read behind the window, once its first frame is out. This sets an
+    // environment variable, so it has to come before the runtime: the process
+    // must still be one thread.
+    utils::fonts::index_before_window();
+    startup_trace::stamp("font system ready");
+    startup_trace::watch_libraries();
 
     let runtime = Builder::new_multi_thread()
         .worker_threads(4)
@@ -65,28 +77,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _guard = runtime.enter();
 
-    // iced opens its window first and indexes every system font after, before
-    // its first frame. Wayland can't hide that window, so a cold start (font
-    // files not read since boot: seconds) showed a taskbar entry with nothing
-    // drawn. Index them here, before any window exists; the socket and wallet
-    // load above carry on meanwhile. Our `.font()` bytes still load before the
-    // first frame, so nothing is ever drawn in a fallback font.
-    let _ = iced::advanced::graphics::text::font_system();
-
-    iced::application(
-        || (AppState::default(), Task::none()),
+    startup_trace::stamp("runtime up, entering iced");
+    let ran = iced::application(
+        || {
+            startup_trace::stamp("event loop up, app booted");
+            (AppState::default(), Task::none())
+        },
         update,
-        ui::dashboard::render_dashboard,
+        view,
     )
+    // Matched by the family names inside the files — "Inter 18pt" and
+    // "JetBrains Mono" (utils/fonts.rs) — and loaded before the first frame.
     .font(include_bytes!("../Inter-Light.ttf").as_slice())
     .font(include_bytes!("../Inter_Regular.ttf").as_slice())
     .font(include_bytes!("../JetBrainsMono-Regular.ttf").as_slice())
-    .default_font(Font::with_name("Inter"))
+    .default_font(utils::fonts::SANS)
     .title("Dannesk")
     .window(window_settings())
     .subscription(subscriptions)
     .theme(|state: &AppState| state.theme.clone())
-    .run()?;
+    .run();
+    utils::fonts::remove_skip_config();
+    ran?;
 
     handle.block_on(async {
         if let Some(tx) = crate::ws::WS_SHUTDOWN_TX.get() {
@@ -102,6 +114,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn update(state: &mut AppState, message: Message) -> Task<Message> {
     crate::controller::handle_message(state, message)
+}
+
+// The stamps are no-ops outside a `startup-trace` build (src/startup_trace.rs).
+fn view(state: &AppState) -> iced::Element<'_, Message> {
+    startup_trace::stamp("window and GPU up, first view");
+    let dashboard = ui::dashboard::render_dashboard(state);
+    startup_trace::stamp("first view built");
+    dashboard
 }
 
 fn subscriptions(state: &AppState) -> Subscription<Message> {

@@ -192,8 +192,10 @@ pub fn render_activity_log<'a>(
                 cp.text,
                 cp.muted,
             ),
+            // Inter's check — JetBrains Mono has none, and a fallback glyph
+            // changes with the fonts installed. The slot is fixed-width.
             ActivityStepState::Ok { .. } => (
-                text("\u{2713}").font(MONO).size(STEP_GLYPH * scale).color(cp.green).into(),
+                text("\u{2713}").size(STEP_GLYPH * scale).color(cp.green).into(),
                 cp.text,
                 cp.muted,
             ),

@@ -187,6 +187,13 @@ pub enum ActivityVerdict {
 #[derive(Debug, Clone)]
 pub enum Message {
     Sync,
+    /// The system's fonts were indexed behind the window and merged in
+    /// (`utils/fonts.rs`). Carries nothing: its arrival rebuilds the view, and
+    /// that layout re-shapes the text with the full fallback list.
+    SystemFontsIndexed,
+    /// The first frame is on screen. Starts the read of the system's fonts,
+    /// which must not compete with that frame for the disk (`utils/fonts.rs`).
+    FirstFrame,
     /// Generic edit for any memory-hardened secret field.
     SecureEdit(SecureField, SecureOp),
     /// `paste ›` on a secure field. Separate from [`SecureOp::Paste`] because

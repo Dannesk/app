@@ -50,7 +50,7 @@ use crate::ui::components::compact;
 use crate::ui::managexrp::panes;
 use crate::ui::managexrp::tokens as tokens_page;
 use crate::ui::components::grid;
-use crate::utils::{format_token_amount, fonts, theme, tokens};
+use crate::utils::{format_token_amount, theme, tokens};
 
 /// What the fee is paid in, whatever is being sent — the drops come out of the
 /// XRP balance even when the payment is a token.
@@ -231,7 +231,8 @@ fn picker_row<'a>(
         tokens_page::holding_columns(h.symbol, h.issuer.clone(), bal_str, fiat_str, cp, scale);
 
     let check: Element<'a, Message> = if selected {
-        text("\u{2713}").font(fonts::MONO).size(CHECK * scale).color(cp.green).into()
+        // Inter's check — JetBrains Mono has none.
+        text("\u{2713}").size(CHECK * scale).color(cp.green).into()
     } else {
         Space::new().into()
     };

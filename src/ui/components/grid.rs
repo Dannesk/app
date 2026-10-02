@@ -352,8 +352,10 @@ fn title_bar<'a>(
         controls = controls
             .push(split_glyph(true, wrap(GridMsg::Split(pane, Axis::Vertical)), cp, scale))
             .push(split_glyph(false, wrap(GridMsg::Split(pane, Axis::Horizontal)), cp, scale))
+            // ↗ / ↙ are JetBrains Mono's own. ⤢ ⤡ were not, and a glyph the
+            // carried fonts lack is a box until the system fonts are indexed.
             .push(glyph(
-                if maximized { "\u{2921}" } else { "\u{2922}" },
+                if maximized { "\u{2199}" } else { "\u{2197}" },
                 wrap(GridMsg::Maximize(pane)),
                 cp,
                 scale,
@@ -1647,7 +1649,9 @@ fn menu_item<'a>(
     scale: f32,
 ) -> Element<'a, Message> {
     let check: Element<'a, Message> = match checked {
-        Some(true) => text("\u{2713}").font(MONO).size(MENU_KEY * scale).color(cp.dim).into(),
+        // Inter's check: JetBrains Mono has none, and a fallback glyph changes
+        // with the fonts installed.
+        Some(true) => text("\u{2713}").size(MENU_KEY * scale).color(cp.dim).into(),
         _ => Space::new().into(),
     };
     let ink = if !enabled {

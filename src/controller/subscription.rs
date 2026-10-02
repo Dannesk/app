@@ -42,6 +42,12 @@ pub fn subscriptions(state: &AppState) -> Subscription<Message> {
         watch_rate_history_long(CHANNEL.rate_history_long_rx.clone()),
         iced::event::listen_with(on_window_event),
     ];
+    // Frame events until the first one lands: the system's fonts are read only
+    // once the first frame is out (`utils/fonts.rs`), and a `startup-trace`
+    // build stamps it. After that this pushes nothing.
+    if crate::utils::fonts::system_fonts_pending() || crate::startup_trace::first_frame_pending() {
+        subs.push(iced::window::frames().map(|_| Message::FirstFrame));
+    }
     // THE LAUNCH GATE — while it owns the screen it needs a keyboard (there is no
     // text widget on it) and a redraw pump for the caret blink and the wrong-PIN
     // shake. Both are derived from clocks, so the pump is the only state either

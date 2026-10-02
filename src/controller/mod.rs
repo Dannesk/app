@@ -557,6 +557,14 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             // something to tell. See `xrp::trade_expiry_check`.
             xrp::trade_expiry_check();
         }
+        // Nothing to store: the message's arrival rebuilds the view, and that
+        // layout re-shapes every paragraph with the system's fonts behind ours
+        // (`utils/fonts.rs`).
+        Message::SystemFontsIndexed => {}
+        Message::FirstFrame => {
+            crate::startup_trace::first_frame();
+            return crate::utils::fonts::system_fonts_task();
+        }
         Message::ActivityDismiss => {
             state.activity_log = None;
             let _ = crate::channel::CHANNEL.activity_tx.send(None);

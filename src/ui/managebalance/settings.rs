@@ -407,7 +407,8 @@ fn chip<'a>(
 ) -> Element<'a, Message> {
     let mut inner = row![].align_y(Alignment::Center).spacing(4.0 * scale);
     if selected {
-        inner = inner.push(text("\u{2713}").font(MONO).size(8.0 * scale).color(p.dim));
+        // Inter's check — JetBrains Mono has none.
+        inner = inner.push(text("\u{2713}").size(8.0 * scale).color(p.dim));
     }
     inner = inner.push(
         text(label.to_uppercase())

@@ -173,7 +173,10 @@ pub fn asset_chip<'a>(
     button(
         row![
             text(label.to_uppercase()).font(MONO).size(UNIT * scale),
+            // The caret is JetBrains Mono's, like the panes' row carets;
+            // Inter has no ▾.
             text("\u{25be}")
+                .font(MONO)
                 .size(7.0 * scale)
                 .color(if open { cp.dim } else { cp.faint }),
         ]
