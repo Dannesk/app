@@ -5,7 +5,7 @@
 # never leaves it: CI builds the packages, this machine signs the repository
 # (publish-repo.sh), and apt trusts the signed InRelease, not the .deb.
 #
-# The March key and the 2026-01-18 key are void (ROADMAP.md); this makes the
+# The March key and the 2026-01-18 key are void (RELEASE.md); this makes the
 # fresh one. RSA 4096 rather than Ed25519 because every apt back to Ubuntu
 # 22.04 / Debian 12 verifies it without question. No expiry, because an
 # expired archive key breaks `apt update` on every install until the keyring

@@ -7,13 +7,14 @@
 #
 # The .debs are the ones release.yml built and attached to the DRAFT release:
 # download them from the draft's page. This machine holds the signing key; CI
-# never does (ROADMAP.md).
+# never does (RELEASE.md).
 #
 # The tree lives in $REPO_DIR (default ~/apt.dannesk.com) and is the source of
 # truth for the bucket: it keeps every version published so far and is synced
 # UP, never rebuilt from the bucket. Layout:
 #
 #   dannesk-archive-keyring.gpg              what the README's curl line fetches
+#   dannesk_<v>_<arch>.deb                   root copies — the landing's download links
 #   SHA256SUMS, SHA256SUMS.asc               this version's .debs — the landing's Verify row
 #   dists/stable/InRelease                   the signed index apt trusts
 #   dists/stable/Release, Release.gpg        the same, as the older detached pair
@@ -72,6 +73,7 @@ POOL="$REPO_DIR/pool/main/d/dannesk"
 mkdir -p "$POOL"
 for deb in "$@"; do
     install -m644 "$deb" "$POOL/"
+    install -m644 "$deb" "$REPO_DIR/"    # short URL for the landing page
 done
 install -m644 "$KEYRING" "$REPO_DIR/dannesk-archive-keyring.gpg"
 
