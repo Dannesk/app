@@ -34,6 +34,8 @@
 //! access errors name the real external surface, restore only those, and read
 //! the warnings that fall out.
 
+use iced::widget::{Column, Row};
+use iced::Widget as _;
 use iced::widget::{button, column, container, row, stack, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow};
 use crate::controller::app_state::{AppState, ImportMode};
@@ -409,7 +411,7 @@ pub fn setup_screen<'a>(state: &'a AppState, prm: SetupScreenParams<'a>) -> Elem
     ]
     .width(Length::Fill)
     .height(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// [`checksum_verdict`] in the compact ink — same words, same rules, the
@@ -447,7 +449,7 @@ fn import_pane<'a>(
     };
 
     let verdict: Element<'a, Message> = if words == 0 {
-        Space::new().into()
+        Space::new().boxed()
     } else {
         let (body, colour) = compact_checksum_verdict(complete, checksum_ok, cp);
         let glyph = match (complete, checksum_ok) {
@@ -455,7 +457,7 @@ fn import_pane<'a>(
             (true, false) => "\u{2715} ",
             _ => "",
         };
-        text(format!("{glyph}{body}")).size(compact::ROW * scale).color(colour).into()
+        text(format!("{glyph}{body}")).size(compact::ROW * scale).color(colour).boxed()
     };
 
     // `Paste all ›` on an empty box, `Clear ›` on a full one: a paste onto a
@@ -495,11 +497,11 @@ fn import_pane<'a>(
         status,
         address_type_picker(prm, cp, scale),
     ]
-    // Fill, not the default Shrink: the pane container is fixed-height, and a
-    // `Fill` child inside a Shrink column collapses to nothing — the picker
+    // Fill, not the default Fit: the pane container is fixed-height, and a
+    // `Fill` child inside a Fit column collapses to nothing — the picker
     // would have no band to centre in.
     .height(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// The address-type picker (2026-09-14): an eyebrow naming the choice's
@@ -519,9 +521,9 @@ fn address_type_picker<'a>(
             .height(Length::Fill)
             .center_x(Length::Fill)
             .center_y(Length::Fill)
-            .into();
+            .boxed();
     }
-    let mut cards = row![].spacing(6.0 * scale).width(Length::Fill);
+    let mut cards: Row<Element<'_, Message>> = row![].spacing(6.0 * scale).width(Length::Fill);
     for (prefix, name, active, msg) in prm.address_types.iter().cloned() {
         cards = cards.push(type_card(prefix, name, active, msg, cp, scale));
     }
@@ -535,7 +537,7 @@ fn address_type_picker<'a>(
     .width(Length::Fill)
     .height(Length::Fill)
     .center_y(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// One picker card: the prefix in mono over the name, the segmented
@@ -576,7 +578,7 @@ fn type_card<'a>(
             snap: false,
         }
     })
-    .into()
+    .boxed()
 }
 
 /// The create left pane: the same box, holding the generated grid — 24 slots
@@ -593,7 +595,7 @@ fn create_pane<'a>(
     let words: Vec<&str> = prm.seed.as_str().split_whitespace().collect();
     let generated = words.len() == TARGET_WORDS;
 
-    let mut grid = column![].spacing(3.5 * scale);
+    let mut grid: Column<Element<'_, Message>> = column![].spacing(3.5 * scale);
     for r in 0..compact::WORDS_ROWS {
         let mut runs: Vec<Run> = Vec::new();
         for c in 0..compact::WORDS_COLS {
@@ -632,9 +634,9 @@ fn create_pane<'a>(
         text(format!("\u{2713} {NEVER_SENT}"))
             .size(compact::ROW * scale)
             .color(cp.green)
-            .into()
+            .boxed()
     } else {
-        text(NOT_YET).size(compact::ROW * scale).color(cp.muted).into()
+        text(NOT_YET).size(compact::ROW * scale).color(cp.muted).boxed()
     };
 
     let action: Element<'a, Message> = if !generated {
@@ -645,7 +647,7 @@ fn create_pane<'a>(
             scale,
         )
     } else if prm.copied {
-        text("\u{2713} copied").size(compact::ROW * scale).color(cp.green).into()
+        text("\u{2713} copied").size(compact::ROW * scale).color(cp.green).boxed()
     } else {
         compact::upper_link(
             "Copy",
@@ -667,7 +669,7 @@ fn create_pane<'a>(
     ]
     // See import_pane: Fill so the picker has a band to centre in.
     .height(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// The keys pane: the `25th word` section, a hairline, the `key storage`
@@ -693,7 +695,7 @@ fn keys_pane<'a>(
 
     if prm.word25 {
         col = col
-            .push(Space::new().height(8.0 * scale))
+            .push(Space::new().height(8.0 * scale).boxed())
             .push(compact::boxed_secret(
                 prm.w25_field,
                 prm.w25,
@@ -704,7 +706,7 @@ fn keys_pane<'a>(
                 cp,
                 scale,
             ))
-            .push(Space::new().height(8.0 * scale))
+            .push(Space::new().height(8.0 * scale).boxed())
             // Priced against BIP39's own stretch, not ours: the word is never
             // stored here, so the only attacker already holds the 24 words.
             .push(compact::meter_rows(
@@ -716,9 +718,9 @@ fn keys_pane<'a>(
     }
 
     col = col
-        .push(Space::new().height(12.0 * scale))
+        .push(Space::new().height(12.0 * scale).boxed())
         .push(compact::hairline(cp.rule))
-        .push(Space::new().height(11.0 * scale))
+        .push(Space::new().height(11.0 * scale).boxed())
         .push(compact::eyebrow("key storage", "required", cp, scale))
         .push(compact::segmented(
             ("On this device", prm.mode == ImportMode::Standard, prm.on_mode_device.clone()),
@@ -731,7 +733,7 @@ fn keys_pane<'a>(
         ImportMode::Standard => {
             let hint = minimum_hint(KEY_MIN, "characters");
             col = col
-                .push(Space::new().height(8.0 * scale))
+                .push(Space::new().height(8.0 * scale).boxed())
                 .push(compact::boxed_secret(
                     prm.enc_field,
                     prm.enc,
@@ -742,7 +744,7 @@ fn keys_pane<'a>(
                     cp,
                     scale,
                 ))
-                .push(Space::new().height(8.0 * scale))
+                .push(Space::new().height(8.0 * scale).boxed())
                 .push(compact::meter_rows(
                     held_bits(prm.enc, state.entropy_hold),
                     entropy::Kdf::Argon2id,
@@ -760,12 +762,12 @@ fn keys_pane<'a>(
         }
         ImportMode::Cold => {
             col = col
-                .push(Space::new().height(8.0 * scale))
+                .push(Space::new().height(8.0 * scale).boxed())
                 .push(
                     text(COLD_NOTE)
                         .size(10.5 * scale)
                         .line_height(iced::widget::text::LineHeight::Relative(1.5))
-                        .color(cp.dim),
+                        .color(cp.dim).boxed(),
                 )
                 .push(compact::stat_rows(
                     &[("On disk", "nothing"), ("Sign with", COLD_SIGN)],
@@ -777,10 +779,10 @@ fn keys_pane<'a>(
 
     let enabled = can_finish(prm.flow, prm.seed, prm.word25, prm.w25, prm.mode, prm.enc);
     col = col
-        .push(Space::new().height(13.0 * scale))
+        .push(Space::new().height(13.0 * scale).boxed())
         .push(compact::cta(prm.submit_label, enabled, prm.on_submit.clone(), cp, scale));
 
-    col.into()
+    col.boxed()
 }
 
 #[cfg(test)]

@@ -19,6 +19,8 @@
 //! fee is committed at the press from the same planner the lead drew from,
 //! and the form is torn down on dispatch.
 
+use iced::widget::Column;
+use iced::Widget as _;
 use iced::widget::text::Wrapping;
 use iced::widget::{button, column, container, responsive, row, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow, Size};
@@ -75,13 +77,13 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         .as_secs();
     let selected = state.btc_tx_selected.as_deref();
 
-    let mut list = column![].width(Length::Fill);
+    let mut list: Column<Element<'_, Message>> = column![].width(Length::Fill);
     for t in pending.iter().chain(settled.iter()) {
         let detail = (selected == Some(t.txid.as_str()))
             .then(|| Detail { lines: tx::detail_lines(t, &ctx), tail: tx::tail(t, cp) });
         list = list.push(tx_row(t, tx::time_label(t, now), detail, cp, scale));
     }
-    scroller(list.into(), cp, scale)
+    scroller(list.boxed(), cp, scale)
 }
 
 /// One row: `▸` · txid (mono) · signed amount · state · time — the XRP list
@@ -94,17 +96,17 @@ fn tx_row(t: &Tx, time: String, detail: Option<Detail>, cp: &'static CompactPale
     let (status, status_ink) = (t.state_label(), t.state_color(cp));
 
     let cell = |el: Element<'static, Message>, w: f32, align: Alignment| -> Element<'static, Message> {
-        container(el).width(Length::Fixed(w * scale)).align_x(align).into()
+        container(el).width(Length::Fixed(w * scale)).align_x(align).boxed()
     };
 
     let line = row![
-        cell(text(if open { "\u{25be}" } else { "\u{25b8}" }).font(MONO).size(CARET * scale).color(quiet).into(), CARET_W, Alignment::Start),
-        cell(text(t.short_txid()).font(MONO).size(CELL * scale).color(cp.text).wrapping(Wrapping::None).into(), TXID_W, Alignment::Start),
+        cell(text(if open { "\u{25be}" } else { "\u{25b8}" }).font(MONO).size(CARET * scale).color(quiet).boxed(), CARET_W, Alignment::Start),
+        cell(text(t.short_txid()).font(MONO).size(CELL * scale).color(cp.text).wrapping(Wrapping::None).boxed(), TXID_W, Alignment::Start),
         container(runs(vec![Seg::mono(t.amount_str(), cp.text)], CELL * scale, CELL * scale))
             .width(Length::Fill)
             .align_x(Alignment::End),
-        cell(text(status).font(MONO).size(CELL * scale).color(status_ink).wrapping(Wrapping::None).into(), STATUS_W, Alignment::Start),
-        cell(text(time).font(MONO).size(CELL * scale).color(time_ink).wrapping(Wrapping::None).into(), TIME_W, Alignment::End),
+        cell(text(status).font(MONO).size(CELL * scale).color(status_ink).wrapping(Wrapping::None).boxed(), STATUS_W, Alignment::Start),
+        cell(text(time).font(MONO).size(CELL * scale).color(time_ink).wrapping(Wrapping::None).boxed(), TIME_W, Alignment::End),
     ]
     .spacing(ROW_GAP * scale)
     .align_y(Alignment::Center);
@@ -130,7 +132,7 @@ fn tx_row(t: &Tx, time: String, detail: Option<Detail>, cp: &'static CompactPale
         Some(d) => col.push(detail_block(d, cp, scale)),
         None => col.push(inset_rule(cp, scale)),
     };
-    col.into()
+    col.boxed()
 }
 
 /// The `modify fee` face: the bump lead, then the sign block on the bump
@@ -175,7 +177,7 @@ fn bump<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Ele
             scale,
         );
         let body = column![lead, sign, Space::new().height(2.0 * scale)].width(Length::Fill);
-        scroller(body.into(), cp, scale)
+        scroller(body.boxed(), cp, scale)
     })
-    .into()
+    .boxed()
 }

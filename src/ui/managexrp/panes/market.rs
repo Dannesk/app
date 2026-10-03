@@ -17,6 +17,8 @@
 //! title's right slot carries the state (`cumulative · ± 1.00%` or `limit at
 //! 1.4260`).
 
+use iced::widget::Column;
+use iced::Widget as _;
 use iced::widget::canvas::Canvas;
 use iced::widget::{button, column, container, responsive, row, stack, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow, Size};
@@ -137,10 +139,10 @@ pub fn book<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
                         snap: false,
                     }
                 })
-                .into()
+                .boxed()
         };
 
-        let mut ladder = column![].width(Length::Fill);
+        let mut ladder: Column<Element<'_, Message>> = column![].width(Length::Fill);
         for &(p, a, _) in asks.iter().rev() {
             ladder = ladder.push(level_row(p, a, true));
         }
@@ -173,7 +175,7 @@ pub fn book<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
                 compact::hairline(cp.rule),
                 Space::new().height(3.0 * scale),
             ]
-            .width(Length::Fill),
+            .width(Length::Fill).boxed(),
         );
         for &(p, a, _) in bids.iter() {
             ladder = ladder.push(level_row(p, a, false));
@@ -185,9 +187,9 @@ pub fn book<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
                 .height(Length::Fill)
                 .align_x(Alignment::Center)
                 .align_y(Alignment::Center)
-                .into()
+                .boxed()
         } else {
-            super::scroller(ladder.into(), cp, scale)
+            super::scroller(ladder.boxed(), cp, scale)
         };
 
         // ── index / book — pinned ─────────────────────────────────────────
@@ -195,19 +197,19 @@ pub fn book<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         let value = |s: String| text(s).font(MONO).size(FOOT_VALUE * scale).color(cp.dim);
         let mut foot = row![eyebrow("INDEX".to_string(), cp.muted), Space::new().width(6.0 * scale)].align_y(Alignment::Center);
         if index > 0.0 && base != quote {
-            foot = foot.push(value(fmt_price(index)));
+            foot = foot.push(value(fmt_price(index)).boxed());
             if let Some((m, s)) = mid {
                 if s >= 0.0 && s <= DEGENERATE_SPREAD_PCT {
                     let dev = (m - index) / index * 100.0;
                     foot = foot
-                        .push(Space::new().width(14.0 * scale))
-                        .push(eyebrow("BOOK".to_string(), cp.muted))
-                        .push(Space::new().width(6.0 * scale))
-                        .push(value(format!("{dev:+.2}%")));
+                        .push(Space::new().width(14.0 * scale).boxed())
+                        .push(eyebrow("BOOK".to_string(), cp.muted).boxed())
+                        .push(Space::new().width(6.0 * scale).boxed())
+                        .push(value(format!("{dev:+.2}%")).boxed());
                 }
             }
         } else {
-            foot = foot.push(value(NA.to_string()));
+            foot = foot.push(value(NA.to_string()).boxed());
         }
         let footer = column![
             compact::hairline(cp.rule),
@@ -221,9 +223,9 @@ pub fn book<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         column![header, list, footer]
             .width(Length::Fill)
             .height(Length::Fill)
-            .into()
+            .boxed()
     })
-    .into()
+    .boxed()
 }
 
 // ── Depth ───────────────────────────────────────────────────────────────────
@@ -328,7 +330,7 @@ fn depth_body<'a>(
     })
     .width(Length::Fill)
     .height(Length::Fill)
-    .into();
+    .boxed();
 
     let eyebrow = |s: String, ink: Color| text(s).font(MONO).size(AXIS * scale).color(ink);
     let axis = container(
@@ -363,7 +365,7 @@ fn depth_body<'a>(
         if right {
             c = c.align_x(Alignment::End);
         }
-        c.into()
+        c.boxed()
     };
     let footer = column![
         Space::new().height(8.0 * scale),
@@ -381,5 +383,5 @@ fn depth_body<'a>(
     ]
     .width(Length::Fill);
 
-    column![col, footer].width(Length::Fill).height(Length::Fill).into()
+    column![col, footer].width(Length::Fill).height(Length::Fill).boxed()
 }

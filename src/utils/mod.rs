@@ -14,6 +14,7 @@ pub mod theme;
 pub mod tokens;
 pub mod xaddress;
 pub mod bloom;
+pub mod clipboard;
 
 pub use formatting::add_commas;
 pub use formatting::format_token_amount;

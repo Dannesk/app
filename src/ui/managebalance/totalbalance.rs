@@ -16,7 +16,7 @@
 //! it better and in more detail than a three-line summary did. Keeping a
 //! worse copy on the home screen was the problem: you looked, learned
 //! nothing, and clicked through. What Balance kept is the only thing it
-//! uniquely has — the sum. The attic has v3 (`_attic/2026-09-11-balance-v4`).
+//! uniquely has — the sum.
 //!
 //! ## The engraving is still, and it is the gate's own figure
 //!
@@ -61,6 +61,7 @@
 //!
 //! This is a [`CompactPalette`] screen. `green`, `red` and `focus` are unused.
 
+use iced::Widget as _;
 use std::cell::Cell;
 use std::hash::{Hash, Hasher};
 
@@ -224,10 +225,10 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
             container(text(native).font(MONO).size(FOOT * scale).color(p.muted))
                 .width(Length::Fill)
                 .align_x(Alignment::Center)
-                .padding(Padding::new(0.0).bottom(FOOT_PAD_BOTTOM * scale)),
+                .padding(Padding::new(0.0).bottom(FOOT_PAD_BOTTOM * scale)).boxed(),
         );
     }
-    screen.into()
+    screen.boxed()
 }
 
 // ── Stage ───────────────────────────────────────────────────────────────────
@@ -255,13 +256,13 @@ fn stage<'a>(
             unit(HERO_NA_UNIT_GAP),
         ]
         .align_y(Alignment::Center)
-        .into(),
+        .boxed(),
         (Some(_), true) => row![
             text(MASK).font(LIGHT).size(HERO_MASK * scale).line_height(1.0).color(p.dim),
             unit(HERO_UNIT_GAP),
         ]
         .align_y(Alignment::End)
-        .into(),
+        .boxed(),
         (Some(v), false) => {
             // Dollars first: the cents drop to half size in `muted`.
             let s = money(v);
@@ -272,20 +273,20 @@ fn stage<'a>(
                 unit(HERO_UNIT_GAP),
             ]
             .align_y(Alignment::End)
-            .into()
+            .boxed()
         }
     };
 
     let under: Element<'a, Message> = match (total, pct) {
-        (None, _) => text("rate unavailable").font(MONO).size(DELTA * scale).color(p.muted).into(),
+        (None, _) => text("rate unavailable").font(MONO).size(DELTA * scale).color(p.muted).boxed(),
         (Some(_), Some(pct)) => row![
             text(format!("{pct:+.2}%")).font(MONO).size(DELTA * scale).color(p.text),
             Space::new().width(DELTA_SPACING * scale),
             text("TODAY").font(MONO).size(PERIOD * scale).color(p.muted),
         ]
         .align_y(Alignment::End)
-        .into(),
-        (Some(_), None) => Space::new().into(),
+        .boxed(),
+        (Some(_), None) => Space::new().boxed(),
     };
 
     column![
@@ -295,7 +296,7 @@ fn stage<'a>(
     ]
     .align_x(Alignment::Center)
     .padding(Padding::new(0.0).bottom(STAGE_PAD_BOTTOM * scale))
-    .into()
+    .boxed()
 }
 
 /// The seal's alpha: the handoff's per-theme values, lighter on the no-rate

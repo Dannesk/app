@@ -25,6 +25,7 @@
 //! tier is a live quote off a node frame that moves, and the number under
 //! the button must be the number that gets signed.
 
+use iced::Widget as _;
 use iced::widget::{button, column, container, text, Space};
 use iced::{Border, Color, Element, Length, Padding, Shadow};
 
@@ -563,9 +564,9 @@ pub fn tier_cell<'a>(
                 shadow: Shadow::default(),
                 snap: false,
             })
-            .into()
+            .boxed()
     } else {
-        text(word.to_string()).size(TIER_SIZE * scale).color(tone).into()
+        text(word.to_string()).size(TIER_SIZE * scale).color(tone).boxed()
     };
 
     let mark: Element<'a, Message> = if selected {
@@ -578,12 +579,12 @@ pub fn tier_cell<'a>(
                 background: Some(colour.into()),
                 ..Default::default()
             })
-            .into()
+            .boxed()
     } else {
-        Space::new().height(2.0 * scale).into()
+        Space::new().height(2.0 * scale).boxed()
     };
 
-    column![label, Space::new().height(6.0 * scale), mark].into()
+    column![label, Space::new().height(6.0 * scale), mark].boxed()
 }
 
 #[cfg(test)]

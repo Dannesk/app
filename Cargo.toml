@@ -6,7 +6,7 @@ license = "GPL-3.0-or-later"
 description = "DeFi Wallet for XRPL and Bitcoin."
 
 [dependencies]
-iced = { version = "0.14.0", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }
+iced = { git = "https://github.com/iced-rs/iced", rev = "56be3ede2b21f4880d1a1d7154bf8fcb84a729da", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }
 rippled_binary_codec = "0.0.5"
 chrono = "0.4.45"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -34,6 +34,7 @@ hex = "0.4.3"
 zstd = "0.13.3"
 region = "4.0.0"
 libc = "0.2.189"  # already in tree via region; used directly for process hardening (core dumps / ptrace)
+arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }  # already in iced, but used directly to mark a copied phrase secret (utils/clipboard.rs)
 
 [features]
 # Start-up timing, written to $XDG_RUNTIME_DIR (src/startup_trace.rs). Off in every normal build.

@@ -214,8 +214,10 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         // Chain-agnostic, so both are handled here rather than falling through
         // to the BTC/XRP split at the bottom of this match.
         Message::SecurePasteRequested(field) => {
-            return iced::clipboard::read()
-                .map(move |text| Message::SecurePasted(field, text));
+            // `unwrap_or_clone` moves the pasted String out of its `Arc` (held
+            // once, here) instead of copying a phrase into a second buffer.
+            return iced::clipboard::read_text()
+                .map(move |text| Message::SecurePasted(field, text.ok().map(std::sync::Arc::unwrap_or_clone)));
         }
         Message::SecurePasted(field, text) => {
             if let Some(text) = text {
@@ -264,7 +266,8 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             return Task::none();
         }
         Message::PlainPasteRequested(field) => {
-            return iced::clipboard::read().map(move |text| Message::PlainPasted(field, text));
+            return iced::clipboard::read_text()
+                .map(move |text| Message::PlainPasted(field, text.ok().map(std::sync::Arc::unwrap_or_clone)));
         }
         Message::PlainPasted(field, text) => {
             if let Some(text) = text {

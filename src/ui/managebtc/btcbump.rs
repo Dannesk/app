@@ -18,6 +18,8 @@
 //! when the plan at its rate satisfies BIP125; the rest read inert, and the
 //! custom box says what the least acceptable fee is.
 
+use iced::widget::Row;
+use iced::Widget as _;
 use iced::widget::{column, row, text, Space};
 use iced::{Alignment, Color, Element, Length};
 
@@ -131,8 +133,8 @@ pub(crate) fn lead<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
     let mut col = column![title].width(Length::Fill);
 
     let Some(p) = pricing(state) else {
-        col = col.push(Space::new().height(4.0 * scale)).push(note(NO_BODY, cp.muted, scale));
-        return (col.into(), false);
+        col = col.push(Space::new().height(4.0 * scale).boxed()).push(note(NO_BODY, cp.muted, scale));
+        return (col.boxed(), false);
     };
 
     let paying = format!(
@@ -140,7 +142,7 @@ pub(crate) fn lead<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
         p.info.fee_sats,
         p.info.fee_sats as f64 / p.info.vsize.max(1) as f64
     );
-    col = col.push(Space::new().height(4.0 * scale)).push(note(&paying, cp.dim, scale));
+    col = col.push(Space::new().height(4.0 * scale).boxed()).push(note(&paying, cp.dim, scale));
 
     let plans = tier_plans(&p);
     let tier = effective_tier(state, &plans);
@@ -157,10 +159,10 @@ pub(crate) fn lead<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
         _ => cp.dim,
     };
 
-    let mut tiers_row = row![].align_y(Alignment::Center);
+    let mut tiers_row: Row<Element<'_, Message>> = row![].align_y(Alignment::Center);
     for (i, t) in BtcFeeTier::ALL.into_iter().enumerate() {
         if i > 0 {
-            tiers_row = tiers_row.push(Space::new().width(TIER_GAP * scale));
+            tiers_row = tiers_row.push(Space::new().width(TIER_GAP * scale).boxed());
         }
         let offered = match t.index() {
             None => true,
@@ -220,7 +222,7 @@ pub(crate) fn lead<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
             side,
         ]
         .align_y(Alignment::Center)
-        .into()
+        .boxed()
     } else {
         match &plan {
             Ok(x) => readout(x, true),
@@ -230,15 +232,15 @@ pub(crate) fn lead<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
     };
 
     col = col
-        .push(Space::new().height(10.0 * scale))
+        .push(Space::new().height(10.0 * scale).boxed())
         .push(compact::eyebrow("new fee", tier.label(), cp, scale))
-        .push(tiers_row)
-        .push(Space::new().height(3.0 * scale))
+        .push(tiers_row.boxed())
+        .push(Space::new().height(3.0 * scale).boxed())
         .push(output);
 
-    (col.into(), plan.is_ok())
+    (col.boxed(), plan.is_ok())
 }
 
 fn note<'a>(s: &str, color: Color, scale: f32) -> Element<'a, Message> {
-    text(s.to_string()).font(MONO).size(NOTE * scale).color(color).into()
+    text(s.to_string()).font(MONO).size(NOTE * scale).color(color).boxed()
 }

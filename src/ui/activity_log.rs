@@ -34,8 +34,9 @@
 //! it does, which is leave this screen. On a failed run nothing was done, and a button
 //! claiming otherwise is the screen contradicting the red glyph above it.
 
+use iced::Widget as _;
 use iced::widget::canvas::{self as cnvs};
-use iced::widget::{Row, Space, button, canvas, column, container, text};
+use iced::widget::{Column, Row, Space, button, canvas, column, container, text};
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Point, Radians, Rectangle, Shadow};
 use iced::mouse;
 use std::time::Instant;
@@ -148,8 +149,8 @@ pub fn render_activity_log<'a>(
 
     let header = container(
         Row::with_children(vec![
-            text(log.title).size(TITLE * scale).color(cp.text).into(),
-            Space::new().width(Length::Fill).into(),
+            text(log.title).size(TITLE * scale).color(cp.text).boxed(),
+            Space::new().width(Length::Fill).boxed(),
             counter,
         ])
         .align_y(Alignment::End),
@@ -180,7 +181,7 @@ pub fn render_activity_log<'a>(
     for step in log.steps.iter() {
         let (glyph, label_colour, elapsed_colour): (Element<'_, Message>, Color, Color) = match &step.state {
             ActivityStepState::Pending => (
-                text("\u{00b7}").font(MONO).size(STEP_GLYPH * scale).color(cp.faint).into(),
+                text("\u{00b7}").font(MONO).size(STEP_GLYPH * scale).color(cp.faint).boxed(),
                 cp.faint,
                 cp.muted,
             ),
@@ -188,19 +189,19 @@ pub fn render_activity_log<'a>(
                 canvas(Spinner { track: cp.border, arc: cp.dim })
                     .width(Length::Fixed(SPINNER * scale))
                     .height(Length::Fixed(SPINNER * scale))
-                    .into(),
+                    .boxed(),
                 cp.text,
                 cp.muted,
             ),
             // Inter's check — JetBrains Mono has none, and a fallback glyph
             // changes with the fonts installed. The slot is fixed-width.
             ActivityStepState::Ok { .. } => (
-                text("\u{2713}").size(STEP_GLYPH * scale).color(cp.green).into(),
+                text("\u{2713}").size(STEP_GLYPH * scale).color(cp.green).boxed(),
                 cp.text,
                 cp.muted,
             ),
             ActivityStepState::Error { .. } => (
-                text("\u{2715}").font(MONO).size(STEP_GLYPH * scale).color(cp.red).into(),
+                text("\u{2715}").font(MONO).size(STEP_GLYPH * scale).color(cp.red).boxed(),
                 cp.red,
                 cp.red,
             ),
@@ -214,10 +215,10 @@ pub fn render_activity_log<'a>(
             _ => String::new(),
         };
 
-        let mut body = column![Row::with_children(vec![
-            text(step.label).size(STEP_LABEL * scale).color(label_colour).into(),
-            Space::new().width(Length::Fill).into(),
-            text(elapsed).font(MONO).size(STEP_ELAPSED * scale).color(elapsed_colour).into(),
+        let mut body: Column<Element<'_, Message>> = column![Row::with_children(vec![
+            text(step.label).size(STEP_LABEL * scale).color(label_colour).boxed(),
+            Space::new().width(Length::Fill).boxed(),
+            text(elapsed).font(MONO).size(STEP_ELAPSED * scale).color(elapsed_colour).boxed(),
         ])
         .align_y(Alignment::End)];
 
@@ -240,8 +241,8 @@ pub fn render_activity_log<'a>(
             };
             if let Some(line) = line {
                 body = body
-                    .push(Space::new().height(3.0 * scale))
-                    .push(text(line).size(NOTE * scale).color(colour));
+                    .push(Space::new().height(3.0 * scale).boxed())
+                    .push(text(line).size(NOTE * scale).color(colour).boxed());
             }
         }
 
@@ -251,15 +252,15 @@ pub fn render_activity_log<'a>(
                     container(glyph)
                         .width(Length::Fixed(GLYPH_W * scale))
                         .align_x(Alignment::Center)
-                        .into(),
-                    Space::new().width(10.0 * scale).into(),
-                    body.width(Length::Fill).into(),
+                        .boxed(),
+                    Space::new().width(10.0 * scale).boxed(),
+                    body.width(Length::Fill).boxed(),
                 ])
                 .align_y(Alignment::End),
             )
             .width(Length::Fill)
             .padding(Padding::new(0.0).top(5.5 * scale).bottom(5.5 * scale))
-            .into(),
+            .boxed(),
         );
     }
 
@@ -285,7 +286,7 @@ pub fn render_activity_log<'a>(
     let note: Element<'_, Message> = match (failure_message, log.note.as_deref()) {
         (Some(message), _) => note_block(Some(cp.red), message, cp, scale),
         (None, Some(outcome)) => note_block(None, outcome, cp, scale),
-        (None, None) => Space::new().into(),
+        (None, None) => Space::new().boxed(),
     };
 
     // ── Footer ───────────────────────────────────────────────────────────────
@@ -331,7 +332,7 @@ pub fn render_activity_log<'a>(
     .height(Length::Fill)
     .style(move |_| container::Style { background: Some(cp.window.into()), ..Default::default() })
     .center(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// The counter slot — the same place Send puts `xrp`. Mono 8.5 upper, the numbers a
@@ -344,12 +345,12 @@ fn counter_runs<'a>(runs: Vec<(&str, Color)>, scale: f32) -> Element<'a, Message
                     .font(MONO)
                     .size(COUNTER * scale)
                     .color(c)
-                    .into()
+                    .boxed()
             })
             .collect::<Vec<_>>(),
     )
     .align_y(Alignment::End)
-    .into()
+    .boxed()
 }
 
 /// A rule, then a marked or unmarked sentence. One geometry for both the failure note
@@ -360,17 +361,17 @@ fn note_block<'a>(
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
-    let mut r = Row::new().align_y(Alignment::Start);
+    let mut r: Row<Element<'_, Message>> = Row::new().align_y(Alignment::Start);
     if let Some(colour) = marker {
         r = r
-            .push(text("!").font(MONO).size(NOTE * scale).color(colour))
-            .push(Space::new().width(6.0 * scale));
+            .push(text("!").font(MONO).size(NOTE * scale).color(colour).boxed())
+            .push(Space::new().width(6.0 * scale).boxed());
     }
     r = r.push(
         text(body)
             .size(NOTE * scale)
             .line_height(iced::widget::text::LineHeight::Relative(1.5))
-            .color(cp.muted),
+            .color(cp.muted).boxed(),
     );
 
     container(
@@ -383,7 +384,7 @@ fn note_block<'a>(
     )
     .width(Length::Fill)
     .padding(Padding::new(0.0).top(10.0 * scale).left(PAD_H * scale).right(PAD_H * scale))
-    .into()
+    .boxed()
 }
 
 // ── The spinner ─────────────────────────────────────────────────────────────

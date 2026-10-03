@@ -19,6 +19,8 @@
 //! is #FBFBFA — the window itself — so a selected segment would have been
 //! invisible. It is `pill` in all three themes.
 
+use iced::widget::{Column, Row};
+use iced::Widget as _;
 use iced::widget::{button, column, container, row, stack, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow};
 
@@ -89,7 +91,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         .height(Length::Fill)
         .padding(Padding::new(0.0).top(ck::CORNER_TOP * scale).left(ck::CORNER_LEFT * scale));
 
-    stack![centred, back].width(Length::Fill).height(Length::Fill).into()
+    stack![centred, back].width(Length::Fill).height(Length::Fill).boxed()
 }
 
 /// `Settings` on a `rule` hairline and **nothing else on the line**. No version
@@ -104,7 +106,7 @@ fn header<'a>(p: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
         hairline(p.rule),
     ]
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 // ── Groups ──────────────────────────────────────────────────────────────────
@@ -125,8 +127,8 @@ fn group<'a>(
         .color(p.muted)]
     .align_y(Alignment::End);
     if let Some(c) = count {
-        head = head.push(Space::new().width(Length::Fill));
-        head = head.push(text(c.to_uppercase()).font(MONO).size(ck::EYEBROW * scale).color(p.muted));
+        head = head.push(Space::new().width(Length::Fill).boxed());
+        head = head.push(text(c.to_uppercase()).font(MONO).size(ck::EYEBROW * scale).color(p.muted).boxed());
     }
 
     let mut c = column![container(head)
@@ -143,11 +145,11 @@ fn group<'a>(
                     .color(p.dim),
             )
             .width(Length::Fill)
-            .padding(Padding::new(0.0).bottom(6.0 * scale)),
+            .padding(Padding::new(0.0).bottom(6.0 * scale)).boxed(),
         );
     }
 
-    c.push(body).into()
+    c.push(body).boxed()
 }
 
 /// One row: 1px `rule` on TOP, `8px 0`, name over description on the left, the
@@ -182,7 +184,7 @@ fn srow<'a>(
         .padding(Padding::new(0.0).top(ROW_PAD_V * scale).bottom(ROW_PAD_V * scale)),
     ]
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 // ── Left column ─────────────────────────────────────────────────────────────
@@ -210,14 +212,14 @@ fn appearance<'a>(state: &'a AppState, p: &'static CompactPalette, scale: f32) -
     ]
     .width(Length::Fill);
 
-    group("appearance", None, None, body.into(), p, scale)
+    group("appearance", None, None, body.boxed(), p, scale)
 }
 
 /// The ONLY place a currency is chosen — no screen carries tabs of its own
 /// (2026-08-29); every total and every `XRP/…` rate simply reads in this base.
 fn display_ccy<'a>(state: &'a AppState, p: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     let selected = state.base_currency;
-    let mut chips = row![].align_y(Alignment::Center).spacing(6.0 * scale);
+    let mut chips: Row<Element<'_, Message>> = row![].align_y(Alignment::Center).spacing(6.0 * scale);
     for c in BaseCcy::ALL {
         chips = chips.push(chip(c.code(), c == selected, Message::DisplayCcySet(c), p, scale));
     }
@@ -227,7 +229,7 @@ fn display_ccy<'a>(state: &'a AppState, p: &'static CompactPalette, scale: f32) 
         Some("Quote every balance and rate in this currency"),
         container(chips)
             .padding(Padding::new(0.0).top(1.0 * scale).bottom(3.0 * scale))
-            .into(),
+            .boxed(),
         p,
         scale,
     )
@@ -301,12 +303,12 @@ fn services<'a>(p: &'static CompactPalette, scale: f32) -> Element<'a, Message> 
         (d, n) => format!("{d} degraded · {n} down"),
     };
 
-    let mut body = column![].width(Length::Fill);
+    let mut body: Column<Element<'_, Message>> = column![].width(Length::Fill);
     for ((_, name, desc), st) in SERVICES.iter().zip(states) {
         body = body.push(srow(name, desc, status(st, p, scale), p, scale));
     }
 
-    group("services", Some(count), None, body.into(), p, scale)
+    group("services", Some(count), None, body.boxed(), p, scale)
 }
 
 /// 4px dot + mono word. Read-only — no control and no hover, these rows are
@@ -328,7 +330,7 @@ fn status<'a>(st: ServiceState, p: &'static CompactPalette, scale: f32) -> Eleme
     ]
     .spacing(6.0 * scale)
     .align_y(Alignment::Center)
-    .into()
+    .boxed()
 }
 
 fn dot<'a>(size: f32, color: Color) -> Element<'a, Message> {
@@ -338,7 +340,7 @@ fn dot<'a>(size: f32, color: Color) -> Element<'a, Message> {
             border: Border { color: Color::TRANSPARENT, width: 0.0, radius: (size / 2.0).into() },
             ..Default::default()
         })
-        .into()
+        .boxed()
 }
 
 // ── Right column: data ──────────────────────────────────────────────────────
@@ -363,7 +365,7 @@ fn data<'a>(p: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     } else {
         (
             "No wallet data on this device",
-            text("none").font(MONO).size(INERT_VALUE * scale).color(p.muted).into(),
+            text("none").font(MONO).size(INERT_VALUE * scale).color(p.muted).boxed(),
         )
     };
 
@@ -391,7 +393,7 @@ fn erase_link<'a>(p: &'static CompactPalette, scale: f32) -> Element<'a, Message
             }),
     )
     .padding(Padding::new(0.0).right(-6.0 * scale))
-    .into()
+    .boxed()
 }
 
 // ── Controls ────────────────────────────────────────────────────────────────
@@ -405,16 +407,16 @@ fn chip<'a>(
     p: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
-    let mut inner = row![].align_y(Alignment::Center).spacing(4.0 * scale);
+    let mut inner: Row<Element<'_, Message>> = row![].align_y(Alignment::Center).spacing(4.0 * scale);
     if selected {
         // Inter's check — JetBrains Mono has none.
-        inner = inner.push(text("\u{2713}").size(8.0 * scale).color(p.dim));
+        inner = inner.push(text("\u{2713}").size(8.0 * scale).color(p.dim).boxed());
     }
     inner = inner.push(
         text(label.to_uppercase())
             .font(MONO)
             .size(OPTION * scale)
-            .color(if selected { p.text } else { p.muted }),
+            .color(if selected { p.text } else { p.muted }).boxed(),
     );
 
     button(inner)
@@ -437,5 +439,5 @@ fn chip<'a>(
                 snap: false,
             }
         })
-        .into()
+        .boxed()
 }

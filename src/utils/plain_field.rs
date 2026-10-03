@@ -20,6 +20,7 @@
 //! `AppState::apply_plain_edit`, which is also where the per-field character
 //! filter lives — see its docs for why the filter is not in the widget.
 
+use iced::Widget as _;
 use iced::{Color, Element, Font, Length};
 use crate::controller::message::{Message, PlainField, SecureOp};
 use crate::utils::secure_input::{grid_rows, SecureInput};
@@ -111,5 +112,5 @@ pub fn plain_field_grid_ink_focus<'a>(
         input = input.autofocus();
     }
 
-    (input.into(), rows)
+    (input.boxed(), rows)
 }

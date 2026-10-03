@@ -55,6 +55,8 @@
 //! controller re-checks when it is pressed; everything past the stack is the
 //! activity log's.
 
+use iced::widget::{Column, Row};
+use iced::Widget as _;
 use iced::widget::{button, column, row, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow};
 
@@ -245,7 +247,7 @@ pub(crate) fn form<'a>(
     let chip_w = (disp(base).chars().count() + disp(quote).chars().count() + 3) as f32 * UNIT * 0.6 + 6.0;
     let chip = unit_chip(disp(base), disp(quote), unit_is_base, cp, scale);
 
-    let mut fields = column![].width(Length::Fill);
+    let mut fields: Column<Element<'_, Message>> = column![].width(Length::Fill);
     if manual {
         // The placeholder hints the market's mid — THE SAME NUMBER, from the
         // same source and through the same formatter, as the pair picker's
@@ -309,7 +311,7 @@ pub(crate) fn form<'a>(
                 (format!("  \u{b7}  {} {} available", avail, disp(pay_asset)), cp.muted),
             ]
         };
-        fields = fields.push(Space::new().height(5.0 * scale)).push(compact::mono_runs(note, HINT * scale));
+        fields = fields.push(Space::new().height(5.0 * scale).boxed()).push(compact::mono_runs(note, HINT * scale));
     }
     if manual {
         // TIF is a genuine choice under Limit (§2) and not one under Market
@@ -337,7 +339,7 @@ pub(crate) fn form<'a>(
                 Space::new().height(3.0 * scale),
                 tif_seg,
             ]
-            .width(Length::Fill),
+            .width(Length::Fill).boxed(),
         );
     }
 
@@ -421,7 +423,7 @@ pub(crate) fn form<'a>(
             disp(&state.trade_receive_asset),
         )
     };
-    let mut stat_list = column![].spacing(3.0 * scale).width(Length::Fill);
+    let mut stat_list: Column<Element<'_, Message>> = column![].spacing(3.0 * scale).width(Length::Fill);
     stat_list = stat_list.push(stat_row("Price", price, cp.text, cp, scale));
     stat_list = stat_list.push(stat_row("Swap", swap, cp.text, cp, scale));
     if !manual {
@@ -449,7 +451,7 @@ pub(crate) fn form<'a>(
 
     column![mode_seg, Space::new().height(4.0 * scale), side_seg, fields, stats]
         .width(Length::Fill)
-        .into()
+        .boxed()
 }
 
 /// A labelled boxed field: Inter 10.5 `dim` over the compact box, the unit
@@ -472,7 +474,7 @@ fn field<'a>(
 ) -> Element<'a, Message> {
     let mut head = row![text(label).size(LABEL * scale).color(cp.dim)].align_y(Alignment::Center).width(Length::Fill);
     if let Some(msg) = max {
-        head = head.push(Space::new().width(Length::Fill)).push(panes::link("max", cp.dim, msg, cp, scale));
+        head = head.push(Space::new().width(Length::Fill).boxed()).push(panes::link("max", cp.dim, msg, cp, scale));
     }
     column![
         Space::new().height(9.0 * scale),
@@ -495,7 +497,7 @@ fn field<'a>(
         ),
     ]
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// The amount field's unit chip: both assets, mono 9 upper, the one the
@@ -519,7 +521,7 @@ fn unit_chip<'a>(base: &str, quote: &str, base_active: bool, cp: &'static Compac
                     snap: false,
                 }
             })
-            .into()
+            .boxed()
     };
     row![
         word(base, base_active),
@@ -527,7 +529,7 @@ fn unit_chip<'a>(base: &str, quote: &str, base_active: bool, cp: &'static Compac
         word(quote, !base_active),
     ]
     .align_y(Alignment::Center)
-    .into()
+    .boxed()
 }
 
 /// One review row: Inter 10.5 `dim` key, mono 10 value in the caller's ink,
@@ -539,7 +541,7 @@ fn stat_row<'a>(key: &'static str, value: String, ink: Color, cp: &'static Compa
         text(value).font(MONO).size(ROW * scale).color(ink),
     ]
     .align_y(Alignment::Center)
-    .into()
+    .boxed()
 }
 
 /// How a stats value is inked.
@@ -607,7 +609,7 @@ pub(crate) fn segmented<'a>(items: Vec<Segment>, cp: &'static CompactPalette, sc
 /// so the row shrinks as one thing.
 fn segmented_at<'a>(items: Vec<Segment>, shrink: f32, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     let scale = scale * shrink;
-    let mut r = row![].spacing(4.0 * scale).width(Length::Fill);
+    let mut r: Row<Element<'_, Message>> = row![].spacing(4.0 * scale).width(Length::Fill);
     for s in items {
         let Segment { label, active, msg, colour } = s;
         // A dead segment (no message) keeps its place and reads `faint`:
@@ -642,10 +644,10 @@ fn segmented_at<'a>(items: Vec<Segment>, shrink: f32, cp: &'static CompactPalett
                     shadow: Shadow::default(),
                     snap: false,
                 }
-            }),
+            }).boxed(),
         );
     }
-    r.into()
+    r.boxed()
 }
 
 #[cfg(test)]

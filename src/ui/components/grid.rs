@@ -17,12 +17,14 @@
 //!   background; panes paint `window` and carry no borders of their own.
 //! - The strip's **drag handle is the space between the title and the
 //!   controls** — iced excludes both from the pick area — so the title stays
-//!   Shrink-width and the meta rides in the controls row.
+//!   Fit-width and the meta rides in the controls row.
 //! - Panes clip their bodies. A pane dragged shorter than its content cuts
 //!   it off rather than spilling into its neighbour.
 //! - Everything here draws from [`CompactPalette`]; the fiat unit is
 //!   `state.base_currency`, never a literal.
 
+use iced::widget::Row;
+use iced::Widget as _;
 use std::sync::LazyLock;
 
 use iced::mouse;
@@ -171,7 +173,10 @@ pub struct BarSlot<'a> {
 /// What a kind draws, for the chain that owns it: the strip title, its
 /// optional meta, and the body — handed back framed by [`pane_frame`].
 pub type PaneBody<'a> =
-    fn(&'a AppState, Pane, PaneKind, bool, &'static CompactPalette, f32) -> pane_grid::Content<'a, Message>;
+    fn(&'a AppState, Pane, PaneKind, bool, &'static CompactPalette, f32) -> PaneContent<'a>;
+
+/// A pane as the grid takes it: an `Element` title over an `Element` body.
+pub type PaneContent<'a> = pane_grid::Content<'a, Message, Element<'a, Message>, Element<'a, Message>>;
 
 /// The whole screen under the dock: the top bar, the grid or its empty
 /// branch, and the menu when it is open.
@@ -212,7 +217,7 @@ pub fn screen<'a>(
     if g.menu_open {
         layers = layers.push(menu_layer(host, cp, scale));
     }
-    layers.into()
+    layers.boxed()
 }
 
 // ── Top bar ─────────────────────────────────────────────────────────────────
@@ -226,16 +231,16 @@ fn top_bar<'a>(host: Host<'a>, state: &'a AppState, cp: &'static CompactPalette,
         .align_y(Alignment::Center)
         .height(Length::Fill);
     if let Some(b) = host.bar {
-        bar = bar.push(Space::new().width(9.0 * scale)).push((b.control)(state, cp, scale));
+        bar = bar.push(Space::new().width(9.0 * scale).boxed()).push((b.control)(state, cp, scale));
     }
     bar = bar
-        .push(Space::new().width(Length::Fill))
+        .push(Space::new().width(Length::Fill).boxed())
         .push(panels_button(host.grid.menu_open, host.wrap, cp, scale));
     container(bar)
     .width(Length::Fill)
     .height(Length::Fixed(panes::BAR_H * scale))
     .padding(Padding::new(0.0).left(11.0 * scale).right(11.0 * scale))
-    .into()
+    .boxed()
 }
 
 /// `panels +`: mono 9 upper `muted`; a `hover` wash and `text` ink while
@@ -254,7 +259,7 @@ fn panels_button<'a>(open: bool, wrap: fn(GridMsg) -> Message, cp: &'static Comp
                 snap: false,
             }
         })
-        .into()
+        .boxed()
 }
 
 // ── The grid ────────────────────────────────────────────────────────────────
@@ -292,12 +297,12 @@ fn grid<'a>(
         .width(Length::Fill)
         .height(Length::Fill)
         .style(move |_| container::Style { background: Some(cp.rule.into()), ..Default::default() })
-        .into()
+        .boxed()
 }
 
 /// The strip's title word: mono 8.5 upper `muted`.
 pub fn strip<'a>(word: &str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    text(word.to_uppercase()).font(MONO).size(STRIP * scale).color(cp.muted).into()
+    text(word.to_uppercase()).font(MONO).size(STRIP * scale).color(cp.muted).boxed()
 }
 
 /// A pane, framed: the body under the pane padding, clipped, on `window`;
@@ -313,7 +318,7 @@ pub fn pane_frame<'a>(
     wrap: fn(GridMsg) -> Message,
     cp: &'static CompactPalette,
     scale: f32,
-) -> pane_grid::Content<'a, Message> {
+) -> PaneContent<'a> {
     let body = container(body)
         .width(Length::Fill)
         .height(Length::Fill)
@@ -325,7 +330,7 @@ pub fn pane_frame<'a>(
         })
         .clip(true);
 
-    pane_grid::Content::new(body)
+    pane_grid::Content::new(body.boxed())
         .title_bar(title_bar(pane, kind, maximized, title, meta, wrap, cp, scale))
         .style(move |_| container::Style { background: Some(cp.window.into()), ..Default::default() })
 }
@@ -344,7 +349,7 @@ fn title_bar<'a>(
     cp: &'static CompactPalette,
     scale: f32,
 ) -> TitleBar<'a, Message> {
-    let mut controls = row![].spacing(CONTROL_GAP * scale).align_y(Alignment::Center);
+    let mut controls: Row<Element<'_, Message>> = row![].spacing(CONTROL_GAP * scale).align_y(Alignment::Center);
     if let Some(m) = meta {
         controls = controls.push(m);
     }
@@ -389,7 +394,7 @@ fn glyph<'a>(mark: &'static str, msg: Message, cp: &'static CompactPalette, scal
             shadow: Shadow::default(),
             snap: false,
         })
-        .into()
+        .boxed()
 }
 
 /// One of the two drawn split marks.
@@ -409,7 +414,7 @@ fn split_glyph<'a>(vertical: bool, msg: Message, cp: &'static CompactPalette, sc
     .on_press(msg)
     .padding(Padding::ZERO)
     .style(bare)
-    .into()
+    .boxed()
 }
 
 /// A button that is nothing but its content.
@@ -443,14 +448,14 @@ pub fn period_pill<'a>(current: ChartPeriod, wrap: fn(GridMsg) -> Message, cp: &
             shadow: Shadow::default(),
             snap: false,
         })
-        .into()
+        .boxed()
     };
     container(row![seg("1h", ChartPeriod::OneHour), seg("1d", ChartPeriod::OneDay)])
         .style(move |_| container::Style {
             border: Border { color: cp.border, width: 1.0, radius: 999.0.into() },
             ..Default::default()
         })
-        .into()
+        .boxed()
 }
 
 // ── Shared rows ─────────────────────────────────────────────────────────────
@@ -468,7 +473,7 @@ pub fn drow<'a>(key: &str, runs: Vec<(String, Color)>, top: f32, cp: &'static Co
     )
     .width(Length::Fill)
     .padding(Padding::new(0.0).top(top * scale).bottom(3.0 * scale))
-    .into()
+    .boxed()
 }
 
 /// The separated group's rule: `margin-top 7`, `padding-top 8`.
@@ -479,7 +484,7 @@ pub fn group_rule<'a>(cp: &'static CompactPalette, scale: f32) -> Element<'a, Me
         Space::new().height(8.0 * scale),
     ]
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// `1.3851 xrp / usd` · `10 drops quiet`: mono 13 `text`, a mono 9 `muted`
@@ -492,14 +497,14 @@ pub fn big_line<'a>(value: String, suffix: &str, word: Option<(&str, Color)>, cp
     if let Some((w, c)) = word {
         spans.push(span(format!("  {w}")).size(BIG_SUFFIX * scale).font(MONO).color(c));
     }
-    rich_text(spans).wrapping(Wrapping::None).into()
+    rich_text(spans).wrapping(Wrapping::None).boxed()
 }
 
 /// A field label inside a pane: mono 8.5 upper `muted`, `margin-bottom 4`.
 pub fn label<'a>(word: &str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     container(text(word.to_uppercase()).font(MONO).size(STRIP * scale).color(cp.muted))
         .padding(Padding::new(0.0).bottom(4.0 * scale))
-        .into()
+        .boxed()
 }
 
 /// A section rule inside a pane — `review`, `sign`: `margin-top 8`,
@@ -513,7 +518,7 @@ pub fn rule_label<'a>(word: &str, cp: &'static CompactPalette, scale: f32) -> El
         Space::new().height(5.0 * scale),
     ]
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// The pane button: `padding 5px 0`, radius 6, `neutral` fill on a 1px
@@ -550,7 +555,7 @@ pub fn pane_button<'a>(word: &str, enabled: bool, primary: bool, msg: Message, c
             snap: false,
         }
     })
-    .into()
+    .boxed()
 }
 
 // ── Buttons ─────────────────────────────────────────────────────────────────
@@ -597,12 +602,12 @@ fn outline_button<'a>(
             snap: false,
         }
     })
-    .into()
+    .boxed()
 }
 
 /// Two buttons on one line, `gap 6`.
 pub fn button_pair<'a>(left: Element<'a, Message>, right: Element<'a, Message>, scale: f32) -> Element<'a, Message> {
-    row![left, right].spacing(6.0 * scale).width(Length::Fill).into()
+    row![left, right].spacing(6.0 * scale).width(Length::Fill).boxed()
 }
 
 /// The one scroll region a list or form pane has, full-bleed to the pane's
@@ -616,15 +621,15 @@ pub fn scroller<'a>(content: Element<'a, Message>, cp: &'static CompactPalette, 
 ///
 /// For a floating panel that should be as tall as the rows it holds — the pair
 /// search results — rather than as tall as the space it is dropped into. iced's
-/// `scrollable` is Shrink by default; [`scroller`] overrides that to Fill
+/// `scrollable` is Fit by default; [`scroller`] overrides that to Fill
 /// because a pane body must fill its pane, and a panel borrowing it inherited
 /// the wrong one: the search results stood 380 tall on a single match (user,
 /// 2026-09-12: "that height is a bit extreme").
 ///
-/// Cap it with `max_height` on the container around it — under the cap the
+/// Cap it with a bounded height (`Length::Fit.max`) on the container around it — under the cap the
 /// panel hugs its rows, over it the rows scroll.
 pub fn scroller_hug<'a>(content: Element<'a, Message>, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    scroll_at(Length::Shrink, content, cp, scale)
+    scroll_at(Length::Fit, content, cp, scale)
 }
 
 fn scroll_at<'a>(height: Length, content: Element<'a, Message>, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -644,7 +649,7 @@ fn scroll_at<'a>(height: Length, content: Element<'a, Message>, cp: &'static Com
         })
         .width(Length::Fill)
         .height(height)
-        .into()
+        .boxed()
 }
 
 /// A body that fills its cell down to `min` (unscaled px) and scrolls below
@@ -679,13 +684,13 @@ pub fn fill_or_scroll_by<'a>(
             body(size)
         } else {
             scroller(
-                container(body(size)).width(Length::Fill).height(Length::Fixed(min * scale)).into(),
+                container(body(size)).width(Length::Fill).height(Length::Fixed(min * scale)).boxed(),
                 cp,
                 scale,
             )
         }
     })
-    .into()
+    .boxed()
 }
 
 /// The least a chart pane fills before it scrolls: the rate line, ~70px of
@@ -773,7 +778,7 @@ pub fn phrase_field<'a>(
         .align_y(Alignment::Center),
     ]
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// The sign block every signing pane ends in: a rule, the credential the
@@ -847,7 +852,7 @@ pub fn sign_block<'a>(
         buttons,
     ]
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// The primary button of a sign block: `pill` fill, dead until the block is
@@ -911,7 +916,7 @@ pub fn primary_tinted<'a>(
             snap: false,
         }
     })
-    .into()
+    .boxed()
 }
 
 // ── chart ───────────────────────────────────────────────────────────────────
@@ -964,14 +969,14 @@ pub fn chart_pane<'a>(
                 Canvas::new(PaneChart { series: series.clone(), period, fmt, ink })
                     .width(Length::Fill)
                     .height(Length::Fill)
-                    .into()
+                    .boxed()
             } else {
                 container(text("waiting for data\u{2026}").size(ROW_KEY * scale).color(cp.muted))
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .align_x(Alignment::Center)
                     .align_y(Alignment::Center)
-                    .into()
+                    .boxed()
             };
             column![
                 big_line(rate.clone(), &suffix, None, cp, scale),
@@ -983,7 +988,7 @@ pub fn chart_pane<'a>(
             ]
             .width(Length::Fill)
             .height(Length::Fill)
-            .into()
+            .boxed()
         },
         cp,
         scale,
@@ -1189,7 +1194,7 @@ const COPY_GLYPH: f32 = 12.0;
 /// a lot of button for one glyph's worth of action.
 pub fn copy_glyph<'a>(copied: bool, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     if copied {
-        return text("\u{2713} copied").size(ROW_KEY * scale).color(cp.green).into();
+        return text("\u{2713} copied").size(ROW_KEY * scale).color(cp.green).boxed();
     }
     let g = COPY_GLYPH * scale;
     button(
@@ -1206,7 +1211,7 @@ pub fn copy_glyph<'a>(copied: bool, msg: Message, cp: &'static CompactPalette, s
     .on_press(msg)
     .padding(Padding::ZERO)
     .style(bare)
-    .into()
+    .boxed()
 }
 
 /// `bc1qyfxmsj…amh06f67` — 10 and 8, so every address type lands on 19
@@ -1294,7 +1299,7 @@ pub fn pane_link<'a>(word: &str, msg: Message, cp: &'static CompactPalette, scal
             snap: false,
         }
     })
-    .into()
+    .boxed()
 }
 
 /// The tag form — what a pane's face becomes after `set destination tag ›`:
@@ -1339,21 +1344,21 @@ pub fn tag_face<'a>(
         );
         let mut col = column![container(boxed).width(Length::Fill).align_x(Alignment::Center)].width(Length::Fill);
         if wrong {
-            col = col.push(Space::new().height(5.0 * scale)).push(
+            col = col.push(Space::new().height(5.0 * scale).boxed()).push(
                 text("a destination tag is a whole number up to 4294967295")
                     .font(MONO)
                     .size(HINT * scale)
                     .color(cp.red)
                     .width(Length::Fill)
-                    .align_x(Alignment::Center),
+                    .align_x(Alignment::Center).boxed(),
             );
         }
-        col = col.push(Space::new().height(12.0 * scale)).push(button_pair(
+        col = col.push(Space::new().height(12.0 * scale).boxed()).push(button_pair(
             quiet_button("Cancel", Message::TagCancelled(pane), cp, scale),
             primary("Set tag", !wrong, set, cp, scale),
             scale,
         ));
-        container(col).width(Length::Fill).height(Length::Fill).align_y(Alignment::Center).into()
+        container(col).width(Length::Fill).height(Length::Fill).align_y(Alignment::Center).boxed()
     };
     fill_or_scroll(tag_min_h(wrong), body, cp, scale)
 }
@@ -1420,7 +1425,7 @@ fn receive_body<'a>(
         .height(Length::Fill)
         .align_x(Alignment::Center)
         .align_y(Alignment::Center)
-        .into()
+        .boxed()
     });
 
     // The address centred with the glyph at its shoulder: the address wraps
@@ -1456,7 +1461,7 @@ fn receive_body<'a>(
     ]
     .width(Length::Fill)
     .height(Length::Fill)
-    .into()
+    .boxed()
 }
 
 // ── The empty well ──────────────────────────────────────────────────────────
@@ -1471,11 +1476,11 @@ fn empty_state<'a>(wrap: fn(GridMsg) -> Message, cp: &'static CompactPalette, sc
         text("No panels").font(LIGHT).size(EMPTY_WORD * scale).color(cp.dim),
     ]
     .align_x(Alignment::Center);
-    container(well(words.into(), 10.0, cp, scale))
+    container(well(words.boxed(), 10.0, cp, scale))
         .width(Length::Fill)
         .height(Length::Fill)
         .padding(9.0 * scale)
-        .into()
+        .boxed()
 }
 
 /// The well a split leaves behind, scoped to that pane: the same `+`, and
@@ -1499,7 +1504,7 @@ fn plus<'a>(size: f32, wrap: fn(GridMsg) -> Message, cp: &'static CompactPalette
             shadow: Shadow::default(),
             snap: false,
         })
-        .into()
+        .boxed()
 }
 
 /// A 1px dashed `border_soft` rounded well with `content` centred in it.
@@ -1517,7 +1522,7 @@ pub fn well<'a>(content: Element<'a, Message>, radius: f32, cp: &'static Compact
     ]
     .width(Length::Fill)
     .height(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// iced borders are solid; the dashed edge is a stroked path.
@@ -1578,7 +1583,7 @@ fn menu_layer<'a>(host: Host<'a>, cp: &'static CompactPalette, scale: f32) -> El
     // dismiss on release now; `components/modal.rs` keeps `on_press` on
     // purpose, because its scrim visibly dims what is behind it.
     .on_release((host.wrap)(GridMsg::MenuDismissed))
-    .into()
+    .boxed()
 }
 
 /// PANELS — a checklist of the chain's own kinds: `✓` on a pane and
@@ -1627,14 +1632,14 @@ fn menu_panel<'a>(host: Host<'a>, cp: &'static CompactPalette, scale: f32) -> El
             },
             ..Default::default()
         })
-        .into()
+        .boxed()
 }
 
 /// A section head: mono 8.5 upper `muted`, `padding 8px 13px 5px`.
 fn menu_head<'a>(word: &str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     container(text(word.to_uppercase()).font(MONO).size(STRIP * scale).color(cp.muted))
         .padding(Padding::new(0.0).top(8.0 * scale).bottom(5.0 * scale).left(MENU_PAD_H * scale).right(MENU_PAD_H * scale))
-        .into()
+        .boxed()
 }
 
 /// One row: a 9px check slot, the label (Inter 12.5; `dim` when off,
@@ -1651,8 +1656,8 @@ fn menu_item<'a>(
     let check: Element<'a, Message> = match checked {
         // Inter's check: JetBrains Mono has none, and a fallback glyph changes
         // with the fonts installed.
-        Some(true) => text("\u{2713}").size(MENU_KEY * scale).color(cp.dim).into(),
-        _ => Space::new().into(),
+        Some(true) => text("\u{2713}").size(MENU_KEY * scale).color(cp.dim).boxed(),
+        _ => Space::new().boxed(),
     };
     let ink = if !enabled {
         cp.faint
@@ -1669,8 +1674,8 @@ fn menu_item<'a>(
     .align_y(Alignment::Center);
     if let Some(key) = shortcut {
         line = line
-            .push(Space::new().width(Length::Fill))
-            .push(text(key.to_string()).font(MONO).size(MENU_KEY * scale).color(cp.faint));
+            .push(Space::new().width(Length::Fill).boxed())
+            .push(text(key.to_string()).font(MONO).size(MENU_KEY * scale).color(cp.faint).boxed());
     }
     button(line.width(Length::Fill))
         .on_press_maybe(enabled.then_some(msg))
@@ -1686,7 +1691,7 @@ fn menu_item<'a>(
                 snap: false,
             }
         })
-        .into()
+        .boxed()
 }
 
 /// A 1px `rule`, `margin 5px 0`.
@@ -1697,7 +1702,7 @@ fn menu_sep<'a>(cp: &'static CompactPalette, scale: f32) -> Element<'a, Message>
         Space::new().height(5.0 * scale),
     ]
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 #[cfg(test)]

@@ -6,6 +6,7 @@ pub mod tokens;
 pub mod xrpdashboard;
 pub mod panes;
 
+use iced::Widget as _;
 use iced::{Element, Length};
 use iced::widget::container;
 use crate::controller::message::Message;
@@ -36,5 +37,5 @@ pub fn render_manage_xrp(state: &AppState) -> Element<'_, Message> {
     container(xrpdashboard::view(state))
         .width(Length::Fill)
         .height(Length::Fill)
-        .into()
+        .boxed()
 }

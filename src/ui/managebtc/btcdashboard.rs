@@ -47,9 +47,11 @@
 //! 2026-09-10 once every door had a pane (`managebtc/panes/`); the node
 //! verdicts it owned live in `managebtc/node.rs`.
 
+use iced::widget::{Column, Row};
+use iced::Widget as _;
 use iced::mouse;
 use iced::widget::canvas::{self, Canvas, Frame};
-use iced::widget::pane_grid::{self, Pane};
+use iced::widget::pane_grid::Pane;
 use iced::widget::{button, column, container, responsive, row, stack, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Point, Rectangle, Shadow, Size};
 
@@ -125,7 +127,7 @@ fn pane_content<'a>(
     maximized: bool,
     cp: &'static CompactPalette,
     scale: f32,
-) -> pane_grid::Content<'a, Message> {
+) -> grid::PaneContent<'a> {
     let strip = |word: &str| grid::strip(word, cp, scale);
 
     let (title, meta, body): (Element<'a, Message>, Option<Element<'a, Message>>, Element<'a, Message>) =
@@ -133,7 +135,7 @@ fn pane_content<'a>(
             PaneKind::Balance => (strip("balance"), None, balance_pane(state, cp, scale)),
             PaneKind::Fees => (
                 strip("fees"),
-                Some(text("sat/vB").font(MONO).size(STRIP * scale).color(cp.faint).into()),
+                Some(text("sat/vB").font(MONO).size(STRIP * scale).color(cp.faint).boxed()),
                 fees_pane(state, cp, scale),
             ),
             PaneKind::Chart => {
@@ -151,8 +153,8 @@ fn pane_content<'a>(
                         grid::period_pill(state.btc_grid.chart_period, Message::BtcGrid, cp, scale),
                     ]
                     .align_y(Alignment::Center)
-                    .into(),
-                    Some(text(word).font(MONO).size(STRIP * scale).color(colour).into()),
+                    .boxed(),
+                    Some(text(word).font(MONO).size(STRIP * scale).color(colour).boxed()),
                     grid::chart_pane(
                         series,
                         price::cross("BTC", ccy) as f32,
@@ -206,7 +208,7 @@ fn pane_content<'a>(
             | PaneKind::Orders
             | PaneKind::Tokens
             | PaneKind::AvailableTokens
-            | PaneKind::Empty => (Space::new().into(), None, grid::well_pane(Message::BtcGrid, cp, scale)),
+            | PaneKind::Empty => (Space::new().boxed(), None, grid::well_pane(Message::BtcGrid, cp, scale)),
         };
 
     grid::pane_frame(pane, kind, maximized, title, meta, body, Message::BtcGrid, cp, scale)
@@ -363,7 +365,7 @@ fn balance_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
     ]
     .width(Length::Fill);
 
-    grid::scroller(col.into(), cp, scale)
+    grid::scroller(col.boxed(), cp, scale)
 }
 
 // ── fees ────────────────────────────────────────────────────────────────────
@@ -403,7 +405,7 @@ fn fees_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
     let ccy = state.base_currency.code();
     let rate = price::cross("BTC", ccy);
 
-    let mut col = column![].width(Length::Fill);
+    let mut col: Column<Element<'_, Message>> = column![].width(Length::Fill);
     for (i, name) in ["min", "low", "med", "high"].into_iter().enumerate() {
         let (ratio, colour, rate_text, cost) = match tiers {
             Some(t) => {
@@ -421,7 +423,7 @@ fn fees_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
         };
         col = col.push(ladder_row(name, ratio, colour, rate_text, cost, cp, scale));
     }
-    grid::scroller(col.into(), cp, scale)
+    grid::scroller(col.boxed(), cp, scale)
 }
 
 /// One rung: the word (Inter 9.5 `dim`), the bar on a `pill` track, the
@@ -459,7 +461,7 @@ fn ladder_row<'a>(
     )
     .width(Length::Fill)
     .padding(Padding::new(0.0).top(2.0 * scale).bottom(2.0 * scale))
-    .into()
+    .boxed()
 }
 
 /// A track and a fill from the left: a ratio, no axis, no labels. `None`
@@ -571,7 +573,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
         ]
         .width(Length::Fill);
         if let Some(hint) = hint {
-            recipient = recipient.push(Space::new().height(5.0 * scale)).push(hint);
+            recipient = recipient.push(Space::new().height(5.0 * scale).boxed()).push(hint);
         }
 
         // ── amount: two linked inputs, type in either ─────────────────────
@@ -620,7 +622,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
         // fee is the part that made it not fit.
         let mut amount_sec = column![label("amount", cp, scale), amount_row].width(Length::Fill);
         if insufficient {
-            amount_sec = amount_sec.push(Space::new().height(5.0 * scale)).push(compact::mono_runs(
+            amount_sec = amount_sec.push(Space::new().height(5.0 * scale).boxed()).push(compact::mono_runs(
                 vec![
                     (btcsend::OVER_AVAILABLE.to_string(), cp.red),
                     (format!("  \u{b7}  {} btc available", format_token_amount(btcsend::available_btc(), 8)), cp.muted),
@@ -630,7 +632,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
         }
 
         // ── network fee: five chips, and the line that prices the pick ────
-        let mut chips = row![].spacing(CHIP_GAP * scale).width(Length::Fill);
+        let mut chips: Row<Element<'_, Message>> = row![].spacing(CHIP_GAP * scale).width(Length::Fill);
         for t in BtcFeeTier::ALL {
             chips = chips.push(chip(t.label(), t == tier, Message::BtcSendFeeTierSelected(t), cp, scale));
         }
@@ -676,7 +678,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
                 note,
             ]
             .align_y(Alignment::Center)
-            .into()
+            .boxed()
         } else {
             match fee {
                 Some(f) => {
@@ -747,7 +749,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
                 .align_y(Alignment::Center),
             )
             .width(Length::Fill)
-            .padding(Padding::new(0.0).top(2.0 * scale).bottom(3.0 * scale)),
+            .padding(Padding::new(0.0).top(2.0 * scale).bottom(3.0 * scale)).boxed(),
         );
         let total = match (amount, display_fee) {
             (Some(a), Some(f)) => {
@@ -766,7 +768,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
                 Space::new().width(Length::Fill),
                 compact::mono_runs(total, ROW_TOTAL * scale),
             ]
-            .align_y(Alignment::Center),
+            .align_y(Alignment::Center).boxed(),
         );
 
         // ── sign ──────────────────────────────────────────────────────────
@@ -808,12 +810,12 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
                 sign,
             ]
             .width(Length::Fill)
-            .into(),
+            .boxed(),
             cp,
             scale,
         )
     })
-    .into()
+    .boxed()
 }
 
 /// One tier chip: mono 8.5 upper on a 1px `border_soft`, radius 5, the
@@ -841,7 +843,7 @@ fn chip<'a>(word: &str, selected: bool, msg: Message, cp: &'static CompactPalett
             snap: false,
         }
     })
-    .into()
+    .boxed()
 }
 
 /// The receive card's POOL face — the pane-face idiom (the asset picker on
@@ -886,7 +888,7 @@ fn pool_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
         // The columns an address has on its row: the width less what sits
         // beside it, in `ROW_KEY` mono.
         let cols = ((size.width - POOL_ROW_TAIL * scale) / (ROW_KEY * scale * MONO_ADVANCE)).floor().max(1.0) as usize;
-        let mut rows = column![].spacing(POOL_ROW_GAP * scale).width(Length::Fill);
+        let mut rows: Column<Element<'_, Message>> = column![].spacing(POOL_ROW_GAP * scale).width(Length::Fill);
         for address in &state.btc_receive_pool {
             let shown = state.btc_receive_address.as_deref() == Some(address.as_str());
             rows = rows.push(
@@ -931,22 +933,22 @@ fn pool_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
                         }),
                 ]
                 .spacing(8.0 * scale)
-                .align_y(Alignment::Center),
+                .align_y(Alignment::Center).boxed(),
             );
         }
 
         let mut block = column![rows].width(Length::Fill);
         if let Some(note) = note {
             block = block
-                .push(Space::new().height(POOL_NOTE_GAP * scale))
-                .push(text(note).size(HINT * scale).color(cp.muted));
+                .push(Space::new().height(POOL_NOTE_GAP * scale).boxed())
+                .push(text(note).size(HINT * scale).color(cp.muted).boxed());
         }
-        block = block.push(Space::new().height(POOL_PAIR_GAP * scale)).push(grid::button_pair(
+        block = block.push(Space::new().height(POOL_PAIR_GAP * scale).boxed()).push(grid::button_pair(
             grid::quiet_button("Cancel", Message::BtcTogglePoolFace, cp, scale),
             grid::pane_button("New address", room, false, Message::BtcGenerateReceiveAddress, cp, scale),
             scale,
         ));
-        container(block).width(Length::Fill).height(Length::Fill).align_y(Alignment::Center).into()
+        container(block).width(Length::Fill).height(Length::Fill).align_y(Alignment::Center).boxed()
     };
     grid::fill_or_scroll_by(pool_min_h(state.btc_receive_pool.len(), note.is_some()), body, cp, scale)
 }
@@ -1027,7 +1029,7 @@ fn blocks_body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
     ]
     .width(Length::Fill)
     .height(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// One row of cards: the candidate, then the newest mined blocks, newest
@@ -1047,7 +1049,7 @@ fn block_train<'a>(node: &NodeFrame, now: u64, dark: bool, cp: &'static CompactP
         floor_age = age;
         cards = cards.push(block_card(b.height.to_string(), age_word(age), block_tint(b.feerate, dark, cp), cp, scale));
     }
-    cards.into()
+    cards.boxed()
 }
 
 /// A mined block: the height top, the age bottom, filled with what getting
@@ -1063,7 +1065,7 @@ fn block_card<'a>(height: String, age: String, tint: Color, cp: &'static Compact
             border: Border { color: cp.border_soft, width: 1.0, radius: (CARD_RADIUS * scale).into() },
             ..Default::default()
         })
-        .into()
+        .boxed()
 }
 
 /// The candidate: transparent, a dashed edge — it hasn't happened yet.
@@ -1080,7 +1082,7 @@ fn candidate_card<'a>(word: &str, count: String, cp: &'static CompactPalette, sc
     ]
     .width(Length::Fill)
     .height(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// Two lines pushed to the card's top and bottom: mono 9 `text` over mono
@@ -1093,7 +1095,7 @@ fn card_lines<'a>(top: String, bottom: String, cp: &'static CompactPalette, scal
     ]
     .width(Length::Fill)
     .height(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// The card's fill: the band's hue at the handoff's alpha — green 12 / 13 %,

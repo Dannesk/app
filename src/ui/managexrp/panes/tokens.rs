@@ -17,6 +17,8 @@
 //! form, two callers, mirrored down to the row labels — the enable's reserve
 //! is what the line will lock, the disable's is what comes back.
 
+use iced::widget::Column;
+use iced::Widget as _;
 use iced::widget::{column, responsive, row, text, Space};
 use iced::{Alignment, Element, Length, Size};
 
@@ -65,7 +67,7 @@ pub fn held<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
     // Removing a line costs the fee and nothing else — the reserve is what
     // comes back. Dead until the ledger has quoted the fee.
     let can_pay = xrp_available().is_some_and(|a| a >= xrp_fee());
-    let mut list = column![].width(Length::Fill);
+    let mut list: Column<Element<'_, Message>> = column![].width(Length::Fill);
     for t in held {
         let balance = CHANNEL.token(t.code).0;
         let fiat = balance * price::cross(t.rate_key, ccy);
@@ -88,9 +90,9 @@ pub fn held<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         let ink = if can_disable { cp.dim } else { cp.faint };
         let link = link_word("DISABLE".to_string(), ink, can_disable.then_some(Message::DisableTokenClicked(t.code)), cp, scale);
         let right = row![figures, link].spacing(10.0 * scale).align_y(Alignment::Center);
-        list = list.push(token_row(t.display, issuer_line(t), right.into(), false, cp, scale));
+        list = list.push(token_row(t.display, issuer_line(t), right.boxed(), false, cp, scale));
     }
-    scroller(list.into(), cp, scale)
+    scroller(list.boxed(), cp, scale)
 }
 
 pub fn available<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -104,13 +106,13 @@ pub fn available<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f3
     // One gate for every row: the owner reserve the new line locks, plus the
     // fee that posts it — both the ledger's numbers, dead until they land.
     let can_enable = xrp_reserve().is_some_and(|r| r.affords_new_object(xrp_fee()));
-    let mut list = column![].width(Length::Fill);
+    let mut list: Column<Element<'_, Message>> = column![].width(Length::Fill);
     for t in available {
         let ink = if can_enable { cp.dim } else { cp.faint };
         let link = link_word("ENABLE".to_string(), ink, can_enable.then_some(Message::EnableTokenClicked(t.code)), cp, scale);
         list = list.push(token_row(t.display, issuer_line(t), link, false, cp, scale));
     }
-    scroller(list.into(), cp, scale)
+    scroller(list.boxed(), cp, scale)
 }
 
 /// Which way the TrustSet goes. Everything that differs between the two
@@ -214,7 +216,7 @@ fn line_form<'a>(
             Space::new().height(2.0 * scale),
         ]
         .width(Length::Fill);
-        scroller(body.into(), cp, scale)
+        scroller(body.boxed(), cp, scale)
     })
-    .into()
+    .boxed()
 }

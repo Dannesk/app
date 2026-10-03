@@ -12,6 +12,8 @@
 //! BTC old chain, was deleted 2026-09-10). What stayed is what the panes
 //! still call.
 
+use iced::widget::Row;
+use iced::Widget as _;
 use iced::widget::text::{LineHeight, Span, Wrapping};
 use iced::widget::{button, container, rich_text, row, span, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow, Vector};
@@ -117,13 +119,13 @@ pub fn boxed_plain<'a>(
         cp.faint,
     );
 
-    let mut inner = row![].align_y(Alignment::Center);
+    let mut inner: Row<Element<'_, Message>> = row![].align_y(Alignment::Center);
     if let Some(l) = leading {
         inner = inner.push(l);
     }
     inner = inner
-        .push(container(input).width(Length::Fixed(cols as f32 * advance)))
-        .push(Space::new().width(Length::Fill));
+        .push(container(input).width(Length::Fixed(cols as f32 * advance)).boxed())
+        .push(Space::new().width(Length::Fill).boxed());
     if let Some(t) = trailing {
         inner = inner.push(t);
     }
@@ -143,7 +145,7 @@ pub fn boxed_plain<'a>(
             border: Border { color: line, width: 1.0, radius: (6.0 * scale).into() },
             ..Default::default()
         })
-        .into()
+        .boxed()
 }
 
 /// A unit riding inside a box — `usd`, `btc`, `sats`: mono 9 upper `muted`.
@@ -152,7 +154,7 @@ pub fn unit<'a>(u: &str, cp: &'static CompactPalette, scale: f32) -> Element<'a,
         .font(MONO)
         .size(UNIT * scale)
         .color(cp.muted)
-        .into()
+        .boxed()
 }
 
 /// The asset chip in the crypto box: `xrp ▾`, mono 9 upper `dim` with a small
@@ -195,7 +197,7 @@ pub fn asset_chip<'a>(
             snap: false,
         }
     })
-    .into()
+    .boxed()
 }
 
 /// A run of mono spans on one line — the hint / readout voice.
@@ -216,7 +218,7 @@ pub fn address_block<'a>(
             .font(MONO)
             .size(RADDR * scale)
             .color(cp.faint)
-            .into();
+            .boxed();
     };
     let chars = addr.chars().count();
     let split = chars.saturating_sub(tail_len);
@@ -232,7 +234,7 @@ pub fn address_block<'a>(
             .wrapping(Wrapping::Glyph),
     )
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// The raised card a stack wears: `panel` fill, 1px `border`, radius 10 and
@@ -258,7 +260,7 @@ pub fn panel<'a>(
             },
             ..Default::default()
         })
-        .into()
+        .boxed()
 }
 
 #[cfg(test)]

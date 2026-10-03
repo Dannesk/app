@@ -88,10 +88,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     // Matched by the family names inside the files — "Inter 18pt" and
     // "JetBrains Mono" (utils/fonts.rs) — and loaded before the first frame.
-    .font(include_bytes!("../Inter-Light.ttf").as_slice())
-    .font(include_bytes!("../Inter_Regular.ttf").as_slice())
-    .font(include_bytes!("../JetBrainsMono-Regular.ttf").as_slice())
-    .default_font(utils::fonts::SANS)
+    .fonts([
+        include_bytes!("../Inter-Light.ttf").as_slice(),
+        include_bytes!("../Inter_Regular.ttf").as_slice(),
+        include_bytes!("../JetBrainsMono-Regular.ttf").as_slice(),
+    ])
+    .font(utils::fonts::SANS)
     .title("Dannesk")
     .window(window_settings())
     .subscription(subscriptions)

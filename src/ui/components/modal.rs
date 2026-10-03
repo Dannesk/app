@@ -7,6 +7,7 @@
 //! same layering enterpin's "Forgot PIN?" dialog already uses, centralized here
 //! so every modal behaves identically.
 
+use iced::Widget as _;
 use iced::widget::{center, container, mouse_area, opaque, stack};
 use iced::{Color, Element};
 use crate::controller::message::Message;
@@ -27,5 +28,5 @@ pub fn view<'a>(
     )
     .on_press(on_dismiss);
 
-    stack![base, backdrop].into()
+    stack![base, backdrop].boxed()
 }

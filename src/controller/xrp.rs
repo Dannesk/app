@@ -29,7 +29,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             }
         }
         Message::CopyTxHash(hash) => {
-            return iced::clipboard::write(hash);
+            return iced::clipboard::write(hash).discard();
         }
         Message::BackClicked => match state.xrp_view {
             XrpView::Menu => {
@@ -168,7 +168,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             if let Some(address) = addr.map(|a| receive_address(state, &a)) {
                 state.xrp_copy_feedback = true;
                 return Task::batch([
-                    iced::clipboard::write(address),
+                    iced::clipboard::write(address).discard(),
                     Task::perform(
                         async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
                         |_| Message::CopyAddressFeedback,
@@ -184,7 +184,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             if let Some(address) = addr {
                 state.xrp_wallet_copy_feedback = true;
                 return Task::batch([
-                    iced::clipboard::write(address),
+                    iced::clipboard::write(address).discard(),
                     Task::perform(
                         async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
                         |_| Message::WalletCopyAddressFeedback,
@@ -199,13 +199,12 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             let words = state.create_mnemonic.as_str().to_owned();
             if !words.is_empty() {
                 state.xrp_copy_feedback = true;
-                return Task::batch([
-                    iced::clipboard::write(words),
-                    Task::perform(
-                        async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
-                        |_| Message::CopyMnemonicFeedback,
-                    ),
-                ]);
+                // Marked secret so clipboard managers keep it out of history.
+                crate::utils::clipboard::copy_secret(words);
+                return Task::perform(
+                    async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
+                    |_| Message::CopyMnemonicFeedback,
+                );
             }
         }
         Message::CopyMnemonicFeedback => {

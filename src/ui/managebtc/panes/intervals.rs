@@ -34,6 +34,7 @@
 //! consensus bounds, with the ETA at the epoch's own pace. Noisy early in
 //! an epoch, which is a fact, not a bug.
 
+use iced::Widget as _;
 use iced::mouse;
 use iced::widget::canvas::{self, Canvas, Frame, LineDash, Path, Stroke};
 use iced::widget::{column, container, Space};
@@ -85,7 +86,7 @@ fn body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Ele
     let stats = Stats::of(&gaps);
 
     let chart: Element<'a, Message> = if gaps.is_empty() {
-        Space::new().width(Length::Fill).height(Length::Fill).into()
+        Space::new().width(Length::Fill).height(Length::Fill).boxed()
     } else {
         let max = stats.map_or(0, |s| s.slowest).max(current.unwrap_or(0)).max(1);
         Canvas::new(Intervals {
@@ -101,7 +102,7 @@ fn body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Ele
         })
         .width(Length::Fill)
         .height(Length::Fill)
-        .into()
+        .boxed()
     };
 
     let (left, right) = if gaps.is_empty() {
@@ -134,7 +135,7 @@ fn body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Ele
     ]
     .width(Length::Fill)
     .height(Length::Fill)
-    .into()
+    .boxed()
 }
 
 // ── Derivations ─────────────────────────────────────────────────────────────

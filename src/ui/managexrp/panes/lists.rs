@@ -15,6 +15,8 @@
 //! form: the order and what is still resting, the fee, the sign block,
 //! `Keep it` / `Cancel order`.
 
+use iced::widget::Column;
+use iced::Widget as _;
 use iced::widget::{column, responsive, Space};
 use iced::{Element, Length, Size};
 
@@ -60,11 +62,11 @@ pub fn transactions<'a>(state: &'a AppState, cp: &'static CompactPalette, scale:
     if rows.is_empty() {
         return empty("No transactions to show", cp, scale);
     }
-    let mut list = column![].width(Length::Fill);
+    let mut list: Column<Element<'_, Message>> = column![].width(Length::Fill);
     for t in rows {
         list = list.push(list_row(row_of(t, false, state, cp), cp, scale));
     }
-    scroller(list.into(), cp, scale)
+    scroller(list.boxed(), cp, scale)
 }
 
 pub fn orders<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -78,7 +80,7 @@ pub fn orders<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) 
     if live.is_empty() && done.is_empty() {
         return empty("No orders to show", cp, scale);
     }
-    let mut list = column![].width(Length::Fill);
+    let mut list: Column<Element<'_, Message>> = column![].width(Length::Fill);
     for t in &live {
         list = list.push(list_row(row_of(t, true, state, cp), cp, scale));
     }
@@ -88,7 +90,7 @@ pub fn orders<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) 
     for t in &done {
         list = list.push(list_row(row_of(t, true, state, cp), cp, scale));
     }
-    scroller(list.into(), cp, scale)
+    scroller(list.boxed(), cp, scale)
 }
 
 /// The cancel form: the offer restated, the fee, the sign block. Same
@@ -167,7 +169,7 @@ fn cancel<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> E
             Space::new().height(2.0 * scale),
         ]
         .width(Length::Fill);
-        scroller(body.into(), cp, scale)
+        scroller(body.boxed(), cp, scale)
     })
-    .into()
+    .boxed()
 }

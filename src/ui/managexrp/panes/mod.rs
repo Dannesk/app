@@ -52,6 +52,8 @@ pub mod ticket;
 pub mod tokens;
 pub mod wallet;
 
+use iced::widget::Column;
+use iced::Widget as _;
 use iced::widget::text::{Span, Wrapping};
 use iced::widget::{button, column, container, rich_text, row, span, svg, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow};
@@ -133,7 +135,7 @@ pub fn empty<'a>(line: &str, cp: &'static CompactPalette, scale: f32) -> Element
     .height(Length::Fill)
     .align_x(Alignment::Center)
     .align_y(Alignment::Center)
-    .into()
+    .boxed()
 }
 
 /// A list group head — `settled` — mono 8.5 upper `muted` on a `rule`.
@@ -146,7 +148,7 @@ pub fn group_head<'a>(word: &str, cp: &'static CompactPalette, scale: f32) -> El
         compact::hairline(cp.rule),
     ]
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// One list row, the shipped transactions row narrowed: `▸` · type · amount ·
@@ -169,15 +171,15 @@ pub fn list_row(r: ListRow, cp: &'static CompactPalette, scale: f32) -> Element<
     let type_w = if r.side { SIDE_W } else { TYPE_W };
 
     let cell = |el: Element<'static, Message>, w: f32, align: Alignment| -> Element<'static, Message> {
-        container(el).width(Length::Fixed(w * scale)).align_x(align).into()
+        container(el).width(Length::Fixed(w * scale)).align_x(align).boxed()
     };
 
     let line = row![
-        cell(text(if open { "\u{25be}" } else { "\u{25b8}" }).font(MONO).size(CARET * scale).color(quiet).into(), CARET_W, Alignment::Start),
-        cell(text(r.kind).size(TYPE * scale).color(cp.text).wrapping(Wrapping::None).into(), type_w, Alignment::Start),
+        cell(text(if open { "\u{25be}" } else { "\u{25b8}" }).font(MONO).size(CARET * scale).color(quiet).boxed(), CARET_W, Alignment::Start),
+        cell(text(r.kind).size(TYPE * scale).color(cp.text).wrapping(Wrapping::None).boxed(), type_w, Alignment::Start),
         container(runs(r.amount, CELL * scale, CELL * scale)).width(Length::Fill).align_x(Alignment::End),
-        cell(text(r.status.0).font(MONO).size(CELL * scale).color(r.status.1).wrapping(Wrapping::None).into(), STATUS_W, Alignment::Start),
-        cell(text(r.time).font(MONO).size(CELL * scale).color(time_ink).wrapping(Wrapping::None).into(), TIME_W, Alignment::End),
+        cell(text(r.status.0).font(MONO).size(CELL * scale).color(r.status.1).wrapping(Wrapping::None).boxed(), STATUS_W, Alignment::Start),
+        cell(text(r.time).font(MONO).size(CELL * scale).color(time_ink).wrapping(Wrapping::None).boxed(), TIME_W, Alignment::End),
     ]
     .spacing(ROW_GAP * scale)
     .align_y(Alignment::Center);
@@ -203,21 +205,21 @@ pub fn list_row(r: ListRow, cp: &'static CompactPalette, scale: f32) -> Element<
         Some(d) => col.push(detail_block(d, cp, scale)),
         None => col.push(inset_rule(cp, scale)),
     };
-    col.into()
+    col.boxed()
 }
 
 pub fn inset_rule(cp: &'static CompactPalette, scale: f32) -> Element<'static, Message> {
     container(compact::hairline(cp.rule))
         .width(Length::Fill)
         .padding(Padding::new(0.0).left(ROW_PAD_H * scale).right(ROW_PAD_H * scale))
-        .into()
+        .boxed()
 }
 
 /// The detail dropdown, unchanged from the transactions spec: key/value
 /// lines indented under the type column, the tail link, one rule under the
 /// group. It scrolls with everything else — a dropdown never resizes the pane.
 pub fn detail_block(d: Detail, cp: &'static CompactPalette, scale: f32) -> Element<'static, Message> {
-    let mut col = column![].width(Length::Fill);
+    let mut col: Column<Element<'_, Message>> = column![].width(Length::Fill);
     for (key, segs) in d.lines {
         col = col.push(
             row![
@@ -226,14 +228,14 @@ pub fn detail_block(d: Detail, cp: &'static CompactPalette, scale: f32) -> Eleme
             ]
             .spacing(10.0 * scale)
             .align_y(Alignment::Center)
-            .padding(Padding::new(0.0).top(DETAIL_ROW_PAD_V * scale).bottom(DETAIL_ROW_PAD_V * scale).left(DETAIL_INDENT * scale)),
+            .padding(Padding::new(0.0).top(DETAIL_ROW_PAD_V * scale).bottom(DETAIL_ROW_PAD_V * scale).left(DETAIL_INDENT * scale)).boxed(),
         );
     }
     let tail: Element<'static, Message> = match d.tail {
         Tail::Link { label, color, msg } => link(label, color, msg, cp, scale),
-        Tail::Prose { s, color } => text(s).size(KEY * scale).color(color).into(),
+        Tail::Prose { s, color } => text(s).size(KEY * scale).color(color).boxed(),
     };
-    col = col.push(container(tail).padding(Padding::new(0.0).top(7.0 * scale).left(DETAIL_INDENT * scale)));
+    col = col.push(container(tail).padding(Padding::new(0.0).top(7.0 * scale).left(DETAIL_INDENT * scale)).boxed());
 
     column![
         container(col)
@@ -244,7 +246,7 @@ pub fn detail_block(d: Detail, cp: &'static CompactPalette, scale: f32) -> Eleme
             .padding(Padding::new(0.0).left(TOKEN_ROW_PAD_H * scale).right(TOKEN_ROW_PAD_H * scale)),
     ]
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// A link — `copy hash ›`, `cancel offer ›`, `enable`: mono 8.5 upper in a
@@ -277,7 +279,7 @@ pub fn link_word(word: String, color: Color, msg: Option<Message>, cp: &'static 
             }
         })
         .on_press_maybe(msg)
-        .into()
+        .boxed()
 }
 
 /// A value's runs as one rich text: mono segs at `mono_size`, word segs at
@@ -290,7 +292,7 @@ pub fn runs(segs: Vec<Seg>, mono_size: f32, word_size: f32) -> Element<'static, 
             if seg.mono { s.size(mono_size).font(MONO) } else { s.size(word_size) }
         })
         .collect();
-    rich_text(spans).wrapping(Wrapping::None).into()
+    rich_text(spans).wrapping(Wrapping::None).boxed()
 }
 
 /// A token-style row: symbol over issuer left, whatever the caller puts
@@ -319,7 +321,7 @@ pub fn token_row<'a>(
         container(compact::hairline(cp.rule)).width(Length::Fill),
     ]
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 // ── Signing, inline ─────────────────────────────────────────────────────────

@@ -36,6 +36,8 @@
 //! fiat box drops out (the amount already is that), the crypto box takes the
 //! full width, and review swaps the fiat row for the issuer.
 
+use iced::widget::Column;
+use iced::Widget as _;
 use iced::widget::{button, column, container, row, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow};
 
@@ -189,7 +191,7 @@ pub fn asset_face<'a>(
 ) -> Element<'a, Message> {
     let held = holdings();
     let last = held.len().saturating_sub(1);
-    let mut list = column![].width(Length::Fill);
+    let mut list: Column<Element<'_, Message>> = column![].width(Length::Fill);
     for (i, h) in held.iter().enumerate() {
         list = list.push(picker_row(h, &h.tab == selected, ccy, cp, scale));
         if i != last {
@@ -197,13 +199,13 @@ pub fn asset_face<'a>(
         }
     }
     column![
-        grid::scroller(list.into(), cp, scale),
+        grid::scroller(list.boxed(), cp, scale),
         Space::new().height(12.0 * scale),
         grid::quiet_button("Cancel", Message::SendAssetPickerToggled, cp, scale),
     ]
     .width(Length::Fill)
     .height(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// One pickable row: the Tokens page's two columns, a reserved check gutter,
@@ -232,9 +234,9 @@ fn picker_row<'a>(
 
     let check: Element<'a, Message> = if selected {
         // Inter's check — JetBrains Mono has none.
-        text("\u{2713}").size(CHECK * scale).color(cp.green).into()
+        text("\u{2713}").size(CHECK * scale).color(cp.green).boxed()
     } else {
-        Space::new().into()
+        Space::new().boxed()
     };
 
     let body = row![
@@ -275,7 +277,7 @@ fn picker_row<'a>(
                 snap: false,
             }
         })
-        .into()
+        .boxed()
 }
 
 #[cfg(test)]

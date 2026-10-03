@@ -26,7 +26,8 @@
 //!
 //! [`sync_trade_books`]: crate::controller::xrp::sync_trade_books
 
-use iced::widget::{button, column, container, mouse_area, opaque, row, svg, text, Space};
+use iced::Widget as _;
+use iced::widget::{button, column, container, mouse_area, opaque, row, svg, text, Column, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow, Vector};
 
 use crate::controller::app_state::AppState;
@@ -133,7 +134,7 @@ fn chip<'a>(pair: String, cp: &'static CompactPalette, scale: f32) -> Element<'a
             snap: false,
         }
     })
-    .into()
+    .boxed()
 }
 
 /// The field: 206 wide, `field` fill under a `focus` edge, `search pairs`
@@ -182,7 +183,7 @@ fn field<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> El
         border: Border { color: cp.focus, width: 1.0, radius: (RADIUS * scale).into() },
         ..Default::default()
     })
-    .into()
+    .boxed()
 }
 
 // ── The layer under the bar ─────────────────────────────────────────────────
@@ -197,9 +198,9 @@ pub fn layer<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
         return None;
     }
     let content: Element<'a, Message> = if searching {
-        opaque(panel(state, cp, scale))
+        opaque(panel(state, cp, scale)).boxed()
     } else {
-        Space::new().into()
+        Space::new().boxed()
     };
     // The bar itself is not in the area: the field keeps taking clicks and
     // `panels +` keeps working (opening it folds the search).
@@ -235,7 +236,7 @@ pub fn layer<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
         ]
         .width(Length::Fill)
         .height(Length::Fill)
-        .into(),
+        .boxed(),
     )
 }
 
@@ -266,12 +267,13 @@ fn panel<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> El
     .width(Length::Fill)
     .padding(Padding::new(0.0).top(9.0 * scale).bottom(6.0 * scale).left(PANEL_PAD_H * scale).right(PANEL_PAD_H * scale));
 
-    let mut list = column![].width(Length::Fill);
+    let mut list: Column<Element<'_, Message>> = column![].width(Length::Fill);
     if rows.is_empty() {
         list = list.push(
             container(text("no market found").size(super::ISSUER * scale).color(cp.muted))
                 .width(Length::Fill)
-                .padding(Padding::new(14.0 * scale)),
+                .padding(Padding::new(14.0 * scale))
+                .boxed(),
         );
     }
     for (b, q) in rows {
@@ -287,7 +289,7 @@ fn panel<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> El
             // for pane bodies, and borrowing it here stood the panel at the
             // full 380 on a single match (user, 2026-09-12). Typing `xrp/rl`
             // should drop a two-row panel, not a half-screen one.
-            container(scroller_hug(list.into(), cp, scale)).max_height(PANEL_MAX_H * scale),
+            container(scroller_hug(list.boxed(), cp, scale)).height(Length::Fit.max(PANEL_MAX_H * scale)),
         ]
         .width(Length::Fill),
     )
@@ -303,7 +305,7 @@ fn panel<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> El
         },
         ..Default::default()
     })
-    .into()
+    .boxed()
 }
 
 fn market_row<'a>(base: &'static str, quote: &'static str, selected: bool, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -344,7 +346,7 @@ fn market_row<'a>(base: &'static str, quote: &'static str, selected: bool, cp: &
     ]
     .align_x(Alignment::End);
 
-    let body = token_row(&format!("{} / {}", disp(base), disp(quote)), issuer, right.into(), false, cp, scale);
+    let body = token_row(&format!("{} / {}", disp(base), disp(quote)), issuer, right.boxed(), false, cp, scale);
     button(body)
         .width(Length::Fill)
         .padding(Padding::ZERO)
@@ -360,6 +362,6 @@ fn market_row<'a>(base: &'static str, quote: &'static str, selected: bool, cp: &
                 snap: false,
             }
         })
-        .into()
+        .boxed()
 }
 

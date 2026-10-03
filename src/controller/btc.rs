@@ -38,13 +38,12 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             let words = state.create_mnemonic.as_str().to_owned();
             if !words.is_empty() {
                 state.btc_copy_feedback = true;
-                return Task::batch([
-                    iced::clipboard::write(words),
-                    Task::perform(
-                        async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
-                        |_| Message::BtcCopyMnemonicFeedback,
-                    ),
-                ]);
+                // Marked secret so clipboard managers keep it out of history.
+                crate::utils::clipboard::copy_secret(words);
+                return Task::perform(
+                    async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
+                    |_| Message::BtcCopyMnemonicFeedback,
+                );
             }
         }
         Message::BtcCopyMnemonicFeedback => {
@@ -168,7 +167,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                 if state.btc_tx_selected.as_deref() == Some(txid.as_str()) { None } else { Some(txid) };
         }
         Message::BtcCopyTxid(txid) => {
-            return iced::clipboard::write(txid);
+            return iced::clipboard::write(txid).discard();
         }
         Message::BtcBackClicked => {
             // Import/create are one screen: back is leaving the flow, and
@@ -232,7 +231,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             if let Some(address) = addr {
                 state.btc_copy_feedback = true;
                 return Task::batch([
-                    iced::clipboard::write(address),
+                    iced::clipboard::write(address).discard(),
                     Task::perform(
                         async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
                         |_| Message::BtcCopyAddressFeedback,
@@ -247,7 +246,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
         Message::BtcCopyPoolAddress(address) => {
             state.btc_pool_copied = Some(address.clone());
             return Task::batch([
-                iced::clipboard::write(address),
+                iced::clipboard::write(address).discard(),
                 Task::perform(
                     async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
                     |_| Message::BtcCopyAddressFeedback,
@@ -292,7 +291,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             if let Some(address) = addr {
                 state.btc_master_copy_feedback = true;
                 return Task::batch([
-                    iced::clipboard::write(address),
+                    iced::clipboard::write(address).discard(),
                     Task::perform(
                         async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
                         |_| Message::BtcCopyMasterAddressFeedback,

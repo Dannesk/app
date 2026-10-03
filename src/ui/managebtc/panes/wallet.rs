@@ -34,6 +34,7 @@
 //! nothing was written — which is what lets the 25th word be a plain
 //! optional field here rather than the import's explicit question.
 
+use iced::Widget as _;
 use iced::widget::text::Wrapping;
 use iced::widget::{column, container, responsive, row, text, Space};
 use iced::{Alignment, Element, Length, Padding, Size};
@@ -101,7 +102,7 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
                 .align_y(Alignment::Start),
             )
             .width(Length::Fill)
-            .padding(Padding::new(0.0).top(3.0 * scale).bottom(3.0 * scale)),
+            .padding(Padding::new(0.0).top(3.0 * scale).bottom(3.0 * scale)).boxed(),
         );
 
     // Cold → Standard routes into the restore face; Standard → Cold is the
@@ -120,7 +121,7 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
             button_pair(mode, remove, scale),
         ]
         .width(Length::Fill)
-        .into(),
+        .boxed(),
         cp,
         scale,
     )
@@ -186,13 +187,13 @@ fn restore<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> 
         let bits = wallet_setup::held_bits(&state.btc_reimport_passphrase, state.entropy_hold);
         if bits > 0.0 {
             key = key
-                .push(Space::new().height(6.0 * scale))
+                .push(Space::new().height(6.0 * scale).boxed())
                 .push(compact::meter_rows(bits, entropy::Kdf::Argon2id, cp, scale));
         }
         if let Some(e) = &state.btc_reimport_error {
             key = key
-                .push(Space::new().height(6.0 * scale))
-                .push(text(e.clone()).size(compact::NOTE * scale).color(cp.red));
+                .push(Space::new().height(6.0 * scale).boxed())
+                .push(text(e.clone()).size(compact::NOTE * scale).color(cp.red).boxed());
         }
 
         let body = column![
@@ -212,13 +213,13 @@ fn restore<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> 
         );
 
         column![
-            scroller(body.into(), cp, scale),
+            scroller(body.boxed(), cp, scale),
             Space::new().height(8.0 * scale),
             buttons,
         ]
         .width(Length::Fill)
         .height(Length::Fill)
-        .into()
+        .boxed()
     })
-    .into()
+    .boxed()
 }

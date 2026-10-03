@@ -49,6 +49,7 @@
 //! reserve gate lives on the `enable` link, where it can be seen before the
 //! stack opens.
 
+use iced::Widget as _;
 use iced::widget::scrollable::{Rail, Scroller};
 use iced::widget::{column, text, Space};
 use iced::{Alignment, Border, Color, Element};
@@ -100,15 +101,14 @@ pub fn holding_columns<'a>(
             text(symbol.to_string()).size(SYM * scale).color(cp.text),
             Space::new().height(3.0 * scale),
             text(issuer).size(ISSUER * scale).color(cp.dim),
-        ]
-        .into(),
+        ].boxed(),
         column![
             text(bal_str).font(MONO).size(BALANCE * scale).color(cp.text),
             Space::new().height(3.0 * scale),
             text(fiat_str).font(MONO).size(FIAT * scale).color(cp.muted),
         ]
         .align_x(Alignment::End)
-        .into(),
+        .boxed(),
     )
 }
 

@@ -43,6 +43,7 @@
 //! import, beside the phrase they apply to, from the constant the deriver
 //! uses — never here (settled 2026-09-06).
 
+use iced::Widget as _;
 use iced::time::Duration;
 use iced::widget::canvas::{self as cnvs, path::Arc, Frame, Geometry, LineCap, LineDash, Path, Stroke};
 use iced::widget::text::LineHeight;
@@ -137,7 +138,7 @@ pub fn view(
     .height(Length::Fill)
     .center_x(Length::Fill)
     .center_y(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// The orbit alone — the dashed ring, the lit arc, the plate and the chain's
@@ -160,12 +161,12 @@ pub fn figure(mark: Mark, p: &'static CompactPalette, scale: f32) -> Element<'st
             .size(GLYPH * scale)
             .line_height(LineHeight::Relative(1.0))
             .color(p.dim)
-            .into(),
+            .boxed(),
         Mark::Xrp => svg(icons::XRP.clone())
             .width(Length::Fixed(XRP_MARK_W * scale))
             .height(Length::Fixed(XRP_MARK_H * scale))
             .style(move |_, _| svg::Style { color: Some(p.dim) })
-            .into(),
+            .boxed(),
     };
 
     let orbit = Orbit {
@@ -180,8 +181,7 @@ pub fn figure(mark: Mark, p: &'static CompactPalette, scale: f32) -> Element<'st
     stack![
         canvas(orbit).width(fig).height(fig),
         container(glyph).center(fig),
-    ]
-    .into()
+    ].boxed()
 }
 
 /// A word: `dim`, brightening to `text` on hover. No fill, no underline.
@@ -210,7 +210,7 @@ fn word(
             snap: false,
         }
     })
-    .into()
+    .boxed()
 }
 
 // ── The orbit ───────────────────────────────────────────────────────────────

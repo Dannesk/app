@@ -14,6 +14,7 @@
 //! Limit, and the stats as the live review. Then the sign block — key plus
 //! 25th word — and `Buy XRP`.
 
+use iced::Widget as _;
 use iced::widget::{column, responsive};
 use iced::{Element, Length, Size};
 
@@ -37,7 +38,7 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         let inner = (size.width / scale).max(1.0);
         ticket(state, inner, cp, scale)
     })
-    .into()
+    .boxed()
 }
 
 // ── The ticket ──────────────────────────────────────────────────────────────
@@ -93,5 +94,5 @@ fn ticket<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette, scal
         scale,
     );
 
-    scroller(column![form, sign].width(Length::Fill).into(), cp, scale)
+    scroller(column![form, sign].width(Length::Fill).boxed(), cp, scale)
 }

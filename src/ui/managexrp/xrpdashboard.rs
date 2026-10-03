@@ -25,9 +25,10 @@
 //! the 80%. The eight remaining panes landed the same afternoon as phase 2 —
 //! see `managexrp::panes`.
 
+use iced::Widget as _;
 use iced::mouse;
 use iced::widget::canvas::{self, Canvas, Frame};
-use iced::widget::pane_grid::{self, Pane};
+use iced::widget::pane_grid::Pane;
 use iced::widget::{column, container, responsive, row, text, Space};
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Size};
 
@@ -93,7 +94,7 @@ fn pane_content<'a>(
     maximized: bool,
     cp: &'static CompactPalette,
     scale: f32,
-) -> pane_grid::Content<'a, Message> {
+) -> grid::PaneContent<'a> {
     let strip = |word: &str| grid::strip(word, cp, scale);
     // The three market panes print the top bar's pair after their title —
     // plain type, no edge, no hit target: a readout, not a control. Before a
@@ -106,7 +107,7 @@ fn pane_content<'a>(
                 text(pair).font(MONO).size(panes_ui::pair::PANE_LINE * scale).color(cp.text),
             ]
             .align_y(Alignment::Center)
-            .into(),
+            .boxed(),
             None => strip(word),
         }
     };
@@ -131,8 +132,8 @@ fn pane_content<'a>(
                         grid::period_pill(state.xrp_grid.chart_period, Message::Grid, cp, scale),
                     ]
                     .align_y(Alignment::Center)
-                    .into(),
-                    Some(text(word).font(MONO).size(STRIP * scale).color(colour).into()),
+                    .boxed(),
+                    Some(text(word).font(MONO).size(STRIP * scale).color(colour).boxed()),
                     grid::chart_pane(
                         series,
                         price::cross("XRP", ccy) as f32,
@@ -179,7 +180,7 @@ fn pane_content<'a>(
             PaneKind::Book => (pair_strip("order book"), None, panes_ui::market::book(state, cp, scale)),
             PaneKind::Depth => (
                 pair_strip("depth"),
-                Some(text(panes_ui::market::depth_meta(state)).font(MONO).size(STRIP * scale).color(cp.faint).into()),
+                Some(text(panes_ui::market::depth_meta(state)).font(MONO).size(STRIP * scale).color(cp.faint).boxed()),
                 panes_ui::market::depth(state, cp, scale),
             ),
             PaneKind::Transactions => (strip("transactions"), None, panes_ui::lists::transactions(state, cp, scale)),
@@ -193,7 +194,7 @@ fn pane_content<'a>(
             // BTC's kinds cannot be loaded into an XRP layout (`from_key` is
             // per chain); if one ever were, it is a well, not a panic.
             PaneKind::Fees | PaneKind::Blocks | PaneKind::Mempool | PaneKind::Intervals | PaneKind::Empty => {
-                (Space::new().into(), None, grid::well_pane(Message::Grid, cp, scale))
+                (Space::new().boxed(), None, grid::well_pane(Message::Grid, cp, scale))
             }
         };
 
@@ -283,7 +284,7 @@ fn balance_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
         col = col.push(drow("account", vec![("inactive".to_string(), cp.dim)], 3.0, cp, scale));
     }
 
-    grid::scroller(col.into(), cp, scale)
+    grid::scroller(col.boxed(), cp, scale)
 }
 
 // ── chart ───────────────────────────────────────────────────────────────────
@@ -394,7 +395,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
         ]
         .width(Length::Fill);
         if let Some(hint) = hint {
-            recipient = recipient.push(Space::new().height(5.0 * scale)).push(hint);
+            recipient = recipient.push(Space::new().height(5.0 * scale).boxed()).push(hint);
         }
         recipient = recipient.push(tag_row(from_x, baked_tag, set_tag, cp, scale));
 
@@ -460,7 +461,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
         let mut head = row![label("amount", cp, scale)].align_y(Alignment::Center).width(Length::Fill);
         if can_max {
             head = head
-                .push(Space::new().width(Length::Fill))
+                .push(Space::new().width(Length::Fill).boxed())
                 .push(panes_ui::link("max", cp.dim, Message::SendMaxClicked, cp, scale));
         }
         let mut amount_sec = column![head, amount_row].width(Length::Fill);
@@ -488,7 +489,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
                     }
                 }
             };
-            amount_sec = amount_sec.push(Space::new().height(5.0 * scale)).push(compact::mono_runs(note, HINT * scale));
+            amount_sec = amount_sec.push(Space::new().height(5.0 * scale).boxed()).push(compact::mono_runs(note, HINT * scale));
         }
 
         // ── review, live ──────────────────────────────────────────────────
@@ -534,7 +535,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
                     Space::new().width(Length::Fill),
                     compact::mono_runs(total, ROW_TOTAL * scale),
                 ]
-                .align_y(Alignment::Center),
+                .align_y(Alignment::Center).boxed(),
             );
         }
 
@@ -582,12 +583,12 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
                 sign,
             ]
             .width(Length::Fill)
-            .into(),
+            .boxed(),
             cp,
             scale,
         )
     })
-    .into()
+    .boxed()
 }
 
 /// The destination tag, right under the recipient — a readout, and the door
@@ -613,7 +614,7 @@ fn tag_row<'a>(
     } else {
         grid::tag_line(set_tag, TagPane::Send, cp, scale)
     };
-    column![Space::new().height(6.0 * scale), line].width(Length::Fill).into()
+    column![Space::new().height(6.0 * scale), line].width(Length::Fill).boxed()
 }
 
 // ── network ─────────────────────────────────────────────────────────────────
@@ -726,7 +727,7 @@ fn network_body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
     ]
     .width(Length::Fill)
     .height(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// The ledger tape: one bottom-aligned bar per validated ledger, newest at

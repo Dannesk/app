@@ -6,6 +6,7 @@ pub mod btcbump;
 pub mod btcdashboard;
 pub mod panes;
 
+use iced::Widget as _;
 use iced::{Element, Length};
 use iced::widget::container;
 use crate::controller::message::Message;
@@ -17,8 +18,7 @@ use crate::utils::theme;
 /// The BTC tab: the import-or-create gate until a wallet exists, then the
 /// pane grid (`btcdashboard`). The pre-grid chain — balance screen, receive
 /// page, transactions modal, bump stack, key stack — was deleted on
-/// 2026-09-10 once every one of its doors had a pane; it is in
-/// `_attic/2026-09-10-btc-old-chain/`.
+/// 2026-09-10 once every one of its doors had a pane.
 pub fn render_manage_btc(state: &AppState) -> Element<'_, Message> {
     match state.btc_view {
         BtcView::Import => return btcsetup::import(state),
@@ -37,5 +37,5 @@ pub fn render_manage_btc(state: &AppState) -> Element<'_, Message> {
     container(btcdashboard::view(state))
         .width(Length::Fill)
         .height(Length::Fill)
-        .into()
+        .boxed()
 }

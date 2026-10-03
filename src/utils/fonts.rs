@@ -48,7 +48,7 @@ use crate::controller::message::Message;
 pub const SANS_FAMILY: &str = "Inter 18pt";
 
 /// The app default: Inter 18pt Regular.
-pub const SANS: Font = Font::with_name(SANS_FAMILY);
+pub const SANS: Font = Font::new(SANS_FAMILY);
 
 pub const MONO: Font = Font {
     family: Family::Name("JetBrains Mono"),

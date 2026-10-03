@@ -1,7 +1,6 @@
 //! The mono character grid — what is left of the framed-TUI engine once the
 //! last box-drawn surface (key management, 2026-09-01) went to the key stack.
-//! The box assemblers were deleted 2026-09-05 (attic
-//! `_attic/2026-09-05-update-screen/tui.rs`); what remains is the measured
+//! The box assemblers were deleted 2026-09-05; what remains is the measured
 //! fact every grid surface still depends on — `SecureInput`'s word cells, the
 //! compact meter rows — plus the `Run` type the compact data voice is built
 //! from.

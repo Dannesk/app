@@ -29,6 +29,7 @@
 //! `blocks to clear` is `ceil(pending / 1 MvB)`. Before the first frame the
 //! chart is empty and every row reads `—`.
 
+use iced::Widget as _;
 use iced::mouse;
 use iced::widget::canvas::{self, Canvas, Frame, LineDash, Path, Stroke};
 use iced::widget::{column, container, row, text, Space};
@@ -85,8 +86,8 @@ fn body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Ele
         })
         .width(Length::Fill)
         .height(Length::Fill)
-        .into(),
-        None => Space::new().width(Length::Fill).height(Length::Fill).into(),
+        .boxed(),
+        None => Space::new().width(Length::Fill).height(Length::Fill).boxed(),
     };
 
     let (left, right) = match bands {
@@ -120,7 +121,7 @@ fn body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Ele
     ]
     .width(Length::Fill)
     .height(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// The axis under a chart: two mono 8 upper `faint` labels at the ends.
@@ -135,7 +136,7 @@ pub(crate) fn axis_row<'a>(left: String, right: String, cp: &'static CompactPale
     )
     .width(Length::Fill)
     .padding(Padding::new(0.0).bottom(AXIS_PAD_BOTTOM * scale))
-    .into()
+    .boxed()
 }
 
 /// `ceil(pending / 1 MvB)`, never under one while anything is queued.

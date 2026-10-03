@@ -14,6 +14,8 @@
 //! bricks: eyebrow rows, segmented pickers, boxed secret fields, the pixel
 //! entropy meter, stat rows, links and the CTA.
 
+use iced::widget::{Column, Row};
+use iced::Widget as _;
 use iced::widget::{button, column, container, row, svg, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow};
 
@@ -93,7 +95,7 @@ pub fn hairline<'a>(color: Color) -> Element<'a, Message> {
         .width(Length::Fill)
         .height(Length::Fixed(1.0))
         .style(move |_| container::Style { background: Some(color.into()), ..Default::default() })
-        .into()
+        .boxed()
 }
 
 /// A 1px vertical rule at a fixed height.
@@ -102,7 +104,7 @@ pub fn vrule<'a>(color: Color, height: f32) -> Element<'a, Message> {
         .width(Length::Fixed(1.0))
         .height(Length::Fixed(height))
         .style(move |_| container::Style { background: Some(color.into()), ..Default::default() })
-        .into()
+        .boxed()
 }
 
 /// A button that is nothing but its content.
@@ -171,7 +173,7 @@ pub fn corner_button<'a>(
                 snap: false,
             }
         })
-        .into()
+        .boxed()
 }
 
 /// The back control, app-wide: the chevron alone in the [`corner_button`]
@@ -197,7 +199,7 @@ pub fn header_strip<'a>(
     // `faint` — the key is the thing to find, the action its caption. Empty
     // draws nothing.
     let shortcuts: Element<'a, Message> = if shortcuts.is_empty() {
-        Space::new().into()
+        Space::new().boxed()
     } else {
         let mut runs: Vec<Run> = vec![("SHORTCUTS".to_string(), p.faint)];
         for (key, action) in shortcuts {
@@ -220,7 +222,7 @@ pub fn header_strip<'a>(
         hairline(p.rule),
     ]
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 /// A section eyebrow: two mono-caps reads, what-it-is left and a qualifier
@@ -242,7 +244,7 @@ pub fn eyebrow<'a>(
     )
     .width(Length::Fill)
     .padding(Padding::new(0.0).bottom(8.0 * scale))
-    .into()
+    .boxed()
 }
 
 /// An eyebrow whose right slot is DATA and must not be upper-cased — the
@@ -265,7 +267,7 @@ pub fn eyebrow_data<'a>(
     )
     .width(Length::Fill)
     .padding(Padding::new(0.0).bottom(8.0 * scale))
-    .into()
+    .boxed()
 }
 
 /// A status-row link — `CLEAR ›`, `PASTE ALL ›` — mono caps in `dim`, a
@@ -289,7 +291,7 @@ pub fn upper_link<'a>(label: &str, msg: Message, p: &'static CompactPalette, sca
             snap: false,
         }
     })
-    .into()
+    .boxed()
 }
 
 /// The reveal toggle at the compact 13px: open eye while masked, closed while
@@ -310,7 +312,7 @@ pub fn eye<'a>(revealed: bool, msg: Message, p: &'static CompactPalette, scale: 
     .on_press(msg)
     .padding(Padding::ZERO)
     .style(bare)
-    .into()
+    .boxed()
 }
 
 // ── Segmented ───────────────────────────────────────────────────────────────
@@ -328,7 +330,7 @@ pub fn track<'a>(
     p: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
-    let mut track = row![].align_y(Alignment::Center);
+    let mut track: Row<Element<'_, Message>> = row![].align_y(Alignment::Center);
     for (label, active, msg) in options {
         track = track.push(
             button(
@@ -348,7 +350,7 @@ pub fn track<'a>(
                     shadow: Shadow::default(),
                     snap: false,
                 }
-            }),
+            }).boxed(),
         );
     }
 
@@ -358,7 +360,7 @@ pub fn track<'a>(
             border: Border { color: p.border_soft, width: 1.0, radius: (7.0 * scale).into() },
             ..Default::default()
         })
-        .into()
+        .boxed()
 }
 
 
@@ -408,14 +410,14 @@ pub fn segmented_many<'a>(
                 snap: false,
             }
         })
-        .into()
+        .boxed()
     };
 
-    let mut r = row![].spacing(4.0 * scale).width(Length::Fill);
+    let mut r: Row<Element<'_, Message>> = row![].spacing(4.0 * scale).width(Length::Fill);
     for (label, active, msg) in items {
         r = r.push(seg(label, active, msg));
     }
-    r.into()
+    r.boxed()
 }
 
 // ── Fields ──────────────────────────────────────────────────────────────────
@@ -529,7 +531,7 @@ fn boxed_at<'a>(
         border: Border { color: line, width: 1.0, radius: (6.0 * scale).into() },
         ..Default::default()
     })
-    .into()
+    .boxed()
 }
 
 // ── Meter ───────────────────────────────────────────────────────────────────
@@ -598,8 +600,8 @@ pub fn meter_rows<'a>(bits: f64, kdf: entropy::Kdf, p: &'static CompactPalette, 
         .align_y(Alignment::Center),
         Space::new().height(8.0 * scale),
         row![key("crack time"), mono_runs(crack, METER * scale)].align_y(Alignment::Center),
-    ]
-    .into()}
+    ].boxed()
+}
 
 /// A run of mono spans at an already-scaled size — the compact data voice.
 pub fn mono_runs<'a>(runs: Vec<Run>, size: f32) -> Element<'a, Message> {
@@ -609,7 +611,7 @@ pub fn mono_runs<'a>(runs: Vec<Run>, size: f32) -> Element<'a, Message> {
         .into_iter()
         .map(|(s, c)| span(s).size(size).font(MONO).color(c))
         .collect();
-    rich_text(spans).wrapping(Wrapping::None).into()
+    rich_text(spans).wrapping(Wrapping::None).boxed()
 }
 
 // ── Stat block ──────────────────────────────────────────────────────────────
@@ -622,7 +624,7 @@ pub fn stat_rows<'a>(
     scale: f32,
 ) -> Element<'a, Message> {
     let mut col = column![hairline(p.rule), Space::new().height(9.0 * scale)].spacing(0);
-    let mut list = column![].spacing(3.0 * scale);
+    let mut list: Column<Element<'_, Message>> = column![].spacing(3.0 * scale);
     for (k, v) in rows {
         list = list.push(
             row![
@@ -630,14 +632,14 @@ pub fn stat_rows<'a>(
                 Space::new().width(Length::Fill),
                 text(v.to_string()).font(MONO).size(ROW * scale).color(p.text),
             ]
-            .align_y(Alignment::Center),
+            .align_y(Alignment::Center).boxed(),
         );
     }
-    col = col.push(list);
+    col = col.push(list.boxed());
     container(col)
         .width(Length::Fill)
         .padding(Padding::new(0.0).top(11.0 * scale))
-        .into()
+        .boxed()
 }
 
 // ── CTA ─────────────────────────────────────────────────────────────────────
@@ -675,7 +677,7 @@ pub fn cta<'a>(label: &str, enabled: bool, msg: Message, p: &'static CompactPale
             snap: false,
         }
     })
-    .into()
+    .boxed()
 }
 
 // ── Phrase box ──────────────────────────────────────────────────────────────
@@ -753,5 +755,5 @@ pub fn phrase_box<'a>(
     .align_x(Alignment::End)
     .padding(Padding::new(0.0).top(9.0 * scale).right(9.0 * scale));
 
-    stack![well, toggle].into()
+    stack![well, toggle].boxed()
 }

@@ -20,7 +20,7 @@ use iced::Color;
 //
 // The old `AppPalette` (brand blue, per-asset purples and oranges, the
 // hand-rounded input colours) was deleted 2026-09-05 once its last caller —
-// the pre-v3 chart — went; it is in `_attic/2026-09-05-update-screen/`.
+// the pre-v3 chart — went.
 // Three variants: Light, Obsidian (the dark default) and Graphite.
 
 /// One-hex colour for the compact consts. `const fn`, so the palettes can stay
@@ -220,7 +220,7 @@ pub fn light_theme() -> iced::Theme {
 fn custom_theme(name: &str, p: &CompactPalette) -> iced::Theme {
     iced::Theme::custom(
         name.to_string(),
-        iced::theme::Palette {
+        iced::theme::palette::Seed {
             background: p.window,
             text:       p.text,
             primary:    p.focus,

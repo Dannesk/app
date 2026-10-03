@@ -59,6 +59,8 @@
 //! field can *lose* focus — turning a screen that always accepts typing into
 //! one that sometimes silently does not.
 
+use iced::widget::Row;
+use iced::Widget as _;
 use iced::widget::{Space, column, container, row, stack, svg, text};
 use iced::{Alignment, Border, Color, Element, Length, Padding};
 
@@ -182,13 +184,13 @@ pub fn render_gate(state: &AppState) -> Element<'_, Message> {
             .font(MONO)
             .size(PLACEHOLDER_SIZE * scale)
             .color(cp.faint)
-            .into()
+            .boxed()
     } else {
         let dot_colour = if erroring { cp.red } else { cp.text };
-        let mut r = row![].align_y(Alignment::Center);
+        let mut r: Row<Element<'_, Message>> = row![].align_y(Alignment::Center);
         for i in 0..typed {
             if i > 0 {
-                r = r.push(Space::new().width(DOT_GAP * scale));
+                r = r.push(Space::new().width(DOT_GAP * scale).boxed());
             }
             r = r.push(dot(dot_colour, scale));
         }
@@ -196,9 +198,9 @@ pub fn render_gate(state: &AppState) -> Element<'_, Message> {
         // on/off — a fade reads as a glow at 1.5px.
         let lit = (clock / BLINK_SECS).fract() < 0.5;
         r = r
-            .push(Space::new().width(CARET_GAP * scale))
+            .push(Space::new().width(CARET_GAP * scale).boxed())
             .push(caret(if lit { cp.dim } else { Color::TRANSPARENT }, scale));
-        r.into()
+        r.boxed()
     };
 
     let field = column![
@@ -225,8 +227,8 @@ pub fn render_gate(state: &AppState) -> Element<'_, Message> {
             .font(MONO)
             .size(MSG_SIZE * scale)
             .color(cp.red)
-            .into(),
-        None => Space::new().into(),
+            .boxed(),
+        None => Space::new().boxed(),
     };
 
     let col = column![
@@ -269,16 +271,16 @@ pub fn render_gate(state: &AppState) -> Element<'_, Message> {
     let back: Element<'_, Message> = if confirming {
         container(ck::back_chevron(Message::GateBack, cp, scale))
             .padding(Padding::new(0.0).top(ck::CORNER_TOP * scale).left(ck::CORNER_LEFT * scale))
-            .into()
+            .boxed()
     } else {
-        Space::new().into()
+        Space::new().boxed()
     };
 
     container(stack![centred, back].width(Length::Fill).height(Length::Fill))
         .width(Length::Fill)
         .height(Length::Fill)
         .style(move |_| container::Style { background: Some(cp.window.into()), ..Default::default() })
-        .into()
+        .boxed()
 }
 
 // ── Parts ───────────────────────────────────────────────────────────────────
@@ -292,7 +294,7 @@ fn dot<'a>(colour: Color, scale: f32) -> Element<'a, Message> {
             border: Border { radius: (DOT / 2.0 * scale).into(), ..Default::default() },
             ..Default::default()
         })
-        .into()
+        .boxed()
 }
 
 fn caret<'a>(colour: Color, scale: f32) -> Element<'a, Message> {
@@ -303,7 +305,7 @@ fn caret<'a>(colour: Color, scale: f32) -> Element<'a, Message> {
             background: Some(colour.into()),
             ..Default::default()
         })
-        .into()
+        .boxed()
 }
 
 /// Self-wipe in progress: the fifth consecutive miss has erased everything and
@@ -326,5 +328,5 @@ fn wiping<'a>(cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     .align_x(Alignment::Center)
     .align_y(Alignment::Center)
     .style(move |_| container::Style { background: Some(cp.window.into()), ..Default::default() })
-    .into()
+    .boxed()
 }

@@ -1,3 +1,4 @@
+use iced::Widget as _;
 use iced::widget::{button, column, container, row, text, Space};
 use iced::{Alignment, Border, Element, Length, Padding, Shadow};
 use crate::controller::message::Message;
@@ -48,8 +49,7 @@ pub fn render_dashboard(state: &AppState) -> Element<'_, Message> {
             dock_tab(Tab::Btc,     &state.selected_tab, p, scale),
         ]
         .width(Length::Fill),
-    ]
-    .into()
+    ].boxed()
 }
 
 // ── Dock ────────────────────────────────────────────────────────────────────
@@ -113,9 +113,9 @@ fn dock_tab(
             Space::new().width(Length::FillPortion(DOCK_BAR_INSET)),
         ]
         .width(Length::Fill)
-        .into()
+        .boxed()
     } else {
-        Space::new().height(Length::Fixed(bar_h)).into()
+        Space::new().height(Length::Fixed(bar_h)).boxed()
     };
 
     let cell = column![
@@ -140,8 +140,8 @@ fn dock_tab(
         });
 
     if is_active {
-        btn.into()
+        btn.boxed()
     } else {
-        btn.on_press(Message::TabChanged(target)).into()
+        btn.on_press(Message::TabChanged(target)).boxed()
     }
 }

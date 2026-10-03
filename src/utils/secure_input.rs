@@ -21,16 +21,19 @@ use std::ops::Range;
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer::{self, Renderer as _};
 use iced::advanced::text::{self, Renderer as _};
-use iced::advanced::widget::{tree, Tree, Widget};
-use iced::advanced::{clipboard, mouse, Clipboard, Shell};
+use iced::advanced::widget::{self, tree, Tree, Widget};
+use iced::advanced::{clipboard, mouse, Shell};
 use iced::{
-    alignment, keyboard, Border, Color, Element, Event, Font, Length, Pixels, Point, Rectangle, Size,
+    alignment, keyboard, Border, Color, Event, Font, Length, Pixels, Point, Rectangle, Size,
 };
 
 #[derive(Default)]
 struct State {
     focused: bool,
     cursor: usize,
+    /// Ctrl+V asked the runtime for the clipboard; the text arrives later as
+    /// an event that every widget sees. Only the field that asked takes it.
+    paste_pending: bool,
 }
 
 /// Character-grid metrics, for a field that lives inside a `tui` box.
@@ -596,6 +599,7 @@ impl<'a, Message> SecureInput<'a, Message> {
     /// rather than handed to the renderer as one paragraph: the renderer would
     /// re-wrap it on its own terms and the field would re-shape under `reveal ›`.
     fn draw_grid(&self, g: Grid, state: &State, renderer: &mut iced::Renderer, bounds: Rectangle) {
+        let hint = renderer.hint_factor();
         let cols = self.grid_cols(bounds.width);
         let cursor = state.cursor.min(self.char_len);
         let col_x = |c: usize| bounds.x + c as f32 * g.advance;
@@ -632,6 +636,8 @@ impl<'a, Message> SecureInput<'a, Message> {
                         align_x: text::Alignment::Left,
                         align_y: alignment::Vertical::Center,
                         shaping: text::Shaping::Advanced,
+                        ellipsis: text::Ellipsis::None,
+                        hint_factor: hint,
                         wrapping: text::Wrapping::None,
                     },
                     Point::new(col_x(0), row_y(0)),
@@ -709,6 +715,8 @@ impl<'a, Message> SecureInput<'a, Message> {
                                 align_x: text::Alignment::Left,
                                 align_y: alignment::Vertical::Top,
                                 shaping: text::Shaping::Advanced,
+                                ellipsis: text::Ellipsis::None,
+                                hint_factor: hint,
                                 wrapping: text::Wrapping::None,
                             },
                             Point::new(col_x(0), bounds.y + r as f32 * g.line_height),
@@ -761,6 +769,7 @@ impl<'a, Message> SecureInput<'a, Message> {
     /// pinned to the cell, never handed to the renderer's own wrapping. Dots,
     /// glyphs, caret and clicks all read the same [`cell_positions`] table.
     fn draw_cells(&self, g: Grid, cells: Cells, state: &State, renderer: &mut iced::Renderer, bounds: Rectangle) {
+        let hint = renderer.hint_factor();
         let cursor = state.cursor.min(self.char_len);
         let col_x = |c: usize| bounds.x + c as f32 * g.advance;
         let row_y = |r: usize| bounds.y + r as f32 * g.line_height + g.line_height / 2.0;
@@ -774,6 +783,8 @@ impl<'a, Message> SecureInput<'a, Message> {
             align_x: text::Alignment::Left,
             align_y: alignment::Vertical::Center,
             shaping: text::Shaping::Advanced,
+            ellipsis: text::Ellipsis::None,
+            hint_factor: hint,
             wrapping: text::Wrapping::None,
         };
 
@@ -891,6 +902,8 @@ impl<'a, Message> SecureInput<'a, Message> {
     }
 }
 
+impl<Message> widget::Meta for SecureInput<'_, Message> {}
+
 impl<'a, Message> Widget<Message, iced::Theme, iced::Renderer> for SecureInput<'a, Message>
 where
     Message: Clone,
@@ -900,7 +913,7 @@ where
             Some(n) => Length::Fixed(self.pin_width(n)),
             None => self.width,
         };
-        // A grown grid field reports `Shrink`, not a number.
+        // A grown grid field reports `Fit`, not a number.
         //
         // `size()` has no width to work from, so the only height it could name
         // is `box_height` — the *reserve*, which is the floor and not the
@@ -909,11 +922,11 @@ where
         // last one, which is what put a row hard against the one above it: the
         // rows were evenly placed all along, the box just ended early.
         //
-        // `Shrink` makes the parent defer to `layout`, which knows the resolved
+        // `Fit` makes the parent defer to `layout`, which knows the resolved
         // width and therefore the real row count. Same shape iced's own
         // `TextEditor` uses for exactly this reason.
         let height = match (self.pin_cells, self.box_height, self.grid) {
-            (None, Some(_), Some(_)) => Length::Shrink,
+            (None, Some(_), Some(_)) => Length::Fit,
             _ => Length::Fixed(self.widget_height()),
         };
         Size::new(width, height)
@@ -927,12 +940,7 @@ where
         tree::State::new(State { focused: self.autofocus, ..State::default() })
     }
 
-    fn layout(
-        &mut self,
-        _tree: &mut Tree,
-        _renderer: &iced::Renderer,
-        limits: &layout::Limits,
-    ) -> layout::Node {
+    fn layout(&mut self, tree: &mut Tree, _renderer: &iced::Renderer, limits: &layout::Limits) {
         let width = match self.pin_cells {
             Some(n) => Length::Fixed(self.pin_width(n)),
             None => self.width,
@@ -950,20 +958,20 @@ where
                 let rows = match self.cells {
                     Some(cells) => cell_layout_rows(&self.word_mask, self.char_len, cells),
                     None => {
-                        let cols = self.grid_cols(limits.max().width);
+                        let cols = self.grid_cols(limits.max.width);
                         grid_rows(&self.word_mask, self.char_len, cols)
                     }
                 };
                 (rows as f32 * self.line_height()).max(min_h)
             }
             (None, Some(min_h)) => {
-                let avail = limits.max().width;
+                let avail = limits.max.width;
                 let cols = (avail / self.step()).floor().max(1.0);
                 let rows = (self.char_len.max(1) as f32 / cols).ceil().max(1.0);
                 (rows * self.line_height()).max(min_h)
             }
         };
-        layout::atomic(limits, width, Length::Fixed(height))
+        tree.size = layout::atomic(limits, width, Length::Fixed(height));
     }
 
     fn draw(
@@ -972,10 +980,13 @@ where
         renderer: &mut iced::Renderer,
         _theme: &iced::Theme,
         _style: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         _cursor: mouse::Cursor,
         _viewport: &Rectangle,
     ) {
+        // What iced's own text widget passes, so the dots and glyphs land on
+        // the same pixel grid as every other label.
+        let hint = renderer.hint_factor();
         let bounds = layout.bounds();
         let state = tree.state.downcast_ref::<State>();
         let multiline = self.box_height.is_some();
@@ -1052,10 +1063,12 @@ where
                         bounds: Size::new(bounds.width, bounds.height),
                         size: Pixels(self.text_size),
                         line_height: text::LineHeight::Relative(1.3),
-                        font: renderer.default_font(),
+                        font: renderer.font(),
                         align_x: text::Alignment::Left,
                         align_y: alignment::Vertical::Top,
                         shaping: text::Shaping::Advanced,
+                        ellipsis: text::Ellipsis::None,
+                        hint_factor: hint,
                         wrapping: if multiline {
                             text::Wrapping::Word
                         } else {
@@ -1104,10 +1117,12 @@ where
                     bounds: Size::new(bounds.width, bounds.height),
                     size: Pixels(self.text_size),
                     line_height: text::LineHeight::Relative(1.3),
-                    font: renderer.default_font(),
+                    font: renderer.font(),
                     align_x: text::Alignment::Left,
                     align_y: alignment::Vertical::Top,
                     shaping: text::Shaping::Advanced,
+                    ellipsis: text::Ellipsis::None,
+                    hint_factor: hint,
                     wrapping: if multiline {
                         text::Wrapping::Word
                     } else {
@@ -1197,10 +1212,9 @@ where
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         _renderer: &iced::Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
@@ -1209,6 +1223,33 @@ where
         state.cursor = state.cursor.min(self.char_len);
 
         match event {
+            Event::Clipboard(clipboard::Event::Read(read)) => {
+                if !std::mem::take(&mut state.paste_pending) || !state.focused {
+                    return;
+                }
+                let Ok(content) = read else { return };
+                let clipboard::Content::Text(pasted) = content.as_ref() else { return };
+                // One pass from iced's buffer to the one copy handed on, which
+                // the update loop wipes: digit-restricted fields keep only
+                // digits, and a capped field takes only what fits. Sized up
+                // front so growing it never leaves an unwiped buffer behind.
+                let digits_only = self.digit_cap.is_some();
+                let room = [self.digit_cap, self.char_cap]
+                    .into_iter()
+                    .flatten()
+                    .map(|cap| cap.saturating_sub(self.char_len))
+                    .min()
+                    .unwrap_or(usize::MAX);
+                let mut kept = String::with_capacity(pasted.len());
+                kept.extend(pasted.chars().filter(|c| !digits_only || c.is_ascii_digit()).take(room));
+                let pasted = kept;
+                let count = pasted.chars().count();
+                if count > 0 {
+                    shell.publish((self.on_paste)(state.cursor, pasted));
+                    state.cursor += count;
+                    shell.capture_event();
+                }
+            }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let bounds = layout.bounds();
                 let over = cursor.is_over(bounds);
@@ -1324,28 +1365,9 @@ where
                     keyboard::Key::Character(s)
                         if modifiers.command() && s.as_str() == "v" =>
                     {
-                        if let Some(pasted) = clipboard.read(clipboard::Kind::Standard) {
-                            // Digit-restricted: keep only digits, respect the cap.
-                            let pasted = if let Some(cap) = self.digit_cap {
-                                let room = cap.saturating_sub(self.char_len);
-                                pasted.chars().filter(|c| c.is_ascii_digit()).take(room).collect()
-                            } else {
-                                pasted
-                            };
-                            // Length-capped: cut the paste to what fits.
-                            let pasted: String = if let Some(cap) = self.char_cap {
-                                let room = cap.saturating_sub(self.char_len);
-                                pasted.chars().take(room).collect()
-                            } else {
-                                pasted
-                            };
-                            let count = pasted.chars().count();
-                            if count > 0 {
-                                shell.publish((self.on_paste)(state.cursor, pasted));
-                                state.cursor += count;
-                                shell.capture_event();
-                            }
-                        }
+                        state.paste_pending = true;
+                        shell.read_clipboard(clipboard::Kind::Text);
+                        shell.capture_event();
                     }
                     _ => {
                         if let Some(t) = text {
@@ -1388,7 +1410,7 @@ where
     fn mouse_interaction(
         &self,
         _tree: &Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
         _renderer: &iced::Renderer,
@@ -1398,15 +1420,6 @@ where
         } else {
             mouse::Interaction::None
         }
-    }
-}
-
-impl<'a, Message> From<SecureInput<'a, Message>> for Element<'a, Message>
-where
-    Message: Clone + 'a,
-{
-    fn from(widget: SecureInput<'a, Message>) -> Self {
-        Element::new(widget)
     }
 }
 
