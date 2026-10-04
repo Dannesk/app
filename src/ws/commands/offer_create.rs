@@ -1,21 +1,17 @@
 // ws/commands/offer_create.rs
 use crate::channel::WSCommand;
+use crate::utils::xrpl_codec::{self, Amount, TransactionType};
+use crate::ws::commands::transaction_builder;
 use crate::ws::commands::wallet_auth::Bip44Wallet;
-use rippled_binary_codec::serialize::serialize_tx;
-use serde_json::{json, Value};
 
 // OfferCreate `Flags` bits. https://xrpl.org/offercreate.html#offercreate-flags
 const TF_IMMEDIATE_OR_CANCEL: u32 = 0x0002_0000;
 const TF_FILL_OR_KILL: u32 = 0x0004_0000;
 const TF_SELL: u32 = 0x0008_0000;
 
-// Manual signing and hashing
-use bitcoin::secp256k1::{Message, Secp256k1};
-use sha2::{Digest, Sha512};
-
 // --- HIGH PRECISION HELPERS ---
 
-fn xrp_str_to_drops(xrp_str: &str) -> Result<String, String> {
+fn xrp_str_to_drops(xrp_str: &str) -> Result<u64, String> {
     if xrp_str.is_empty()
         || !xrp_str
             .chars()
@@ -54,7 +50,8 @@ fn xrp_str_to_drops(xrp_str: &str) -> Result<String, String> {
         fractional_part.truncate(6);
     }
 
-    // Parse to u128 for safety (u64 max covers XRPL limits: ~10^17 drops)
+    // Parse to u128 for safety; checked arithmetic so an absurd amount is an
+    // error, never a wrapped one. The codec caps it at all the XRP there is.
     let integer_drops: u128 = integer_str
         .parse()
         .map_err(|_| "Invalid integer part.".to_string())?;
@@ -62,12 +59,16 @@ fn xrp_str_to_drops(xrp_str: &str) -> Result<String, String> {
         .parse()
         .map_err(|_| "Invalid fractional part.".to_string())?;
 
-    let total_drops = integer_drops * 1_000_000 + fractional_drops;
+    let total_drops = integer_drops
+        .checked_mul(1_000_000)
+        .and_then(|d| d.checked_add(fractional_drops))
+        .and_then(|d| u64::try_from(d).ok())
+        .ok_or("XRP amount is too large.")?;
     if negative < 0 && total_drops > 0 {
         return Err("Negative XRP amounts not supported.".to_string());
     }
 
-    Ok(total_drops.to_string())
+    Ok(total_drops)
 }
 
 /// Validate and normalize a positive decimal amount string for an XRPL issued
@@ -122,26 +123,22 @@ fn get_asset_config(symbol: &str) -> Option<(&'static str, &'static str)> {
     crate::utils::tokens::by_code(symbol).map(|t| (t.currency_hex, t.issuer))
 }
 
-/// Amount in the JSON shape the binary codec expects: XRP is a bare drops
-/// string, an issued currency is `{ currency, issuer, value }`.
-fn to_xrpl_amount(amount_str: &str, currency: &str) -> Result<Value, String> {
+/// One side of the offer: XRP in drops, or an issued currency from the token
+/// registry.
+fn to_xrpl_amount(amount_str: &str, currency: &str) -> Result<Amount, String> {
     if currency == "XRP" {
         let drops = xrp_str_to_drops(amount_str)?;
-        if drops == "0" {
+        if drops == 0 {
             return Err("Amount must be greater than zero.".to_string());
         }
-        Ok(Value::String(drops))
+        Amount::xrp(drops)
     } else {
         let (hex, issuer) = get_asset_config(currency)
             .ok_or_else(|| format!("Unsupported currency: {}", currency))?;
 
         let value = normalize_issued_value(amount_str)?;
 
-        Ok(json!({
-            "currency": hex,
-            "issuer": issuer,
-            "value": value,
-        }))
+        Amount::issued(&value, hex, issuer)
     }
 }
 
@@ -171,7 +168,7 @@ pub async fn construct_blob(
     wallet_obj: &Bip44Wallet,
     cmd: &WSCommand,
     sequence: u32,
-    fee: String,
+    fee: u64,
     last_ledger_sequence: u32,
 ) -> Result<String, String> {
     let taker_pays_raw = cmd.taker_pays.as_ref().ok_or("Missing taker_pays")?;
@@ -180,60 +177,21 @@ pub async fn construct_blob(
     let taker_pays_amount = to_xrpl_amount(&taker_pays_raw.0, &taker_pays_raw.1)?;
     let taker_gets_amount = to_xrpl_amount(&taker_gets_raw.0, &taker_gets_raw.1)?;
 
-    let pub_key_hex = hex::encode(wallet_obj.public_key.serialize()).to_uppercase();
+    // The unsigned OfferCreate; `transaction_builder::sign` adds the key and
+    // the signature, and the codec puts the fields in order. `Flags` is
+    // always present (0 when none).
+    let fields = vec![
+        xrpl_codec::transaction_type(TransactionType::OfferCreate),
+        xrpl_codec::account(&wallet_obj.address)?,
+        xrpl_codec::fee(fee)?,
+        xrpl_codec::sequence(sequence),
+        xrpl_codec::last_ledger_sequence(last_ledger_sequence),
+        xrpl_codec::flags(offer_flags(cmd.flags.as_ref())),
+        xrpl_codec::taker_gets(taker_gets_amount),
+        xrpl_codec::taker_pays(taker_pays_amount),
+    ];
 
-    // The unsigned OfferCreate as JSON for `serialize_tx`; the codec
-    // canonicalises field order. `Flags` is always present (0 when none).
-    let mut tx_json_val = json!({
-        "TransactionType": "OfferCreate",
-        "Account": wallet_obj.address,
-        "Fee": fee,
-        "Sequence": sequence,
-        "LastLedgerSequence": last_ledger_sequence,
-        "Flags": offer_flags(cmd.flags.as_ref()),
-        "TakerGets": taker_gets_amount,
-        "TakerPays": taker_pays_amount,
-    });
-
-    // --- MANUAL SIGNING FLOW ---
-
-    // 1. Inject SigningPubKey
-    if let Some(obj) = tx_json_val.as_object_mut() {
-        obj.insert("SigningPubKey".to_string(), serde_json::Value::String(pub_key_hex));
-    }
-
-    // 2. Hash the Binary (Unsigned)
-    let unsigned_tx_json = serde_json::to_string(&tx_json_val).unwrap();
-    let unsigned_hex = serialize_tx(unsigned_tx_json, false)
-        .ok_or_else(|| "Binary encoding failed".to_string())?;
-    let unsigned_bytes = hex::decode(&unsigned_hex).unwrap();
-
-    // 3. Prefix + SHA-512/256 (STN\0)
-    let mut payload = Vec::new();
-    payload.extend_from_slice(&[0x53, 0x54, 0x58, 0x00]);
-    payload.extend_from_slice(&unsigned_bytes);
-
-    let mut hasher = Sha512::new();
-    hasher.update(&payload);
-    let hash = hasher.finalize();
-
-    // 4. ECDSA Sign
-    let secp = Secp256k1::new();
-    let message = Message::from_digest_slice(&hash[0..32]).unwrap();
-    let sig = secp.sign_ecdsa(&message, &wallet_obj.secret_key);
-    let sig_hex = hex::encode(sig.serialize_der().as_ref()).to_uppercase();
-
-    // 5. Inject TxnSignature
-    if let Some(obj) = tx_json_val.as_object_mut() {
-        obj.insert("TxnSignature".to_string(), serde_json::Value::String(sig_hex));
-    }
-
-    // 6. Final Blob
-    let final_tx_json = serde_json::to_string(&tx_json_val).unwrap();
-    let tx_blob = serialize_tx(final_tx_json, false)
-        .ok_or_else(|| "Final encoding failed".to_string())?;
-
-    Ok(tx_blob)
+    transaction_builder::sign(wallet_obj, fields)
 }
 #[cfg(test)]
 mod tests {
@@ -254,27 +212,23 @@ mod tests {
     }
 
     #[test]
-    fn xrp_for_token_offer_serializes() {
-        // The codec is the arbiter of the JSON shape: a wrong key or type
-        // makes serialize_tx return None.
+    fn xrp_for_token_offer_encodes() {
         let gets = to_xrpl_amount("25", "XRP").unwrap();
-        let pays = to_xrpl_amount("10.5", "RLUSD").unwrap();
-        assert_eq!(gets, Value::String("25000000".into()));
-        assert_eq!(pays["value"], "10.5");
-        let mut v = json!({
-            "TransactionType": "OfferCreate",
-            "Account": "rLSn6Z3T8uCxbcd1oxwfGQN1Fdn5CyGujK",
-            "Fee": "12",
-            "Sequence": 1,
-            "LastLedgerSequence": 99,
-            "Flags": TF_SELL,
-            "TakerGets": gets,
-            "TakerPays": pays,
-        });
-        v.as_object_mut().unwrap().insert("SigningPubKey".into(), json!(""));
-        let hex = serialize_tx(serde_json::to_string(&v).unwrap(), false)
-            .expect("codec accepts the shape")
-            .to_uppercase();
+        let pays = to_xrpl_amount("10.50", "RLUSD").unwrap();
+        let token = crate::utils::tokens::by_code("RLUSD").unwrap();
+        assert_eq!(gets, Amount::xrp(25_000_000).unwrap());
+        assert_eq!(pays, Amount::issued("10.5", token.currency_hex, token.issuer).unwrap());
+        let fields = vec![
+            xrpl_codec::transaction_type(TransactionType::OfferCreate),
+            xrpl_codec::account("rLSn6Z3T8uCxbcd1oxwfGQN1Fdn5CyGujK").unwrap(),
+            xrpl_codec::fee(12).unwrap(),
+            xrpl_codec::sequence(1),
+            xrpl_codec::last_ledger_sequence(99),
+            xrpl_codec::flags(TF_SELL),
+            xrpl_codec::taker_gets(gets),
+            xrpl_codec::taker_pays(pays),
+        ];
+        let hex = hex::encode_upper(xrpl_codec::encode(&fields).unwrap());
         // Flags is UInt32 field id 0x22; 0x00080000 = tfSell.
         assert!(hex.contains("2200080000"), "tfSell not encoded: {hex}");
     }

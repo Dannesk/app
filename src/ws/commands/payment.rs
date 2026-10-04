@@ -1,16 +1,13 @@
 // ws/commands/payment.rs
 // This module handles the blob creation for XRP, RLUSD, EURO, and SGD payments
 use crate::channel::WSCommand;
+use crate::utils::xrpl_codec::{self, Amount, Field, TransactionType};
+use crate::ws::commands::transaction_builder;
 use crate::ws::commands::wallet_auth::Bip44Wallet; // Adjust path if needed
-use rippled_binary_codec::serialize::serialize_tx;
-use serde_json::{json, Value};
-//imports for manually signing
-use bitcoin::secp256k1::{Message, Secp256k1};
-use sha2::{Digest, Sha512};
 
-/// Converts an XRP amount string (e.g., "12.000001" or "12000") to an exact integer drops string.
+/// Converts an XRP amount string (e.g., "12.000001" or "12000") to an exact number of drops.
 /// Handles up to 6 decimal places (XRPL precision), truncating excess. No floating-point used.
-fn xrp_str_to_drops(xrp_str: &str) -> Result<String, String> {
+fn xrp_str_to_drops(xrp_str: &str) -> Result<u64, String> {
     if xrp_str.is_empty()
         || !xrp_str
             .chars()
@@ -50,7 +47,8 @@ fn xrp_str_to_drops(xrp_str: &str) -> Result<String, String> {
         fractional_part.truncate(6);
     }
 
-    // Parse to u128 for safety (u64 max covers XRPL limits: ~10^17 drops)
+    // Parse to u128 for safety; checked arithmetic so an absurd amount is an
+    // error, never a wrapped one. The codec caps it at all the XRP there is.
     let integer_drops: u128 = integer_str
         .parse()
         .map_err(|_| "Invalid integer part.".to_string())?;
@@ -58,13 +56,17 @@ fn xrp_str_to_drops(xrp_str: &str) -> Result<String, String> {
         .parse()
         .map_err(|_| "Invalid fractional part.".to_string())?;
 
-    let total_drops = integer_drops * 1_000_000 + fractional_drops;
+    let total_drops = integer_drops
+        .checked_mul(1_000_000)
+        .and_then(|d| d.checked_add(fractional_drops))
+        .and_then(|d| u64::try_from(d).ok())
+        .ok_or("XRP amount is too large.")?;
     if negative < 0 && total_drops > 0 {
         return Err("Negative XRP amounts not supported.".to_string());
     }
 
     // Zero amounts are invalid for payments, but we'll check >0 below
-    Ok(total_drops.to_string())
+    Ok(total_drops)
 }
 
 fn get_asset_config(wallet_type: &str) -> Option<(&'static str, &'static str)> {
@@ -118,60 +120,55 @@ fn normalize_issued_value(amount_str: &str) -> Result<String, String> {
     })
 }
 
-/// Issued-currency amount in the JSON shape the binary codec expects:
-/// `{ currency, issuer, value }` (XRP is a bare drops string instead).
-fn create_issued_amount(wallet_type: &str, amount_str: &str) -> Result<Value, String> {
+/// Issued-currency amount from the token registry: the value, the token's
+/// 160-bit currency code and its issuer.
+fn create_issued_amount(wallet_type: &str, amount_str: &str) -> Result<Amount, String> {
     let (currency_hex, issuer) = get_asset_config(wallet_type)
         .ok_or_else(|| format!("Unsupported issued currency: {}", wallet_type))?;
 
     let value = normalize_issued_value(amount_str)?;
 
-    Ok(json!({
-        "currency": currency_hex,
-        "issuer": issuer,
-        "value": value,
-    }))
+    Amount::issued(&value, currency_hex, issuer)
 }
 
-/// The unsigned Payment as JSON for `serialize_tx`. Field names are the
-/// ledger's own; ordering is irrelevant because the codec canonicalises.
+/// The unsigned Payment's fields, without SigningPubKey and TxnSignature,
+/// which `transaction_builder::sign` adds; the codec puts them in order.
 /// `Flags` is always present (0 when none) and `DestinationTag` is only
-/// present when there is one — the codec would otherwise zero-encode it,
-/// which is a different (and wrong) transaction. Kept as its own fn so the
-/// blob test below builds exactly what the signer signs.
-fn payment_json(
+/// present when there is one: a zero tag would be a different (and wrong)
+/// transaction. Kept as its own fn so the tests below encode exactly what the
+/// signer signs.
+fn payment_fields(
     account: &str,
-    fee: &str,
+    fee: u64,
     sequence: u32,
     last_ledger_sequence: Option<u32>,
-    amount: Value,
+    amount: Amount,
     destination: &str,
     destination_tag: Option<u32>,
-) -> Value {
-    let mut v = json!({
-        "TransactionType": "Payment",
-        "Account": account,
-        "Fee": fee,
-        "Sequence": sequence,
-        "Flags": 0,
-        "Amount": amount,
-        "Destination": destination,
-    });
-    let obj = v.as_object_mut().unwrap();
+) -> Result<Vec<Field>, String> {
+    let mut fields = vec![
+        xrpl_codec::transaction_type(TransactionType::Payment),
+        xrpl_codec::account(account)?,
+        xrpl_codec::fee(fee)?,
+        xrpl_codec::sequence(sequence),
+        xrpl_codec::flags(0),
+        xrpl_codec::amount(amount),
+        xrpl_codec::destination(destination)?,
+    ];
     if let Some(lls) = last_ledger_sequence {
-        obj.insert("LastLedgerSequence".into(), json!(lls));
+        fields.push(xrpl_codec::last_ledger_sequence(lls));
     }
     if let Some(tag) = destination_tag {
-        obj.insert("DestinationTag".into(), json!(tag));
+        fields.push(xrpl_codec::destination_tag(tag));
     }
-    v
+    Ok(fields)
 }
 
 pub async fn construct_blob(
     wallet_obj: &Bip44Wallet,
     cmd: &WSCommand,
     sequence: u32,
-    fee: String,
+    fee: u64,
     last_ledger_sequence: u32,
 ) -> Result<String, String> {
     let recipient = cmd.recipient.as_ref().ok_or("Missing recipient")?;
@@ -193,101 +190,45 @@ pub async fn construct_blob(
     let amount = match wallet_type.as_str() {
         "XRP" => {
             let amount_drops = xrp_str_to_drops(amount_str)?;
-            if amount_drops == "0" {
+            if amount_drops == 0 {
                 return Err("Amount must be greater than zero.".to_string());
             }
-            Value::String(amount_drops)
+            Amount::xrp(amount_drops)?
         }
         _ => create_issued_amount(wallet_type.as_str(), amount_str)?,
     };
 
-    // 1. Serialize Public Key (Compressed 33-bytes)
-    let pub_key_hex = hex::encode(wallet_obj.public_key.serialize()).to_uppercase();
-
-    // 2. Build the unsigned Payment JSON
-    let mut tx_json_val = payment_json(
+    let fields = payment_fields(
         &wallet_obj.address,
-        &fee,
+        fee,
         sequence,
         Some(last_ledger_sequence),
         amount,
         &destination,
         destination_tag,
-    );
+    )?;
 
-    // 3. Inject SigningPubKey into the JSON before the first serialization
-    if let Some(obj) = tx_json_val.as_object_mut() {
-        obj.insert("SigningPubKey".to_string(), serde_json::Value::String(pub_key_hex));
-    }
-
-    // 4. Create the Unsigned Binary Blob
-    let unsigned_tx_json = serde_json::to_string(&tx_json_val).unwrap();
-    let unsigned_hex = serialize_tx(unsigned_tx_json, false)
-        .ok_or_else(|| "Failed to encode unsigned hex".to_string())?;
-
-    let unsigned_bytes = hex::decode(&unsigned_hex)
-        .map_err(|_| "Hex Decode Error".to_string())?;
-
-    // 5. Construct the Signing Payload
-    // CRITICAL: Must be 0x53545800 (STX\0) for Transactions. 
-    // You had 0x53544E00 (STN\0) which is for Node manifests.
-    let mut payload = Vec::new();
-    payload.extend_from_slice(&[0x53, 0x54, 0x58, 0x00]); 
-    payload.extend_from_slice(&unsigned_bytes);
-
-    // 6. SHA-512 Half Hash
-    let mut hasher = Sha512::new();
-    hasher.update(&payload);
-    let full_hash = hasher.finalize();
-    
-    let mut message_hash = [0u8; 32];
-    message_hash.copy_from_slice(&full_hash[0..32]);
-
-    // 7. Sign with secp256k1
-    let secp = Secp256k1::new();
-    let message = Message::from_digest_slice(&message_hash)
-        .map_err(|_| "Invalid Digest".to_string())?;
-    
-    // sign_ecdsa ensures canonical (low-S) signatures by default
-    let sig = secp.sign_ecdsa(&message, &wallet_obj.secret_key);
-    let der_sig = sig.serialize_der();
-    let sig_hex = hex::encode(der_sig.as_ref()).to_uppercase();
-
-    // 8. Inject the TxnSignature into the final JSON
-    if let Some(obj) = tx_json_val.as_object_mut() {
-        obj.insert("TxnSignature".to_string(), serde_json::Value::String(sig_hex));
-    }
-
-    // 9. Final Serialization for Broadcast
-    let final_tx_json = serde_json::to_string(&tx_json_val).unwrap();
-    let tx_blob = serialize_tx(final_tx_json, false)
-        .ok_or_else(|| "Final Encoding Failed".to_string())?;
-
-    Ok(tx_blob)
+    transaction_builder::sign(wallet_obj, fields)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Build the unsigned blob exactly as `construct_blob` does (minus signing)
-    /// for a payment with the given tag, and return the uppercase hex.
+    /// Encode the unsigned Payment exactly as `construct_blob` builds it (minus
+    /// the key and signature) for a payment with the given tag, as uppercase hex.
     fn blob_with_tag(destination_tag: Option<u32>) -> String {
-        let mut v = payment_json(
+        let fields = payment_fields(
             "rLSn6Z3T8uCxbcd1oxwfGQN1Fdn5CyGujK",
-            "12",
+            12,
             1,
             None,
-            Value::String("1000000".into()),
+            Amount::xrp(1_000_000).unwrap(),
             "rPEPPER7kfTD9w2To4CQk6UCfuHM9c6GDY",
             destination_tag,
-        );
-        v.as_object_mut().unwrap().insert(
-            "SigningPubKey".to_string(),
-            serde_json::Value::String(String::new()),
-        );
-        let json = serde_json::to_string(&v).unwrap();
-        serialize_tx(json, false).expect("serialize").to_uppercase()
+        )
+        .expect("payment fields");
+        hex::encode_upper(xrpl_codec::encode(&fields).expect("encode"))
     }
 
     #[test]
@@ -307,31 +248,41 @@ mod tests {
     }
 
     #[test]
-    fn issued_amount_is_currency_issuer_value_object() {
-        // RLUSD is in the registry; the codec needs exactly these three keys.
-        let v = create_issued_amount("RLUSD", "10.50").expect("registry token");
-        let o = v.as_object().expect("object");
-        assert_eq!(o.len(), 3);
-        assert_eq!(o["value"], "10.5");
-        assert!(o["currency"].as_str().unwrap().len() == 40, "160-bit currency hex");
-        assert!(o["issuer"].as_str().unwrap().starts_with('r'));
+    fn issued_amount_is_the_registry_token() {
+        // RLUSD is in the registry: its currency code and issuer, and the
+        // value as typed with the trailing zero dropped.
+        let token = crate::utils::tokens::by_code("RLUSD").unwrap();
+        assert_eq!(
+            create_issued_amount("RLUSD", "10.50"),
+            Amount::issued("10.5", token.currency_hex, token.issuer)
+        );
+        assert!(create_issued_amount("NOPE", "1").is_err());
     }
 
     #[test]
-    fn issued_payment_serializes() {
-        // The whole point of the JSON shape: the codec accepts it. A bad key
-        // or a non-string value makes serialize_tx return None.
+    fn issued_payment_encodes() {
         let amount = create_issued_amount("RLUSD", "1").unwrap();
-        let mut v = payment_json(
+        let fields = payment_fields(
             "rLSn6Z3T8uCxbcd1oxwfGQN1Fdn5CyGujK",
-            "12",
+            12,
             1,
             Some(99),
             amount,
             "rPEPPER7kfTD9w2To4CQk6UCfuHM9c6GDY",
             None,
-        );
-        v.as_object_mut().unwrap().insert("SigningPubKey".into(), json!(""));
-        assert!(serialize_tx(serde_json::to_string(&v).unwrap(), false).is_some());
+        )
+        .unwrap();
+        // Amount 6/1 is field id 0x61, followed by the token's 48 bytes.
+        let hex = hex::encode_upper(xrpl_codec::encode(&fields).unwrap());
+        assert!(hex.contains("61D4838D7EA4C68000524C555344"), "RLUSD 1 not encoded: {hex}");
+    }
+
+    #[test]
+    fn xrp_amounts_are_exact_and_bounded() {
+        assert_eq!(xrp_str_to_drops("12.000001"), Ok(12_000_001));
+        assert_eq!(xrp_str_to_drops("0.1234567"), Ok(123_456));
+        // Drops that overflow u128 or u64 are an error, not a wrapped number.
+        assert!(xrp_str_to_drops(&"9".repeat(33)).is_err());
+        assert!(xrp_str_to_drops(&"9".repeat(20)).is_err());
     }
 }

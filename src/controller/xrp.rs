@@ -828,10 +828,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             // The pair survives the clear: the next order on the grid's
             // ticket is almost always on the same market, and re-picking it
             // after every trade is a chore. Everything else is a fresh order.
-            let (pay, recv) = (state.trade_pay_asset.clone(), state.trade_receive_asset.clone());
-            clear_trade_form(state);
-            state.trade_pay_asset = pay;
-            state.trade_receive_asset = recv;
+            clear_trade_form_after_order(state);
             state.xrp_view = XrpView::Menu;
             trade_grid_init(state);
         }
@@ -2009,6 +2006,22 @@ pub(crate) fn clear_trade_form(state: &mut AppState) {
     clear_trade_inputs(state);
 }
 
+/// [`clear_trade_form`] once an order is handed off, keeping the market: the
+/// `(base, quote)` survives, put back under the side a fresh ticket opens on.
+///
+/// What survives is the market, never the raw pay / receive pair. This used
+/// to save the pair, clear, and write it back, but the clear re-sides the
+/// ticket, and the old pair under the new side reads backwards: every Sell on
+/// XRP/RLUSD came back as RLUSD/XRP, on success and failure alike (found
+/// 2026-10-04, shipped in 0.1.0 and 0.1.1). The same mistake as setting the
+/// side alone, see [`orient_trade_pair`].
+fn clear_trade_form_after_order(state: &mut AppState) {
+    let (base, quote) = trade_market_pair(state);
+    let (base, quote) = (base.to_string(), quote.to_string());
+    clear_trade_form(state);
+    orient_trade_pair(state, trade_default_side(&base, &quote), &base, &quote);
+}
+
 /// The ticket's own inputs and credential — everything [`clear_trade_form`]
 /// empties **except the pair**, and without touching the book subscriptions.
 ///
@@ -2494,5 +2507,27 @@ mod tests {
         let flat_default = trade_cushioned(1.0, 1.0, None);
         let flat_bbrl = trade_cushioned(1.0, 1.0, Some(5));
         assert!(flat_bbrl < flat_default, "{flat_bbrl} !< {flat_default}");
+    }
+
+    /// An order handed off on either side leaves the ticket on the same
+    /// market, oriented for the next order: XRP/RLUSD stays XRP/RLUSD. After
+    /// a Sell it used to come back as RLUSD/XRP.
+    #[test]
+    fn a_finished_order_keeps_the_market_the_right_way_round() {
+        for side in [TradeSide::Sell, TradeSide::Buy] {
+            let mut state = AppState::default();
+            orient_trade_pair(&mut state, side, "XRP", "RLUSD");
+            state.trade_side_chosen = true;
+            state.trade_amount = "1".to_string();
+
+            clear_trade_form_after_order(&mut state);
+
+            assert_eq!(trade_market_pair(&state), ("XRP", "RLUSD"), "after a {side:?}");
+            let (base, quote) = trade_market_pair(&state);
+            let fresh = trade_default_side(base, quote);
+            assert_eq!(state.trade_side, fresh, "after a {side:?}");
+            assert!(!state.trade_side_chosen, "after a {side:?}");
+            assert_eq!(state.trade_amount, "", "after a {side:?}");
+        }
     }
 }

@@ -40,6 +40,16 @@ pub fn is_valid_classic_address(s: &str) -> bool {
     matches!(decode_check(s).as_deref(), Some([0x00, rest @ ..]) if rest.len() == 20)
 }
 
+/// The 20-byte account id inside a classic address, which is what a
+/// transaction carries in its AccountID fields (`xrpl_codec`). `None` for
+/// anything that is not a classic address.
+pub fn account_id(classic: &str) -> Option<[u8; 20]> {
+    match decode_check(classic)?.as_slice() {
+        [0x00, rest @ ..] => rest.try_into().ok(),
+        _ => None,
+    }
+}
+
 fn encode_classic_address(account_id: &[u8]) -> String {
     let mut payload = [0u8; 21];
     payload[1..].copy_from_slice(account_id);
@@ -180,6 +190,16 @@ mod tests {
         assert_eq!(got.classic, r);
         assert_eq!(got.tag, None);
         assert!(!got.from_xaddress);
+    }
+
+    #[test]
+    fn account_id_is_the_classic_address_payload() {
+        let r = "rPEPPER7kfTD9w2To4CQk6UCfuHM9c6GDY";
+        let id = account_id(r).expect("valid classic address");
+        assert_eq!(encode_classic_address(&id), r);
+        // A bad checksum or an X-address is not a classic address.
+        assert!(account_id("rPEPPER7kfTD9w2To4CQk6UCfuHM9c6GDZ").is_none());
+        assert!(account_id("X7AcgcsBL6XDcUb289X4mJ8djcdyKaB5hJDWMArnXr61cqZ").is_none());
     }
 
     // Reference vectors from the XRPL address-codec test suite (shared by

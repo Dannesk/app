@@ -135,7 +135,7 @@ pub async fn execute(
         &cmd,
         &tx_type,
         env.sequence,
-        env.fee.to_string(),
+        env.fee,
         env.last_ledger_sequence,
     )
     .await
@@ -383,13 +383,16 @@ fn ccy<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(|x| x.as_str()).unwrap_or("")
 }
 
-/// One sentence about what the order did, in the voice of a fact.
+/// One sentence about what the order did, in the voice of a fact: the amount
+/// in the market's base and the price, as a ticket says it. "Filled 1 XRP at
+/// 1.4942 RLUSD." What came back is the one times the other, so it is not
+/// said again (user, 2026-10-04: the arrow and "per XRP" were too much).
 ///
-/// **Both sides, always.** A partial that states only what filled invites the
-/// reading that the rest is still working; a partial that states only what was
-/// asked for hides that anything traded at all. The remainder of an
-/// immediate-or-cancel order does not rest, is not retried and is not coming
-/// back, and this is the only place the app says so.
+/// **A partial states what filled and what was asked.** One that states only
+/// what filled invites the reading that the rest is still working; one that
+/// states only what was asked for hides that anything traded at all. The
+/// remainder of an immediate-or-cancel order does not rest, is not retried
+/// and is not coming back, and this is the only place the app says so.
 ///
 /// The "of" comparison is drawn against whichever side the order was ANCHORED
 /// on — the relay sends `requested` with its own currency for exactly this, so
@@ -399,44 +402,42 @@ fn outcome_sentence(status: &str, r: &Value) -> String {
     let (filled, fc) = (trim(r, "filled"), ccy(r, "filled_currency"));
     let (received, rc) = (trim(r, "received"), ccy(r, "received_currency"));
     let (asked, ac) = (trim(r, "requested"), ccy(r, "requested_currency"));
-    // The relay orients the rate as token per XRP when one leg is XRP (the
-    // ticket's number, whichever way the market was crossed), receive per pay
-    // otherwise — the words here say which.
+    // The amount is the base's: the XRP leg when there is one, whichever way
+    // the market was crossed, what was paid otherwise. The relay orients the
+    // rate to match (token per XRP, or receive per pay), so the price reads
+    // in the other leg's unit.
+    let (amount, unit, price_unit) = if rc == "XRP" {
+        (received.as_str(), rc, fc)
+    } else {
+        (filled.as_str(), fc, rc)
+    };
     let at = match r.get("fill_price").and_then(|x| x.as_str()) {
-        Some(p) if !p.is_empty() => {
-            let unit = match (fc, rc) {
-                (_, "XRP") => format!("{} per XRP", fc),
-                ("XRP", _) => format!("{} per XRP", rc),
-                (pc, rc) => format!("{} per {}", rc, pc),
-            };
-            format!(" at {} {}", p, unit)
-        }
+        Some(p) if !p.is_empty() => format!(" at {} {}", p, price_unit),
         _ => String::new(),
     };
+    let traded = format!("{} {}{}", amount, unit, at);
 
     match status {
-        "success" => format!("Filled {} {} \u{2192} {} {}{}.", filled, fc, received, rc, at),
+        "success" => format!("Filled {}.", traded),
         "partial" => {
-            let of = if ac == fc {
-                format!("Filled {} of {} {}", filled, asked, fc)
+            let of = if ac == unit {
+                format!("Filled {} of {} {}{}", amount, asked, unit, at)
+            } else if ac == fc {
+                format!("Filled {} of {} {} \u{2014} {}", filled, asked, fc, traded)
             } else if ac == rc {
-                format!("Received {} of {} {}", received, asked, rc)
+                format!("Received {} of {} {} \u{2014} {}", received, asked, rc, traded)
             } else {
-                format!("Filled {} {}", filled, fc)
+                format!("Filled {}", traded)
             };
-            format!(
-                "{} \u{2014} {} {} \u{2192} {} {}{}. The rest did not fill and is gone.",
-                of, filled, fc, received, rc, at,
-            )
+            format!("{}. The rest did not fill and is gone.", of)
         }
         // Nothing crossed. Said as a book fact rather than a fault: the
         // transaction was accepted, the price simply was not there.
         "killed" => "Nothing filled \u{2014} the book moved before the order landed. Only the network fee was charged.".to_string(),
         // The one status where an order is genuinely still live.
-        "pending" if filled.parse::<f64>().unwrap_or(0.0) > 0.0 => format!(
-            "Filled {} {} \u{2192} {} {}{}. The rest is resting on the book.",
-            filled, fc, received, rc, at,
-        ),
+        "pending" if filled.parse::<f64>().unwrap_or(0.0) > 0.0 => {
+            format!("Filled {}. The rest is resting on the book.", traded)
+        }
         "pending" => "Nothing filled yet \u{2014} the order is resting on the book.".to_string(),
         // The node's own reason when the relay forwarded one (an immediate
         // rejection); a validated failure carries only its code.
@@ -489,4 +490,51 @@ fn ledger_env(wallet: &str) -> Result<LedgerEnv, String> {
         .saturating_add(LAST_LEDGER_OFFSET);
 
     Ok(LedgerEnv { sequence, fee, last_ledger_sequence })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn order(filled: &str, fc: &str, received: &str, rc: &str, requested: &str, ac: &str) -> Value {
+        json!({
+            "filled": filled, "filled_currency": fc,
+            "received": received, "received_currency": rc,
+            "requested": requested, "requested_currency": ac,
+            "fill_price": "1.4942",
+        })
+    }
+
+    /// A fill is the base amount at the price: the same sentence for a Sell
+    /// (XRP paid) and a Buy (XRP received).
+    #[test]
+    fn a_fill_is_the_base_amount_at_the_price() {
+        let sell = order("1.0000", "XRP", "1.4942", "RLUSD", "1", "XRP");
+        let buy = order("1.4942", "RLUSD", "1.0000", "XRP", "1", "XRP");
+        assert_eq!(outcome_sentence("success", &sell), "Filled 1 XRP at 1.4942 RLUSD.");
+        assert_eq!(outcome_sentence("success", &buy), "Filled 1 XRP at 1.4942 RLUSD.");
+        let no_price = json!({"filled": "1", "filled_currency": "XRP", "received": "1.4942", "received_currency": "RLUSD"});
+        assert_eq!(outcome_sentence("success", &no_price), "Filled 1 XRP.");
+    }
+
+    /// A partial says what filled against what was asked, in the unit typed,
+    /// and that the rest is gone; a resting one says the rest is resting.
+    #[test]
+    fn a_partial_states_its_shortfall_in_the_unit_typed() {
+        let on_xrp = order("0.5", "XRP", "0.7471", "RLUSD", "1", "XRP");
+        assert_eq!(
+            outcome_sentence("partial", &on_xrp),
+            "Filled 0.5 of 1 XRP at 1.4942 RLUSD. The rest did not fill and is gone."
+        );
+        let on_total = order("0.5", "XRP", "0.7471", "RLUSD", "1.4942", "RLUSD");
+        assert_eq!(
+            outcome_sentence("partial", &on_total),
+            "Received 0.7471 of 1.4942 RLUSD \u{2014} 0.5 XRP at 1.4942 RLUSD. The rest did not fill and is gone."
+        );
+        assert_eq!(
+            outcome_sentence("pending", &on_xrp),
+            "Filled 0.5 XRP at 1.4942 RLUSD. The rest is resting on the book."
+        );
+    }
 }
