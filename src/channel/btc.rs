@@ -202,6 +202,35 @@ pub struct BtcUtxo {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct BtcTransactionState {
     pub transactions: HashMap<String, BtcTransactionData>,
+    /// The `transactions` pane's paging. A pending row is never paged: the
+    /// startup reply carries every one of them.
+    pub page: super::history::HistoryPage,
+}
+
+impl BtcTransactionState {
+    /// Settled records this client holds — the `offset` a page asks from,
+    /// and what the end row compares against the server's total. Records,
+    /// not the rows drawn: a replaced original folds into its replacement on
+    /// screen, and the server counts records.
+    pub fn held(&self) -> usize {
+        self.transactions
+            .values()
+            .filter(|t| t.status != BitcoinTransactionStatus::Pending)
+            .count()
+    }
+
+    /// A reply with rows landed: merge them (a repeat rewrites itself) and
+    /// take the facts. `page` says whether this reply answers the page
+    /// request; the startup reply does not.
+    pub fn apply_reply(&mut self, rows: Vec<BtcTransactionData>, reply: &serde_json::Value, page: bool) {
+        for tx in rows {
+            self.transactions.insert(tx.txid.clone(), tx);
+        }
+        self.page.facts(super::history::HistoryList::BtcTransactions, reply);
+        if page {
+            self.page.done();
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Deserialize)]

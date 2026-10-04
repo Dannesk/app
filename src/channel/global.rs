@@ -199,4 +199,9 @@ pub struct WSCommand {
     /// Fee bump: the mempool txid the signed replacement supersedes — the
     /// relay marks it `replaced` on an accepted broadcast.
     pub replaces: Option<String>,
+    /// A history page (`get_history` / `get_bitcoin_history`): which list, in
+    /// the relay's word (XRP only — Bitcoin has one list), and how many
+    /// settled rows of it the app already holds.
+    pub history_kind: Option<&'static str>,
+    pub history_offset: Option<usize>,
 }

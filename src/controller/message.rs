@@ -319,6 +319,11 @@ pub enum Message {
     TxCardToggled(String),
     /// The settled tail line of an expanded XRP row: hash to the clipboard.
     CopyTxHash(String),
+    /// `load 20 more ›` / `retry ›` at the end of a history list: ask the
+    /// relay for the next page of that list (`channel::history`).
+    HistoryLoadMore(crate::channel::HistoryList),
+    /// The page asked for as request `seq` never answered.
+    HistoryTimedOut(crate::channel::HistoryList, u32),
     CreateSubmitClicked,
     CreateCompleted,
     /// Settings ▸ Appearance ▸ Theme. A SET, not a flip: the picker is an

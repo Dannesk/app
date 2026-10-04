@@ -62,9 +62,10 @@ const DROPS: f64 = 1_000_000.0;
 // How far back this list goes is the ledger node's business, not ours. Nodes
 // prune — full XRPL history is ~39TB — so an import rebuilds only as far back
 // as the node still holds, and cached history accumulates live from there,
-// capped at 20 rows server-side. None of that is said on the panel any more:
-// the footer (`tx_panel::FOOTER`) points at the docs, where it is explained
-// once and properly.
+// capped at 100 rows server-side. The relay sends the newest 20 of each list
+// at startup and the rest a page at a time — `load 20 more ›` at the end of
+// the list (`panes::end_row`, `channel/history.rs`). The panel says nothing
+// else about it: the docs explain it once and properly.
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 

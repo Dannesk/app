@@ -7,6 +7,7 @@ pub mod panes;
 
 use iced::Task;
 use std::time::Duration;
+use crate::channel::{CHANNEL, HistoryList};
 use crate::controller::message::{ActivityVerdict, Message};
 use crate::controller::app_state::XrpView;
 use crate::controller::app_state::{AppState, Tab};
@@ -66,8 +67,7 @@ pub use subscription::subscriptions;
 /// twin: `bridge/erase_all.rs`.
 fn wipe_wallet_data() {
     use crate::bridge::json_storage::remove_json;
-    use crate::channel::{CHANNEL, TransactionState, BtcTransactionState, WSCommand};
-    use std::collections::HashMap;
+    use crate::channel::{TransactionState, BtcTransactionState, WSCommand};
 
     let (_, xrp_address, _, _) = CHANNEL.wallet_balance_rx.borrow().clone();
     let (_, btc_address, _, _) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
@@ -108,10 +108,10 @@ fn wipe_wallet_data() {
     }
 
     let _ = CHANNEL.wallet_balance_tx.send((0.0, None, false, crate::channel::KeyMode::Standard));
-    let _ = CHANNEL.transactions_tx.send(TransactionState { transactions: HashMap::new() });
+    let _ = CHANNEL.transactions_tx.send(TransactionState::default());
     CHANNEL.clear_tokens();
     let _ = CHANNEL.bitcoin_wallet_tx.send((0.0, None, false, crate::channel::KeyMode::Standard));
-    let _ = CHANNEL.btc_transactions_tx.send(BtcTransactionState { transactions: HashMap::new() });
+    let _ = CHANNEL.btc_transactions_tx.send(BtcTransactionState::default());
     let _ = CHANNEL.activity_tx.send(None);
 }
 
@@ -172,6 +172,62 @@ async fn activity_watchdog(mut rx: tokio::sync::watch::Receiver<bool>) -> Activi
             }
         }
     }
+}
+
+/// How long a history page may go unanswered before its end row reads
+/// `couldn't load · retry ›`. A page is a store read on the relay and one
+/// round trip through the proxy — seconds is already generous.
+const HISTORY_PAGE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// `load 20 more ›`: mark the list fetching, ask its relay for the next page
+/// from the settled rows the app holds, and arm the timeout for exactly this
+/// request. A second click while one is in flight is ignored — the end row
+/// is not a link then, but the message can still arrive from a stale frame.
+fn history_load_more(list: HistoryList) -> Task<Message> {
+    use crate::channel::{PageStatus, WSCommand};
+    let Some(ws_tx) = crate::ws::CRYPTO_COMMANDS_TX.get() else { return Task::none() };
+    let (wallet, command, offset, seq) = match list {
+        HistoryList::BtcTransactions => {
+            let wallet = CHANNEL.bitcoin_wallet_rx.borrow().1.clone();
+            let mut seq = None;
+            let mut offset = 0;
+            CHANNEL.btc_transactions_tx.send_if_modified(|s| {
+                if s.page.status == PageStatus::Fetching {
+                    return false;
+                }
+                offset = s.held();
+                seq = Some(s.page.start());
+                true
+            });
+            (wallet, "get_bitcoin_history", offset, seq)
+        }
+        HistoryList::XrpTransactions | HistoryList::XrpOrders => {
+            let wallet = CHANNEL.wallet_balance_rx.borrow().1.clone();
+            let mut seq = None;
+            let mut offset = 0;
+            CHANNEL.transactions_tx.send_if_modified(|s| {
+                if s.page(list).status == PageStatus::Fetching {
+                    return false;
+                }
+                offset = s.held(list);
+                seq = Some(s.page_mut(list).start());
+                true
+            });
+            (wallet, "get_history", offset, seq)
+        }
+    };
+    let (Some(wallet), Some(seq)) = (wallet, seq) else { return Task::none() };
+    let _ = ws_tx.try_send(WSCommand {
+        command: command.to_string(),
+        wallet: Some(wallet),
+        history_kind: Some(list.kind()),
+        history_offset: Some(offset),
+        ..Default::default()
+    });
+    Task::perform(
+        async { tokio::time::sleep(HISTORY_PAGE_TIMEOUT).await },
+        move |_| Message::HistoryTimedOut(list, seq),
+    )
 }
 
 /// A wrong gate attempt: tick the persisted fail streak, escalate the message,
@@ -560,6 +616,14 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             // something to tell. See `xrp::trade_expiry_check`.
             xrp::trade_expiry_check();
         }
+        // `load 20 more ›`: the next page of one history list, asked for by
+        // how many settled rows of it the app holds. Chain-agnostic here —
+        // the list names its chain, and both relays answer the same way.
+        Message::HistoryLoadMore(list) => return history_load_more(list),
+        Message::HistoryTimedOut(list, seq) => match list {
+            HistoryList::BtcTransactions => CHANNEL.btc_transactions_tx.send_modify(|s| s.page.fail(seq)),
+            _ => CHANNEL.transactions_tx.send_modify(|s| s.page_mut(list).fail(seq)),
+        },
         // Nothing to store: the message's arrival rebuilds the view, and that
         // layout re-shapes every paragraph with the system's fonts behind ours
         // (`utils/fonts.rs`).

@@ -1,4 +1,4 @@
-use crate::channel::{CHANNEL, TransactionState, WSCommand};
+use crate::channel::{CHANNEL, WSCommand};
 use crate::bridge::json_storage::{read_bytes, remove_json, write_bytes, write_json};
 use crate::ws::commands::get_transaction::parse_tx;
 use crate::ws::CRYPTO_OUTGOING_TX;
@@ -153,6 +153,15 @@ pub async fn process_response(message: Message, _current_wallet: &str) -> Result
                     }
                 };
 
+                // The reply's `wallet` is an address to MATCH, never an
+                // identity to adopt: the relay echoes the address this device
+                // derived, so a reply naming any other is refused here, before
+                // a single file is written.
+                if wallet != pending.address.as_str() {
+                    fail_log("Error: the server named an address this wallet does not derive");
+                    return Err("Import reply named an address other than the one derived".to_string());
+                }
+
                 let is_cold = pending.method == "cold";
 
                 // Whatever key file is on disk right now is about to be
@@ -217,15 +226,16 @@ pub async fn process_response(message: Message, _current_wallet: &str) -> Result
                     CHANNEL.set_token(token.code, (balance, has, limit));
                 }
 
-                if let Some(txs) = data.get("transactions").and_then(|t| t.as_array()) {
-                    let mut tx_map = CHANNEL.transactions_rx.borrow().transactions.clone();
-                    for tx in txs {
-                        if let Some(tx_data) = parse_tx(tx) {
-                            tx_map.insert(tx_data.tx_id.clone(), tx_data);
-                        }
-                    }
-                    let _ = CHANNEL.transactions_tx.send(TransactionState { transactions: tx_map });
-                }
+                // The startup rows — the newest page of each list plus every
+                // resting offer — and the history facts beside them.
+                let rows: Vec<_> = data
+                    .get("transactions")
+                    .and_then(|t| t.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(parse_tx)
+                    .collect();
+                CHANNEL.transactions_tx.send_modify(|state| state.apply_reply(rows, &data, None));
 
                 let mut log_opt = CHANNEL.activity_tx.borrow().clone();
                 if let Some(ref mut log) = log_opt {

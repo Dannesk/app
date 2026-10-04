@@ -1,9 +1,11 @@
 pub mod btc;
 pub mod global;
+pub mod history;
 pub mod xrp;
 
 pub use btc::*;
 pub use global::*;
+pub use history::*;
 pub use xrp::*;
 
 use std::collections::{HashMap, HashSet};
@@ -349,18 +351,12 @@ impl Channel {
         //xrp related
         let (wallet_balance_tx, wallet_balance_rx) = watch::channel((0.0, None, false, KeyMode::Standard));
 
-        let (transactions_tx, transactions_rx) = watch::channel(TransactionState {
-            transactions: HashMap::new(),
-        });
-      
+        let (transactions_tx, transactions_rx) = watch::channel(TransactionState::default());
 
         //btc related
         let (bitcoin_wallet_tx, bitcoin_wallet_rx) = watch::channel((0.0, None, false, KeyMode::Standard));
-     
-        let (btc_transactions_tx, btc_transactions_rx) =
-            watch::channel(BtcTransactionState {
-                transactions: HashMap::new(),
-            });
+
+        let (btc_transactions_tx, btc_transactions_rx) = watch::channel(BtcTransactionState::default());
 
         let (btc_utxos_tx, btc_utxos_rx) = watch::channel((None, Vec::new()));
 

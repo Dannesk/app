@@ -7,7 +7,6 @@ use bitcoin::secp256k1::Secp256k1;
 use ripemd::Ripemd160;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::sync::mpsc::Sender;
@@ -184,11 +183,8 @@ impl WalletOperations {
         log.finish("notify");
         let _ = CHANNEL.activity_tx.send(Some(log.clone()));
 
-        // 4. Reset UI/Channels
-        let cleared = TransactionState {
-            transactions: HashMap::new(),
-        };
-        let _ = CHANNEL.transactions_tx.send(cleared);
+        // 4. Reset UI/Channels — rows and the paging with them.
+        let _ = CHANNEL.transactions_tx.send(TransactionState::default());
         let _ = CHANNEL.wallet_balance_tx.send((0.0, None, false, crate::channel::KeyMode::Standard));
         CHANNEL.clear_tokens();
         // The files are gone, so what they said about a stored 25th word has to

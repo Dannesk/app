@@ -58,7 +58,7 @@ use iced::widget::text::{Span, Wrapping};
 use iced::widget::{button, column, container, rich_text, row, span, svg, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow};
 
-use crate::channel::CHANNEL;
+use crate::channel::{CHANNEL, HistoryList, HistoryPage, PageStatus};
 use crate::controller::app_state::EnableInputMode;
 use crate::controller::message::Message;
 use crate::ui::components::compact;
@@ -247,6 +247,66 @@ pub fn detail_block(d: Detail, cp: &'static CompactPalette, scale: f32) -> Eleme
     ]
     .width(Length::Fill)
     .boxed()
+}
+
+/// The end of a paged list — `load 20 more ›` (handoff `list-pagination`,
+/// 2026-10-04). The last child of the scroll, never pinned: someone looking
+/// for an older row scrolls down anyway, and the control sits exactly where
+/// they run out of rows, costing the pane nothing the rest of the time. One
+/// row the height of a list row, centred, no rule under it (the last data
+/// row's rule sits above it as usual).
+///
+/// Four looks, one absence, read off the list's [`HistoryPage`] and `held`
+/// (the settled rows of the list this client holds):
+/// - fetching: `LOADING...` in `faint`, in the link's own box so nothing
+///   shifts; not a link, and a second click goes nowhere;
+/// - failed: `couldn't load` in `red` and `retry ›`, which asks again; the
+///   rows already loaded stay;
+/// - more on the server than held: the link, the shipped `copy hash ›` one;
+/// - everything held and older history known to exist: `older history isn't
+///   fetched` in `faint`, not a link — a capped list must never read as a
+///   complete one;
+/// - everything held and nothing older known: NO row, the list just ends.
+///   That is also every wallet with twenty rows or fewer, and every relay
+///   from before paging, which never says.
+pub fn end_row(
+    page: &HistoryPage,
+    held: usize,
+    list: HistoryList,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Option<Element<'static, Message>> {
+    let inner: Element<'static, Message> = match page.status {
+        PageStatus::Fetching => quiet_word("LOADING...", cp.faint, scale),
+        PageStatus::Failed => row![
+            quiet_word("couldn\u{2019}t load", cp.red, scale),
+            link("retry", cp.dim, Message::HistoryLoadMore(list), cp, scale),
+        ]
+        .spacing(10.0 * scale)
+        .align_y(Alignment::Center)
+        .boxed(),
+        PageStatus::Idle if page.more_than(held) => {
+            link("load 20 more", cp.dim, Message::HistoryLoadMore(list), cp, scale)
+        }
+        PageStatus::Idle if page.capped => quiet_word("older history isn\u{2019}t fetched", cp.faint, scale),
+        PageStatus::Idle => return None,
+    };
+    Some(
+        container(inner)
+            .width(Length::Fill)
+            .align_x(Alignment::Center)
+            .padding(Padding::new(0.0).top(6.0 * scale).bottom(7.0 * scale).left(ROW_PAD_H * scale).right(ROW_PAD_H * scale))
+            .boxed(),
+    )
+}
+
+/// A word in the link's box that is not a link — the end row's `LOADING...`,
+/// its cap note, its `couldn't load`: mono 8.5 in `color`, the link's padding
+/// so it stands exactly where the link stood.
+fn quiet_word(word: &str, color: Color, scale: f32) -> Element<'static, Message> {
+    container(text(word.to_string()).font(MONO).size(LINK * scale).color(color))
+        .padding(Padding::new(3.0 * scale).left(7.0 * scale).right(7.0 * scale))
+        .boxed()
 }
 
 /// A link — `copy hash ›`, `cancel offer ›`, `enable`: mono 8.5 upper in a

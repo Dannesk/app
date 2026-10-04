@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use super::history::{HistoryList, HistoryPage};
+
 /// The account's own ledger facts the send path must know BEFORE signing,
 /// pushed by the relay with every balance (meta `AccountRoot.FinalFields` on
 /// each validated tx, `account_info` on import, the cached hash on connect).
@@ -134,6 +136,62 @@ pub struct PendingTrade {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TransactionState {
     pub transactions: HashMap<String, TransactionData>,
+    /// The `transactions` pane's paging — every kind but an offer.
+    pub tx_page: HistoryPage,
+    /// The `orders` pane's paging — settled offers; a resting one is never
+    /// paged, the startup reply carries every one of them.
+    pub orders_page: HistoryPage,
+}
+
+impl TransactionState {
+    /// Whether a record is an order (an `OfferCreate`) — the split the two
+    /// panes draw, and the relay's own rule for which list a row is in.
+    pub fn is_order(t: &TransactionData) -> bool {
+        matches!(t.order_type.as_str(), "offercreate" | "offer_create")
+    }
+
+    /// Settled rows of `list` this client holds — the `offset` a page asks
+    /// from, and what the end row compares against the server's total.
+    /// Counted off the records, not the rows drawn: the server counts records.
+    pub fn held(&self, list: HistoryList) -> usize {
+        self.transactions
+            .values()
+            .filter(|t| match list {
+                HistoryList::XrpTransactions => !Self::is_order(t),
+                HistoryList::XrpOrders => Self::is_order(t) && t.status != TransactionStatus::Pending,
+                HistoryList::BtcTransactions => false,
+            })
+            .count()
+    }
+
+    pub fn page(&self, list: HistoryList) -> &HistoryPage {
+        match list {
+            HistoryList::XrpOrders => &self.orders_page,
+            _ => &self.tx_page,
+        }
+    }
+
+    pub fn page_mut(&mut self, list: HistoryList) -> &mut HistoryPage {
+        match list {
+            HistoryList::XrpOrders => &mut self.orders_page,
+            _ => &mut self.tx_page,
+        }
+    }
+
+    /// A reply with rows landed: merge them (a repeat rewrites itself) and
+    /// take the facts for both lists — every history-bearing reply carries
+    /// both counts. `page` names the list whose request this reply answers,
+    /// if it is a page; the startup reply answers none.
+    pub fn apply_reply(&mut self, rows: Vec<TransactionData>, reply: &serde_json::Value, page: Option<HistoryList>) {
+        for tx in rows {
+            self.transactions.insert(tx.tx_id.clone(), tx);
+        }
+        self.tx_page.facts(HistoryList::XrpTransactions, reply);
+        self.orders_page.facts(HistoryList::XrpOrders, reply);
+        if let Some(list) = page {
+            self.page_mut(list).done();
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Deserialize)]

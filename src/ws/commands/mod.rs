@@ -14,8 +14,10 @@ pub mod bitcoin_validation;
 pub mod create_wallet;
 pub mod delete_wallet;
 pub mod get_bitcoin_balance;
+pub mod get_bitcoin_history;
 pub mod get_btc_transaction;
 pub mod get_btc_utxos;
+pub mod get_history;
 pub mod get_transaction;
 pub mod getbitcoincachedbalance;
 pub mod getcachedbalance;
@@ -39,6 +41,8 @@ pub enum Command {
     SubmitTransaction,
     GetBalance,
     GetTransaction,
+    /// One page of history — `load 20 more ›` (get_history.rs).
+    GetHistory,
     GetXRPBalance,
     /// Live balance for any registry token (which one is read from the command).
     GetTokenBalance,
@@ -56,6 +60,8 @@ pub enum Command {
     /// The relay pushing the wallet's whole UTXO set (`btc_utxos`).
     GetBtcUtxos,
     GetBitcoinTransaction,
+    /// One page of BTC history — the twin of `GetHistory` (get_bitcoin_history.rs).
+    GetBitcoinHistory,
     /// Trustline limit for any registry token (which one is read from the command).
     GetTokenTrustline,
 }
@@ -79,6 +85,7 @@ impl Command {
             }
             "get_balance" | "get_cached_balance" => Some(Command::GetBalance),
             "get_transaction" => Some(Command::GetTransaction),
+            "get_history" => Some(Command::GetHistory),
             "xrp_balance" => Some(Command::GetXRPBalance),
             "import_bitcoin_wallet" => Some(Command::ImportBitcoinWallet),
             "subscribe_bitcoin_addresses" => Some(Command::SubscribeBitcoinAddresses),
@@ -91,6 +98,7 @@ impl Command {
             "btc_balance" => Some(Command::GetBTCBalance),
             "btc_utxos" => Some(Command::GetBtcUtxos),
             "get_bitcoin_transaction" => Some(Command::GetBitcoinTransaction),
+            "get_bitcoin_history" => Some(Command::GetBitcoinHistory),
             _ => None,
         }
     }
@@ -115,6 +123,7 @@ impl Command {
             Command::GetTransaction => {
                 get_transaction::execute(current_wallet, cmd).await
             }
+            Command::GetHistory => get_history::execute(current_wallet, cmd).await,
 
             Command::GetTokenBalance
             | Command::GetXRPBalance => balances::execute(current_wallet, cmd).await,
@@ -146,6 +155,9 @@ impl Command {
             Command::GetBitcoinTransaction => {
                 get_btc_transaction::execute(bitcoin_current_wallet, cmd).await
             }
+            Command::GetBitcoinHistory => {
+                get_bitcoin_history::execute(bitcoin_current_wallet, cmd).await
+            }
         }
     }
 
@@ -171,6 +183,7 @@ impl Command {
             Command::GetTransaction => {
                 get_transaction::process_response(message, current_wallet).await
             }
+            Command::GetHistory => get_history::process_response(message, current_wallet).await,
 
             Command::GetTokenBalance
             | Command::GetXRPBalance => balances::process_response(message, current_wallet).await,
@@ -199,6 +212,9 @@ impl Command {
             }
             Command::GetBitcoinTransaction => {
                 get_btc_transaction::process_response(message, bitcoin_current_wallet).await
+            }
+            Command::GetBitcoinHistory => {
+                get_bitcoin_history::process_response(message, bitcoin_current_wallet).await
             }
         }
     }

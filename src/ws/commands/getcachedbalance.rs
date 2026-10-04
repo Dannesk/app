@@ -1,4 +1,4 @@
-use crate::channel::{CHANNEL, TransactionState, WSCommand};
+use crate::channel::{CHANNEL, WSCommand};
 use crate::ws::CRYPTO_OUTGOING_TX;
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
@@ -95,16 +95,10 @@ pub async fn process_response(message: Message, _current_wallet: &str) -> Result
                 CHANNEL.set_token(token.code, (balance, has, limit));
             }
 
-            if !transactions_data.is_empty() {
-                let mut current_transactions =
-                    CHANNEL.transactions_rx.borrow().transactions.clone();
-                for tx_data in transactions_data {
-                    current_transactions.insert(tx_data.tx_id.clone(), tx_data);
-                }
-                let _ = CHANNEL.transactions_tx.send(TransactionState {
-                    transactions: current_transactions,
-                });
-            }
+            // Rows merge, never replace, and the history facts — what
+            // `load 20 more ›` can page to — ride along even when the reply
+            // carries no rows.
+            CHANNEL.transactions_tx.send_modify(|state| state.apply_reply(transactions_data, &data, None));
 
             Ok(())
         }

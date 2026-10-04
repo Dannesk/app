@@ -20,7 +20,7 @@ use iced::Widget as _;
 use iced::widget::{column, responsive, Space};
 use iced::{Element, Length, Size};
 
-use crate::channel::CHANNEL;
+use crate::channel::{CHANNEL, HistoryList};
 use crate::controller::app_state::AppState;
 use crate::controller::message::{Message, SecureField};
 use crate::ui::components::signing::SignFields;
@@ -30,7 +30,7 @@ use crate::ui::managexrp::xrptransactions::{self as tx, Kind, Tx};
 use crate::ui::managexrp::xrpdashboard::drow;
 use crate::utils::theme::CompactPalette;
 
-use super::{button_pair, empty, fact, fee_row, group_head, list_row, primary, quiet_button, scroller, sign_block, sign_mode, ListRow, NA};
+use super::{button_pair, empty, end_row, fact, fee_row, group_head, list_row, primary, quiet_button, scroller, sign_block, sign_mode, ListRow, NA};
 
 /// The orders pane's title: `cancel offer` while the form is up.
 pub fn orders_title(state: &AppState) -> &'static str {
@@ -66,7 +66,18 @@ pub fn transactions<'a>(state: &'a AppState, cp: &'static CompactPalette, scale:
     for t in rows {
         list = list.push(list_row(row_of(t, false, state, cp), cp, scale));
     }
+    // `load 20 more ›`, where the rows run out.
+    if let Some(end) = paging(HistoryList::XrpTransactions, cp, scale) {
+        list = list.push(end);
+    }
     scroller(list.boxed(), cp, scale)
+}
+
+/// This list's end row, off the channel's paging facts and the settled rows
+/// of the list the app holds (counted off the records, as the relay counts).
+fn paging(list: HistoryList, cp: &'static CompactPalette, scale: f32) -> Option<Element<'static, Message>> {
+    let txs = CHANNEL.transactions_rx.borrow();
+    end_row(txs.page(list), txs.held(list), list, cp, scale)
 }
 
 pub fn orders<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -89,6 +100,11 @@ pub fn orders<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) 
     }
     for t in &done {
         list = list.push(list_row(row_of(t, true, state, cp), cp, scale));
+    }
+    // Pages append under the settled rows: everything older than the first
+    // page is settled, and the live group stays where it is.
+    if let Some(end) = paging(HistoryList::XrpOrders, cp, scale) {
+        list = list.push(end);
     }
     scroller(list.boxed(), cp, scale)
 }

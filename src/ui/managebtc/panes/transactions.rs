@@ -25,14 +25,14 @@ use iced::widget::text::Wrapping;
 use iced::widget::{button, column, container, responsive, row, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow, Size};
 
-use crate::channel::CHANNEL;
+use crate::channel::{CHANNEL, HistoryList};
 use crate::controller::app_state::{AppState, EnableInputMode};
 use crate::controller::message::{Message, SecureField};
 use crate::ui::components::signing::SignFields;
 use crate::ui::components::tx_panel::{Detail, Seg};
 use crate::ui::managebtc::btcbump;
 use crate::ui::managebtc::btctransactions::{self as tx, Ctx, Tx};
-use crate::ui::managexrp::panes::{button_pair, detail_block, empty, inset_rule, primary, quiet_button, runs, scroller, sign_block};
+use crate::ui::managexrp::panes::{button_pair, detail_block, empty, end_row, inset_rule, primary, quiet_button, runs, scroller, sign_block};
 use crate::utils::fonts::MONO;
 use crate::utils::theme::CompactPalette;
 
@@ -82,6 +82,16 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         let detail = (selected == Some(t.txid.as_str()))
             .then(|| Detail { lines: tx::detail_lines(t, &ctx), tail: tx::tail(t, cp) });
         list = list.push(tx_row(t, tx::time_label(t, now), detail, cp, scale));
+    }
+    // `load 20 more ›`, where the rows run out. `held` is counted off the
+    // records, not the rows drawn: a replaced original folds into its
+    // replacement here, and the relay counts records.
+    let end = {
+        let txs = CHANNEL.btc_transactions_rx.borrow();
+        end_row(&txs.page, txs.held(), HistoryList::BtcTransactions, cp, scale)
+    };
+    if let Some(end) = end {
+        list = list.push(end);
     }
     scroller(list.boxed(), cp, scale)
 }

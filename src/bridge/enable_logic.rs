@@ -81,6 +81,8 @@ impl TrustlineEnableLogic {
             destination_tag: None,
             scan: None,
             replaces: None,
+            history_kind: None,
+            history_offset: None,
         };
 
         if let Err(e) = ws_tx.try_send(cmd) {

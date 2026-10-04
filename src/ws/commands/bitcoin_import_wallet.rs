@@ -188,6 +188,15 @@ pub async fn process_response(
                     }
                 };
 
+                // The reply's `wallet` is an address to MATCH, never an
+                // identity to adopt: the relay echoes the #0 this device
+                // derived, so a reply naming any other is refused here, before
+                // a single file is written.
+                if wallet != pending.address.as_str() {
+                    fail_log("Error: the server named an address this wallet does not derive");
+                    return Err("Import reply named an address other than the one derived".to_string());
+                }
+
                 let is_cold = pending.method == "cold";
 
                 // Whatever key file is on disk right now is about to be

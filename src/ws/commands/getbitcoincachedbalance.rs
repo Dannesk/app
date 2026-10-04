@@ -134,12 +134,11 @@ pub async fn process_response(
                 // pushed between Redis being read and this frame being applied.
                 // Nothing is ever removed here: Redis is a cache, not the
                 // arbiter, and its forgetting something is not evidence the
-                // chain did.
-                if !transactions_map.is_empty() {
-                    CHANNEL.btc_transactions_tx.send_modify(|state| {
-                        state.transactions.extend(transactions_map);
-                    });
-                }
+                // chain did. The reply's history facts (what `load 20 more ›`
+                // can page to) ride along even when it carries no rows.
+                CHANNEL.btc_transactions_tx.send_modify(|state| {
+                    state.apply_reply(transactions_map.into_values().collect(), &data, false);
+                });
 
                 Ok(())
             } else {
@@ -266,17 +265,17 @@ pub(crate) fn apply_whole_wallet(data: &Value) -> Result<(), String> {
     }
     replace_btc_utxos(wallet, union);
 
-    let mut transactions_map = HashMap::new();
-    for tx in data.get("transactions").and_then(|t| t.as_array()).into_iter().flatten() {
-        if let Some(tx_data) = crate::ws::commands::get_btc_transaction::parse_btc_tx(tx) {
-            transactions_map.insert(tx_data.txid.clone(), tx_data);
-        }
-    }
-    if !transactions_map.is_empty() {
-        CHANNEL.btc_transactions_tx.send_modify(|state| {
-            state.transactions.extend(transactions_map);
-        });
-    }
+    let rows: Vec<_> = data
+        .get("transactions")
+        .and_then(|t| t.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(crate::ws::commands::get_btc_transaction::parse_btc_tx)
+        .collect();
+    // Rows merge, never replace; the history facts ride along either way.
+    CHANNEL.btc_transactions_tx.send_modify(|state| {
+        state.apply_reply(rows, data, false);
+    });
 
     send_live_list();
     Ok(())

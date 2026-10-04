@@ -9,7 +9,6 @@ use bitcoin::bip32::{DerivationPath, Xpriv};
 use bitcoin::secp256k1::Secp256k1;
 use bitcoin::{CompressedPublicKey, Network};
 use serde::Serialize;
-use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::sync::mpsc::Sender;
@@ -208,11 +207,8 @@ impl BitcoinWalletOperations {
         log.finish("notify");
         let _ = CHANNEL.activity_tx.send(Some(log.clone()));
 
-        // 4. Reset UI/Channels
-        let cleared_txs = BtcTransactionState {
-            transactions: HashMap::new(),
-        };
-        let _ = CHANNEL.btc_transactions_tx.send(cleared_txs);
+        // 4. Reset UI/Channels — rows and the paging with them.
+        let _ = CHANNEL.btc_transactions_tx.send(BtcTransactionState::default());
         let _ = CHANNEL.bitcoin_wallet_tx.send((0.0, None, false, crate::channel::KeyMode::Standard));
         // The files are gone, so what they said about a stored 25th word has to
         // go too. Left set, it would outlive the wallet it described and tell

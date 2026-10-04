@@ -84,6 +84,8 @@ impl BtcSendLogic {
             destination_tag: None,
             scan: None,
             replaces: None,
+            history_kind: None,
+            history_offset: None,
         };
 
         ws_tx.try_send(cmd).map_err(|e| {

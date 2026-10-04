@@ -4,7 +4,7 @@
 //! `connection.rs` until 2026-09-04; the socket itself now lives in
 //! `socket.rs` and is shared with rates and bookd.
 
-use crate::channel::{CHANNEL, WSCommand};
+use crate::channel::{CHANNEL, HistoryList, WSCommand};
 use crate::ws::commands::Command;
 use crate::ws::config::{TAG_BTC, TAG_RELAY};
 use serde::Serialize;
@@ -20,7 +20,7 @@ struct WsMessage {
 }
 
 /// `{"payload": <json>}` around a bare JSON payload, plus
-/// the stream it belongs on: the five Bitcoin commands go to the Bitcoin relay (inside indexd), its
+/// the stream it belongs on: the six Bitcoin commands go to the Bitcoin relay (inside indexd), its
 /// own process since 2026-09-14, everything else to relay. A Bitcoin command
 /// missing here lands on the XRPL relay as "unknown" and its flow times out. `None` if the
 /// payload isn't JSON — nothing we send ever isn't.
@@ -31,7 +31,8 @@ pub fn wrap(payload: &str) -> Option<(u8, String)> {
         | Some(Command::SubscribeBitcoinAddresses)
         | Some(Command::GetBitcoinBalance)
         | Some(Command::DeleteBitcoinWallet)
-        | Some(Command::SubmitBitcoinTransaction) => TAG_BTC,
+        | Some(Command::SubmitBitcoinTransaction)
+        | Some(Command::GetBitcoinHistory) => TAG_BTC,
         _ => TAG_RELAY,
     };
     let wrapped = serde_json::to_string(&WsMessage { payload: payload_json }).ok()?;
@@ -41,7 +42,9 @@ pub fn wrap(payload: &str) -> Option<(u8, String)> {
 /// A payload the socket task could not send because its link was down. Only a
 /// signing payload is anyone's business here: it belongs to the one flow on
 /// the activity log, which is told — in words that are certain, because the
-/// bytes are still in our hands. Everything else (balance asks, imports) is
+/// bytes are still in our hands. A history page is told too — its end row
+/// reads `couldn't load · retry ›` rather than `loading…` through a backoff,
+/// and the retry is the user's. Everything else (balance asks, imports) is
 /// re-asked by the link-rise re-sync or by the user. Returns whether it was one.
 pub fn report_unsent(payload: &str) -> bool {
     let Ok(v) = serde_json::from_str::<Value>(payload) else { return false };
@@ -52,6 +55,18 @@ pub fn report_unsent(payload: &str) -> bool {
         }
         Some("submit_bitcoin_transaction") => {
             crate::ws::commands::bitcoin_submit_transaction::report_unsent();
+            true
+        }
+        Some("get_history") => {
+            let list = match v.get("kind").and_then(|k| k.as_str()) {
+                Some("orders") => HistoryList::XrpOrders,
+                _ => HistoryList::XrpTransactions,
+            };
+            CHANNEL.transactions_tx.send_modify(|state| state.page_mut(list).fail_any());
+            true
+        }
+        Some("get_bitcoin_history") => {
+            CHANNEL.btc_transactions_tx.send_modify(|state| state.page.fail_any());
             true
         }
         _ => false,
