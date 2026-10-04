@@ -10,19 +10,19 @@ iced = { git = "https://github.com/iced-rs/iced", rev = "56be3ede2b21f4880d1a1d7
 chrono = "0.4.45"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.2", features = ["full"] }
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3.34"  # For StreamExt and SinkExt
-uuid = { version = "1.26.1", features = ["v4"] }
+uuid = { version = "1.27.0", features = ["v4"] }
 zeroize = { version = "1.9", features = ["derive", "serde"] }
 bitcoin = "0.32.102"
 secp256k1 = "0.33.1" 
-bip39 = "2.2.2"
+bip39 = "3.0.0"
 aes-gcm = "0.11.1"
-rand = "0.10.2"
+rand = "0.10.3"
 base64 = "0.23.1"
 argon2 = "0.6.0"
-dirs = "6.0.0"
+dirs = "7.0.0"
 qrcode = "0.14.1"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 rustls = { version = "0.23.45", default-features = false, features = ["aws_lc_rs"] }
@@ -30,9 +30,9 @@ sha2 = "0.11.0"
 ripemd = "0.2.0"
 bs58 = { version = "0.5.1", features = ["check"] }
 hex = "0.4.3"
-zstd = "0.13.3"
-region = "4.0.0"
-libc = "0.2.189"  # already in tree via region; used directly for process hardening (core dumps / ptrace)
+zstd = "0.14.0"
+region = "4.0.1"
+libc = "0.2.190"  # already in tree via region; used directly for process hardening (core dumps / ptrace)
 arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }  # already in iced, but used directly to mark a copied phrase secret (utils/clipboard.rs)
 
 [features]
