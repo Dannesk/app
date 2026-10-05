@@ -1,0 +1,81 @@
+# cargo-deny: what a change may bring into the app's dependency graph.
+#
+# .github/workflows/ci.yml runs `cargo deny check sources bans licenses` on
+# every pull request and every push to main, and any finding fails the run.
+# Advisories are checked in a step of their own that reports and never fails.
+# Reference: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# The app ships for these two targets. Crates used only on Windows or macOS
+# stay outside the graph until those builds exist.
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+
+[advisories]
+# RustSec. Unmaintained and unsound crates are reported anywhere in the graph,
+# not only among our direct dependencies. An advisory can land on a crate long
+# after it entered the lock, so CI reports these without failing (ci.yml).
+# The two known ones below are listed so that a warning on a pull request
+# always means something new; every run still names them in its log.
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+ignore = [
+    # ttf-parser parses fonts for iced's text stack (fontdb, via cosmic-text)
+    # and for winit's Wayland title bar (ab_glyph). Only those crates can
+    # replace it; RustSec names skrifa as the successor.
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained; it reaches us only through iced and winit" },
+    # lru 0.16, in cryoglyph (iced's glyph cache). Triggering it takes a key
+    # whose Drop panics inside catch_unwind; release builds abort on panic.
+    # Fixed in lru 0.18.2, which cryoglyph has yet to adopt.
+    { id = "RUSTSEC-2026-0253", reason = "lru 0.16 is unsound under unwinding; it reaches us only through cryoglyph" },
+]
+
+[licenses]
+# Each licence here can be combined with GPL-3.0-or-later. A crate under any
+# other licence fails the check until that licence is added here on purpose.
+allow = [
+    "GPL-3.0-or-later",  # the app itself
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",  # webpki-roots: Mozilla's root certificates, as data
+    "ISC",
+    "MIT",
+    "MITNFA",  # hex_lit, via bitcoin: MIT plus a clause against false attribution
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[bans]
+# Two versions of one crate are the upstream crates' concern, not a finding.
+multiple-versions = "allow"
+deny = [
+    # iced's debug tooling, pulled in only by iced's `debug`, `hot` and `tester`
+    # features. The beacon client is a TCP client whose address comes from an
+    # environment variable. packaging/build-deb.sh refuses the same four.
+    { crate = "iced_beacon", reason = "iced's debug tooling never ships" },
+    { crate = "iced_devtools", reason = "iced's debug tooling never ships" },
+    { crate = "iced_tester", reason = "iced's debug tooling never ships" },
+    { crate = "cargo-hot-protocol", reason = "iced's debug tooling never ships" },
+    # Telemetry and crash reporting. Every Sentry and OpenTelemetry crate
+    # depends on one of these two.
+    { crate = "sentry-core", reason = "no telemetry or crash reporting in the wallet" },
+    { crate = "opentelemetry", reason = "no telemetry or crash reporting in the wallet" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# A git dependency must name the exact commit it builds.
+required-git-spec = "rev"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# iced is pinned to one commit of its master branch (Cargo.toml). The other
+# three are iced's own pinned dependencies.
+allow-git = [
+    "https://github.com/iced-rs/iced",
+    "https://github.com/iced-rs/winit.git",
+    "https://github.com/iced-rs/cryoglyph.git",
+    "https://github.com/hecrj/cosmic-text.git",
+]

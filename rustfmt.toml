@@ -1,0 +1,4 @@
+# This code is formatted by hand, and rustfmt is switched off: an editor's
+# format-on-save leaves every file as it is, so a pull request shows only the
+# lines it means to change.
+disable_all_formatting = true
