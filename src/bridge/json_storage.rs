@@ -13,7 +13,6 @@
 //! swap them in — an operation POSIX guarantees is atomic. Any reader either
 //! sees the whole old file or the whole new one, never a partial write, and any
 //! failure before the rename leaves the original untouched.
-use dirs::config_dir;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fs::{self, create_dir_all, File, OpenOptions};
@@ -21,19 +20,33 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 pub fn get_config_path(filename: &str) -> io::Result<PathBuf> {
-    let path = config_dir()
+    let path = app_dir()?.join(filename);
+    if let Some(parent) = path.parent() {
+        create_dir_all(parent)?;
+    }
+    Ok(path)
+}
+
+/// The folder every file of the app lives in: `Dannesk` under the user's
+/// config directory.
+#[cfg(not(test))]
+fn app_dir() -> io::Result<PathBuf> {
+    Ok(dirs::config_dir()
         .ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
                 "Could not determine config directory",
             )
         })?
-        .join("Dannesk")
-        .join(filename);
-    if let Some(parent) = path.parent() {
-        create_dir_all(parent)?;
-    }
-    Ok(path)
+        .join("Dannesk"))
+}
+
+/// Tests get a folder of their own under the system's temp directory, one per
+/// run, so `cargo test` never reads, writes or removes a file beside a real
+/// wallet's. Every path in the app comes through here.
+#[cfg(test)]
+fn app_dir() -> io::Result<PathBuf> {
+    Ok(std::env::temp_dir().join(format!("dannesk-test-{}", std::process::id())))
 }
 
 /// The sibling a write passes through. Same directory, deliberately: `rename` is

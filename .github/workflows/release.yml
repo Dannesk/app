@@ -14,6 +14,10 @@
 #
 # workflow_dispatch builds both packages without releasing, to test the
 # pipeline on any branch.
+#
+# Actions are pinned to a commit rather than a tag or branch, which their
+# owners can move: the package these jobs build is the one that gets signed.
+# Updating one is a deliberate edit.
 
 name: release
 
@@ -52,7 +56,7 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             build-essential cmake pkg-config curl ca-certificates git
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Tag matches Cargo.toml
         if: startsWith(github.ref, 'refs/tags/v')
@@ -60,9 +64,11 @@ jobs:
           v=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
           [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but Cargo.toml says $v"; exit 1; }
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Build package
         run: sh packaging/build-deb.sh
@@ -82,7 +88,7 @@ jobs:
             echo "keyring: NOT shipped — packaging/dannesk-archive-keyring.gpg is not in the repo; this .deb will not enrol apt"
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: deb-${{ matrix.arch }}
           path: packaging/out/*.deb
@@ -95,7 +101,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: deb-*
           merge-multiple: true

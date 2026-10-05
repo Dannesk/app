@@ -1,0 +1,105 @@
+# Checks every pull request, and every push to main, for correctness,
+# dependencies and security. Formatting and style are not judged.
+#
+# Nothing here builds a release, signs or keeps anything: the token can only
+# read the repository, no secret is passed in, and no cache is written. A
+# pull request runs its own copy of this file and of deny.toml, so a change
+# to either is read before its result is trusted. Merging stays a person's
+# decision; no result here merges or blocks anything.
+#
+#   test    compiles and runs the unit tests; fails if Cargo.lock is out of
+#           step with Cargo.toml
+#   clippy  correctness lints only, the ones for code that cannot be right
+#   deny    sources, bans and licences fail the run (deny.toml); RustSec
+#           advisories are reported as a warning and never fail it
+#
+# Actions are pinned to a commit rather than a tag or branch, which their
+# owners can move. Updating one is a deliberate edit.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # The runner image ships rustup; this brings stable up to date.
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      - name: Test
+        run: cargo test --locked
+
+  clippy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --no-self-update
+          rustup default stable
+
+      # Only clippy's correctness group: code that cannot be right, such as
+      # `x == x` or a loop that always exits on its first pass. Its style,
+      # complexity and performance lints are switched off, not left as
+      # warnings.
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -A clippy::all -D clippy::correctness
+
+  deny:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      # cargo-deny's own release build, checked against its published SHA-256.
+      - name: Install cargo-deny
+        run: |
+          v=0.20.2
+          f=cargo-deny-$v-x86_64-unknown-linux-musl
+          curl -fsSL -o "$RUNNER_TEMP/$f.tar.gz" \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/$v/$f.tar.gz"
+          echo "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f  $RUNNER_TEMP/$f.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$f.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$f" >> "$GITHUB_PATH"
+
+      - name: Sources, bans and licences
+        run: cargo deny --locked check sources bans licenses
+
+      # An advisory can land on a crate long after it entered Cargo.lock, so
+      # this reports and never fails. Between runs, Dependabot alerts report
+      # new vulnerabilities in Cargo.lock. The info level prints the known
+      # advisories deny.toml lists, so the log always names them.
+      - name: Advisories (reported, never failing)
+        if: ${{ !cancelled() }}
+        run: |
+          cargo deny -L info --locked check advisories && exit 0
+          echo "::warning title=RustSec advisories::cargo-deny reports an advisory against Cargo.lock; see this step's log."
