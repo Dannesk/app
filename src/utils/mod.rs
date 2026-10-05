@@ -12,8 +12,6 @@ pub mod plain_field;
 pub mod secure_input;
 pub mod theme;
 pub mod tokens;
-pub mod xaddress;
-pub mod xrpl_codec;
 pub mod bloom;
 pub mod clipboard;
 

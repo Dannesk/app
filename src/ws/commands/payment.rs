@@ -1,7 +1,7 @@
 // ws/commands/payment.rs
 // This module handles the blob creation for XRP, RLUSD, EURO, and SGD payments
 use crate::channel::WSCommand;
-use crate::utils::xrpl_codec::{self, Amount, Field, TransactionType};
+use xrpl_codec::{Amount, Field, TransactionType};
 use crate::ws::commands::transaction_builder;
 use crate::ws::commands::wallet_auth::Bip44Wallet; // Adjust path if needed
 
@@ -178,7 +178,7 @@ pub async fn construct_blob(
     // Resolve the recipient once: an X-address decodes to a classic r-address
     // plus a baked-in destination tag (which overrides any manual tag); a plain
     // r-address keeps the manually-entered tag from the command.
-    let resolved = crate::utils::xaddress::resolve(recipient)
+    let resolved = xrpl_codec::xaddress::resolve(recipient)
         .ok_or("Invalid recipient address")?;
     let destination = resolved.classic;
     let destination_tag = if resolved.from_xaddress {

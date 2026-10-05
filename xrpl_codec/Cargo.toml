@@ -1,0 +1,13 @@
+[package]
+name = "xrpl_codec"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "XRP Ledger binary encoding for the transactions Dannesk signs, with the classic and X-address codecs."
+repository = "https://github.com/Dannesk/app"
+publish = false  # not public at this time
+
+[dependencies]
+sha2 = "0.11.0"
+bs58 = { version = "0.5.1", features = ["check"] }
+hex = "0.4.3"

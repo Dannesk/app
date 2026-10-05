@@ -1,6 +1,6 @@
 // ws/commands/offer_cancel.rs
 use crate::channel::WSCommand;
-use crate::utils::xrpl_codec::{self, TransactionType};
+use xrpl_codec::TransactionType;
 use crate::ws::commands::transaction_builder;
 use crate::ws::commands::wallet_auth::Bip44Wallet;
 

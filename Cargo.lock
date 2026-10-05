@@ -33,6 +33,7 @@ dependencies = [
  "tokio-tungstenite",
  "uuid",
  "winres",
+ "xrpl_codec",
  "zeroize",
  "zstd",
 ]
@@ -4954,6 +4955,15 @@ name = "xmlwriter"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
+
+[[package]]
+name = "xrpl_codec"
+version = "0.1.0"
+dependencies = [
+ "bs58",
+ "hex",
+ "sha2 0.11.0",
+]
 
 [[package]]
 name = "yazi"
