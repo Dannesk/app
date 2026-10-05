@@ -5,8 +5,7 @@ edition = "2024"
 license = "GPL-3.0-or-later"
 description = "DeFi Wallet for XRPL and Bitcoin."
 
-# The crates kept in this repository beside the app, each in its own directory.
-# They share this Cargo.lock and the target directory.
+
 [workspace]
 members = ["xrpl_codec"]
 
@@ -42,7 +41,6 @@ libc = "0.2.190"  # already in tree via region; used directly for process harden
 arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }  # already in iced, but used directly to mark a copied phrase secret (utils/clipboard.rs)
 
 [features]
-# Start-up timing, written to $XDG_RUNTIME_DIR (src/startup_trace.rs). Off in every normal build.
 startup-trace = []
 
 [profile.release]
