@@ -1,6 +1,6 @@
 // ws/commands/offer_create.rs
 use crate::channel::WSCommand;
-use crate::utils::xrpl_codec::{self, Amount, TransactionType};
+use xrpl_codec::{Amount, TransactionType};
 use crate::ws::commands::transaction_builder;
 use crate::ws::commands::wallet_auth::Bip44Wallet;
 

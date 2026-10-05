@@ -1,24 +1,27 @@
-// utils/xaddress.rs
-// Single resolution point for an XRP send recipient. Accepts either a classic
-// r-address (optionally paired with a separately-entered destination tag) or an
-// X-address (which bundles the r-address + tag + network into one string), and
-// collapses both to the same (classic address, Option<tag>) the Payment needs.
-//
-// X-addresses exist precisely so users can't forget the destination tag that
-// exchanges require to route a pooled-wallet deposit to the right customer, so
-// decoding the tag back out is the whole point — surface it, never drop it.
-
-// Both address forms are Base58Check (double-SHA256, 4-byte checksum) over
-// the ripple alphabet — the same encoding wallet_auth uses to derive the
-// account's own r-address. Decoding and encoding are done here, not by a
-// library: the payload layouts are fixed by the ledger and fit in a screen of
-// code. `encode` is the receive side — the wallet's own address with a tag of
-// the user's choosing, so a payer who routes by tag can be handed one string.
-//   classic:   0x00 ‖ account_id[20]                              (21 bytes)
-//   X-address: prefix[2] ‖ account_id[20] ‖ flag ‖ tag[8, LE]     (31 bytes)
-// where prefix = 05 44 (mainnet) / 04 93 (testnet), flag 0 = no tag (tag
-// bytes must be zero), 1 = 32-bit tag, 2 = 64-bit tag (rejected — the ledger
-// has no 64-bit tags).
+//! Single resolution point for an XRP send recipient. Accepts either a classic
+//! r-address (optionally paired with a separately-entered destination tag) or an
+//! X-address (which bundles the r-address + tag + network into one string), and
+//! collapses both to the same `(classic address, Option<tag>)` the Payment needs.
+//!
+//! X-addresses exist precisely so users can't forget the destination tag that
+//! exchanges require to route a pooled-wallet deposit to the right customer, so
+//! decoding the tag back out is the whole point — surface it, never drop it.
+//!
+//! Both address forms are Base58Check (double-SHA256, 4-byte checksum) over
+//! the ripple alphabet — the same encoding an account's own r-address is
+//! derived with. Decoding and encoding are written by hand: the payload
+//! layouts are fixed by the ledger and fit in a screen of code. [`encode`] is
+//! the receive side — the wallet's own address with a tag of the user's
+//! choosing, so a payer who routes by tag can be handed one string.
+//!
+//! ```text
+//! classic:   0x00 ‖ account_id[20]                              (21 bytes)
+//! X-address: prefix[2] ‖ account_id[20] ‖ flag ‖ tag[8, LE]     (31 bytes)
+//! ```
+//!
+//! where prefix = 05 44 (mainnet) / 04 93 (testnet), flag 0 = no tag (tag
+//! bytes must be zero), 1 = 32-bit tag, 2 = 64-bit tag (rejected — the ledger
+//! has no 64-bit tags).
 
 const XRPL_ALPHABET: bs58::Alphabet =
     bs58::Alphabet::new_unwrap(b"rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz");
@@ -41,8 +44,8 @@ pub fn is_valid_classic_address(s: &str) -> bool {
 }
 
 /// The 20-byte account id inside a classic address, which is what a
-/// transaction carries in its AccountID fields (`xrpl_codec`). `None` for
-/// anything that is not a classic address.
+/// transaction carries in its AccountID fields ([`crate::account`]). `None`
+/// for anything that is not a classic address.
 pub fn account_id(classic: &str) -> Option<[u8; 20]> {
     match decode_check(classic)?.as_slice() {
         [0x00, rest @ ..] => rest.try_into().ok(),
@@ -59,9 +62,9 @@ fn encode_classic_address(account_id: &[u8]) -> String {
         .into_string()
 }
 
-/// Encode this wallet's own classic address, with or without a destination
-/// tag, as a MAINNET X-address — the receive pane's tagged form. The inverse
-/// of [`xaddress_to_classic`], over the same 31-byte layout: `05 44` ‖
+/// Encode a wallet's own classic address, with or without a destination
+/// tag, as a MAINNET X-address — the tagged form of a receive address. The
+/// inverse of what [`resolve`] decodes, over the same 31-byte layout: `05 44` ‖
 /// account_id ‖ flag ‖ tag as eight little-endian bytes (flag 1 = a 32-bit
 /// tag, the upper four bytes zero; flag 0 = no tag, all eight zero). `None`
 /// when `classic` is not a valid r-address.
@@ -136,7 +139,7 @@ pub struct Resolved {
 
 /// True if `s` looks like a mainnet X-address ('X' prefix). A cheap prefix check
 /// for UI branching; real validity comes from `resolve`. Testnet X-addresses ('T'
-/// prefix) are deliberately not recognised — this is a mainnet-only app, and a
+/// prefix) are deliberately not recognised — this is a mainnet-only crate, and a
 /// 'T' string decodes to a real classic address that would receive real funds.
 pub fn is_xaddress(s: &str) -> bool {
     s.trim().starts_with('X')

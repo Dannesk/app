@@ -5,7 +5,13 @@ edition = "2024"
 license = "GPL-3.0-or-later"
 description = "DeFi Wallet for XRPL and Bitcoin."
 
+# The crates kept in this repository beside the app, each in its own directory.
+# They share this Cargo.lock and the target directory.
+[workspace]
+members = ["xrpl_codec"]
+
 [dependencies]
+xrpl_codec = { path = "xrpl_codec" }  # our XRPL transaction and address codec, under MIT
 iced = { git = "https://github.com/iced-rs/iced", rev = "56be3ede2b21f4880d1a1d7154bf8fcb84a729da", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }
 chrono = "0.4.45"
 serde = { version = "1.0.229", features = ["derive"] }

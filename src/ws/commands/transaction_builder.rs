@@ -1,5 +1,5 @@
 use crate::channel::WSCommand;
-use crate::utils::xrpl_codec::{self, Field};
+use xrpl_codec::Field;
 use crate::ws::commands::{offer_cancel, offer_create, payment, trustset};
 use crate::ws::commands::wallet_auth::Bip44Wallet;
 use bitcoin::secp256k1::{Message, Secp256k1};
@@ -42,7 +42,7 @@ pub fn sign(wallet_obj: &Bip44Wallet, mut fields: Vec<Field>) -> Result<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::xrpl_codec::TransactionType;
+    use xrpl_codec::TransactionType;
     use bitcoin::secp256k1::{ecdsa::Signature, PublicKey, SecretKey};
 
     #[test]

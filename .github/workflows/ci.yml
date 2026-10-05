@@ -13,6 +13,9 @@
 #   deny    sources, bans and licences fail the run (deny.toml); RustSec
 #           advisories are reported as a warning and never fail it
 #
+# Each job covers the whole workspace: the app and the crates kept beside it
+# (xrpl_codec).
+#
 # Actions are pinned to a commit rather than a tag or branch, which their
 # owners can move. Updating one is a deliberate edit.
 
@@ -45,7 +48,7 @@ jobs:
           rustup default stable
 
       - name: Test
-        run: cargo test --locked
+        run: cargo test --locked --workspace
 
   clippy:
     runs-on: ubuntu-24.04
@@ -65,7 +68,7 @@ jobs:
       # complexity and performance lints are switched off, not left as
       # warnings.
       - name: Clippy
-        run: cargo clippy --locked --all-targets -- -A clippy::all -D clippy::correctness
+        run: cargo clippy --locked --workspace --all-targets -- -A clippy::all -D clippy::correctness
 
   deny:
     runs-on: ubuntu-24.04
@@ -92,7 +95,7 @@ jobs:
           echo "$RUNNER_TEMP/$f" >> "$GITHUB_PATH"
 
       - name: Sources, bans and licences
-        run: cargo deny --locked check sources bans licenses
+        run: cargo deny --locked --workspace check sources bans licenses
 
       # An advisory can land on a crate long after it entered Cargo.lock, so
       # this reports and never fails. Between runs, Dependabot alerts report
@@ -101,5 +104,5 @@ jobs:
       - name: Advisories (reported, never failing)
         if: ${{ !cancelled() }}
         run: |
-          cargo deny -L info --locked check advisories && exit 0
+          cargo deny -L info --locked --workspace check advisories && exit 0
           echo "::warning title=RustSec advisories::cargo-deny reports an advisory against Cargo.lock; see this step's log."

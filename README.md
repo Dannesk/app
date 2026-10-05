@@ -78,4 +78,6 @@ cargo run --release
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE).
+Dannesk is licensed under the GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE).
+
+The `xrpl_codec` crate in [xrpl_codec/](xrpl_codec/) is licensed under the MIT License. See [xrpl_codec/LICENSE](xrpl_codec/LICENSE).

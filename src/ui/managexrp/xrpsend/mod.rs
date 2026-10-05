@@ -90,7 +90,7 @@ const XADDRESS_MIN: usize = 46;
 /// prefix of a perfectly good address fails the checksum, so a red line during
 /// typing would be an error in the middle of an answer.
 ///
-/// Nothing gates on this — [`crate::utils::xaddress::resolve`] is still the
+/// Nothing gates on this — [`xrpl_codec::xaddress::resolve`] is still the
 /// only authority on whether a payment can go — it only decides which line
 /// sits under the field. A dark button with no reason under it is the fault
 /// this exists to fix: an edited address fails its checksum, which is exactly
@@ -111,7 +111,7 @@ pub(crate) fn recipient_fault(addr: &str) -> Option<&'static str> {
     if n < floor {
         return None;
     }
-    crate::utils::xaddress::resolve(addr)
+    xrpl_codec::xaddress::resolve(addr)
         .is_none()
         .then_some(CHECKSUM_ERROR)
 }
@@ -339,7 +339,7 @@ mod tests {
     #[test]
     fn the_hint_never_argues_with_the_gate() {
         for addr in [GOOD, "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De"] {
-            assert!(crate::utils::xaddress::resolve(addr).is_some(), "{addr} is not a good address");
+            assert!(xrpl_codec::xaddress::resolve(addr).is_some(), "{addr} is not a good address");
             assert_eq!(recipient_fault(addr), None);
         }
     }

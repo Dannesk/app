@@ -511,7 +511,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                 state.send_error = Some("ERR: RECIPIENT_REQUIRED".to_string());
                 return Task::none();
             }
-            let Some(resolved) = crate::utils::xaddress::resolve(&addr) else {
+            let Some(resolved) = xrpl_codec::xaddress::resolve(&addr) else {
                 state.send_error = Some("ERR: INVALID_XRP_ADDR_FORMAT".to_string());
                 return Task::none();
             };
@@ -2200,7 +2200,7 @@ fn tag_slots(state: &mut AppState, pane: TagPane) -> (&mut String, &mut bool, &m
 /// clipboard can never disagree.
 pub(crate) fn receive_address(state: &AppState, classic: &str) -> String {
     tag_of(&state.receive_tag)
-        .and_then(|tag| crate::utils::xaddress::encode(classic, Some(tag)))
+        .and_then(|tag| xrpl_codec::xaddress::encode(classic, Some(tag)))
         .unwrap_or_else(|| classic.to_string())
 }
 

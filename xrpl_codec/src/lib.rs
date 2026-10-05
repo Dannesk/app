@@ -1,23 +1,23 @@
-// utils/xrpl_codec.rs
-// The XRPL binary format, for the transactions this app signs. Done here, not
-// by a library, like the address codec beside it: the layouts are fixed by the
-// ledger, and the five field types the app uses fit in a screen of code.
-//
-// A transaction is its fields in canonical order, by type code and then by
-// field code, each written as a field id followed by its value. Both codes
-// come from rippled's definitions.json (`TYPES` and each field's `nth`). The
-// signing hash is SHA-512Half of `STX\0` ‖ every field but TxnSignature; the
-// blob submitted is all of them, and the ledger's id for it is SHA-512Half of
-// `TXN\0` ‖ blob (`submit_transaction::transaction_hash`).
-//
-// Values are typed, so a field cannot be misspelt into silence, and amounts are
-// checked when they are made: a value the format cannot hold exactly is
-// refused, never cut short or rounded to zero. The tests re-encode validated
-// mainnet transactions and must arrive at the ids the ledger gave them.
+//! The XRPL binary format, for the transactions Dannesk signs: Payment,
+//! OfferCreate, OfferCancel and TrustSet. Written by hand, like the address
+//! codec beside it ([`xaddress`]): the layouts are fixed by the ledger, and
+//! the five field types these transactions use fit in a screen of code.
+//!
+//! A transaction is its fields in canonical order, by type code and then by
+//! field code, each written as a field id followed by its value. Both codes
+//! come from rippled's definitions.json (`TYPES` and each field's `nth`). The
+//! signing hash is SHA-512Half of `STX\0` ‖ every field but TxnSignature; the
+//! blob submitted is all of them, and the ledger's id for it is SHA-512Half of
+//! `TXN\0` ‖ blob.
+//!
+//! Values are typed, so a field cannot be misspelt into silence, and amounts are
+//! checked when they are made: a value the format cannot hold exactly is
+//! refused, never cut short or rounded to zero. The tests re-encode validated
+//! mainnet transactions and must arrive at the ids the ledger gave them.
 
 use sha2::{Digest, Sha512};
 
-use crate::utils::xaddress;
+pub mod xaddress;
 
 /// Prefix of the signing hash: `STX\0`.
 const SIGNING_PREFIX: &[u8; 4] = b"STX\0";
@@ -40,7 +40,7 @@ struct Code(u8, u8);
 /// TxnSignature, the one field here that is not signed.
 const TXN_SIGNATURE: Code = Code(BLOB, 4);
 
-/// The transaction types the app signs (definitions.json `TRANSACTION_TYPES`).
+/// The transaction types Dannesk signs (definitions.json `TRANSACTION_TYPES`).
 #[derive(Clone, Copy, Debug)]
 pub enum TransactionType {
     Payment = 0,
@@ -69,8 +69,8 @@ impl Amount {
         Ok(Amount(AmountKind::Xrp(drops)))
     }
 
-    /// A token amount: a plain positive decimal, the currency as the registry's
-    /// 40 hex digits, and the issuer's r-address.
+    /// A token amount: a plain positive decimal, the currency as the 40 hex
+    /// digits of its 160-bit code, and the issuer's r-address.
     pub fn issued(value: &str, currency: &str, issuer: &str) -> Result<Amount, String> {
         let value = issued_value(value)?;
         let currency = currency_code(currency)?;
@@ -342,7 +342,7 @@ mod tests {
         assert_eq!(hex::encode_upper(sha512_half(b"TXN\0", &blob)), id);
     }
 
-    // One validated mainnet transaction for every shape the app signs, taken
+    // One validated mainnet transaction for every shape Dannesk signs, taken
     // from s1.ripple.com on 2026-10-04 and transcribed by script from the
     // ledger's JSON. Between them they carry every field above, both key types
     // (secp256k1 and ed25519) and both amount kinds.
