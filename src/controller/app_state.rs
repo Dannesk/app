@@ -243,22 +243,7 @@ impl EnableInputMode {
     }
 }
 
-/// How an imported wallet's key is protected at rest. Chosen on the import
-/// screen; drives both the entry UI and the storage backend.
-///   • `Standard` — passphrase-encrypted file on disk.
-///   • `Cold`     — nothing persisted; the key lives only for this session.
-///
-/// There is deliberately no hardware tier. A file works on 100% of devices; no
-/// enclave does, and none of them (TPM 2.0, Apple SE, Android StrongBox) can
-/// run secp256k1 inside the boundary anyway — so every one could only wrap a
-/// blob we then unwrap into ordinary RAM, for the cost of a per-platform
-/// backend. Revisit only if enclaves gain in-boundary support for our curves.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ImportMode {
-    #[default]
-    Standard,
-    Cold,
-}
+pub use crate::wallet::ImportMode;
 
 /// The persisted theme choice. `Dark` is obsidian — the name is what
 /// settings.json has always written and is not worth migrating.

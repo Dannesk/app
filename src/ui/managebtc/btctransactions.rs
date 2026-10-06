@@ -119,33 +119,44 @@ struct Party {
 /// Choose the address to show from an unordered list.
 ///
 /// Ours wins when present — on an outgoing transaction that is the answer the
-/// user is checking. Otherwise the first, carrying a count of the rest. The
+/// user is checking — and the master wins among ours (`ours` is in record
+/// order, #0 first). Otherwise the first, carrying a count of the rest. The
 /// lists come off a `HashSet` in the relay, so `first()` is arbitrary and the
 /// `+N` is what keeps that honest rather than hidden.
-fn party(list: &[String], own: &str) -> Option<Party> {
-    if list.iter().any(|a| a == own) {
-        return Some(Party { addr: own.to_string(), extra: list.len() - 1 });
+fn party(list: &[String], ours: &[String]) -> Option<Party> {
+    if let Some(mine) = ours.iter().find(|a| list.contains(a)) {
+        return Some(Party { addr: mine.clone(), extra: list.len() - 1 });
     }
     let first = list.first()?;
     Some(Party { addr: first.clone(), extra: list.len() - 1 })
 }
 
 impl Tx {
-    fn from(tx: &BtcTransactionData, own: &str) -> Self {
+    /// `ours` is every address of the wallet in record order, the master
+    /// first. Direction is judged against all of them: a send that spends only
+    /// a change coin has no master among its senders, and judged against the
+    /// master alone it read as a payment from a stranger (live, 2026-10-06).
+    fn from(tx: &BtcTransactionData, ours: &[String]) -> Self {
         // Direction from the input side only — see the module docs.
-        let incoming = !tx.sender_addresses.iter().any(|a| a == own);
+        let incoming = !tx.sender_addresses.iter().any(|a| ours.contains(a));
         let amount = tx.amount.parse::<f64>().unwrap_or(0.0);
 
         // On an incoming transaction the destination is us, and we know that
         // without being told: `receiver_addresses` holds the payer's other
-        // outputs, not ours.
+        // outputs, not ours. The body names the address when it carries one
+        // (rows since 2026-09-06); the master stands in otherwise.
         let (from, to) = if incoming {
-            (
-                party(&tx.sender_addresses, own),
-                Some(Party { addr: own.to_string(), extra: 0 }),
-            )
+            let paid = tx
+                .outputs
+                .iter()
+                .filter_map(|o| o.address.as_ref())
+                .find(|a| ours.contains(a))
+                .cloned()
+                .or_else(|| ours.first().cloned())
+                .unwrap_or_default();
+            (party(&tx.sender_addresses, ours), Some(Party { addr: paid, extra: 0 }))
         } else {
-            (party(&tx.sender_addresses, own), party(&tx.receiver_addresses, own))
+            (party(&tx.sender_addresses, ours), party(&tx.receiver_addresses, ours))
         };
 
         Self {
@@ -253,9 +264,9 @@ pub(crate) struct Ctx {
 
 /// Both sets — unresolved, settled — each newest-first. A transaction is in
 /// exactly one of them.
-pub(crate) fn split(own: &str) -> (Vec<Tx>, Vec<Tx>) {
+pub(crate) fn split(ours: &[String]) -> (Vec<Tx>, Vec<Tx>) {
     let txs = CHANNEL.btc_transactions_rx.borrow();
-    let mut all = fold_replaced(txs.transactions.values().map(|t| Tx::from(t, own)).collect());
+    let mut all = fold_replaced(txs.transactions.values().map(|t| Tx::from(t, ours)).collect());
     // Timestamps are decimal epoch-second strings of differing lengths, so they
     // must be compared as numbers, not lexically.
     all.sort_by_key(|t| std::cmp::Reverse(t.at().unwrap_or(0)));
@@ -544,6 +555,11 @@ mod tests {
 
     const OWN: &str = "bc1qyfxmsjaaaaaaaaaaaaaaaaaaaaaaaaaaamh06f67";
     const THEM: &str = "bc1qu5g2twbbbbbbbbbbbbbbbbbbbbbbbbbbzkcum7szm";
+    const CHANGE: &str = "bc1qchange";
+
+    fn ours() -> Vec<String> {
+        vec![OWN.to_string()]
+    }
 
     const P: &CompactPalette = &theme::COMPACT_OBSIDIAN;
 
@@ -560,13 +576,13 @@ mod tests {
 
     #[test]
     fn direction_comes_from_the_sender_side() {
-        let out = Tx::from(&tx("a", "0.00004120", "56", 100, &[OWN], &[THEM], None), OWN);
+        let out = Tx::from(&tx("a", "0.00004120", "56", 100, &[OWN], &[THEM], None), &ours());
         assert!(!out.incoming);
         assert!(out.amount_str().starts_with('-'));
 
         // Incoming: we are not among the inputs. `receiver_addresses` is empty
         // here on purpose — the relay strips our own address from it.
-        let inc = Tx::from(&tx("b", "0.00002500", "0", 100, &[THEM], &[], None), OWN);
+        let inc = Tx::from(&tx("b", "0.00002500", "0", 100, &[THEM], &[], None), &ours());
         assert!(inc.incoming);
         assert!(inc.amount_str().starts_with('+'));
     }
@@ -578,9 +594,7 @@ mod tests {
     fn an_incoming_transaction_is_addressed_to_this_wallet() {
         let payers_change = "bc1qtheirchangeaddressxxxxxxxxxxxxxxxxxxxxxx";
         let inc = Tx::from(
-            &tx("b", "0.00002500", "0", 100, &[THEM], &[payers_change], None),
-            OWN,
-        );
+            &tx("b", "0.00002500", "0", 100, &[THEM], &[payers_change], None), &ours());
         let to = inc.to.as_ref().expect("an incoming tx always has a destination: us");
         assert_eq!(to.addr, OWN, "the destination is this wallet's own address");
         assert!(!to.addr.contains("theirchange"), "never the payer's change");
@@ -600,7 +614,7 @@ mod tests {
     #[test]
     fn our_address_wins_an_unordered_sender_list() {
         for senders in [vec![OWN, THEM], vec![THEM, OWN]] {
-            let t = Tx::from(&tx("a", "0.1", "56", 100, &senders, &[THEM], None), OWN);
+            let t = Tx::from(&tx("a", "0.1", "56", 100, &senders, &[THEM], None), &ours());
             let from = t.from.unwrap();
             assert_eq!(from.addr, OWN, "ours must win regardless of iteration order");
             assert_eq!(from.extra, 1, "and must say how many it is standing in for");
@@ -611,11 +625,11 @@ mod tests {
     /// sit in a mempool, so that must read as unknown, never as a real fee.
     #[test]
     fn zero_fee_is_unknown_not_free() {
-        let unknown = Tx::from(&tx("a", "0.0001", "0", 100, &[OWN], &[THEM], None), OWN);
+        let unknown = Tx::from(&tx("a", "0.0001", "0", 100, &[OWN], &[THEM], None), &ours());
         assert_eq!(unknown.fee_sats, None);
         assert!(flat(&detail_lines(&unknown, &ctx())).contains(NA));
 
-        let known = Tx::from(&tx("a", "0.0001", "56", 100, &[OWN], &[THEM], None), OWN);
+        let known = Tx::from(&tx("a", "0.0001", "56", 100, &[OWN], &[THEM], None), &ours());
         assert_eq!(known.fee_sats, Some(56));
         let d = flat(&detail_lines(&known, &ctx()));
         assert!(d.contains("56 sats"));
@@ -633,9 +647,7 @@ mod tests {
         let seen_at = 1_786_750_000;
         let mined_at = 1_786_761_453;
         let t = Tx::from(
-            &tx("a", "0.021", "210", seen_at, &[THEM], &[], Some((962_488, mined_at))),
-            OWN,
-        );
+            &tx("a", "0.021", "210", seen_at, &[THEM], &[], Some((962_488, mined_at))), &ours());
         assert!(t.confirmed);
         assert_eq!(t.first_seen, Some(seen_at), "the wait is still on the record");
         assert_eq!(t.at(), Some(mined_at), "but the row reads the block");
@@ -651,7 +663,7 @@ mod tests {
         let mut raw = tx("a", "0.001", "300", 100, &[OWN], &[THEM], None);
         raw.status = BitcoinTransactionStatus::Dropped;
         raw.dropped_at = Some("500".to_string());
-        let t = Tx::from(&raw, OWN);
+        let t = Tx::from(&raw, &ours());
 
         assert!(t.dropped);
         assert!(!t.confirmed, "it must never be filed as a success");
@@ -674,7 +686,7 @@ mod tests {
     fn a_dropped_fee_is_shown_as_never_paid() {
         let mut raw = tx("a", "0.001", "300", 100, &[OWN], &[THEM], None);
         raw.status = BitcoinTransactionStatus::Dropped;
-        let t = Tx::from(&raw, OWN);
+        let t = Tx::from(&raw, &ours());
 
         let s = flat(&detail_lines(&t, &ctx()));
         assert!(s.contains("never paid"), "a dropped fee must say it was not paid");
@@ -706,28 +718,40 @@ mod tests {
         }
     }
 
+    /// A send that spends only a change coin has no master among its senders.
+    /// Direction is judged against the whole wallet, so it still reads as
+    /// outgoing, from our change address to the recipient — not as a payment
+    /// from a stranger to the master (found live 2026-10-06).
+    #[test]
+    fn a_send_from_a_change_coin_is_outgoing() {
+        let wallet = vec![OWN.to_string(), CHANGE.to_string()];
+        let t = Tx::from(&tx("e", "0.00002343", "300", 100, &[CHANGE], &[THEM], None), &wallet);
+        assert_eq!(t.state_label(), "outgoing");
+        assert!(t.signed_btc < 0.0);
+        assert_eq!(t.from.as_ref().unwrap().addr, CHANGE);
+        assert_eq!(t.to.as_ref().unwrap().addr, THEM);
+    }
+
     /// A settled row reports its outcome and a pending row its direction.
     /// A failure wearing `confirmed` says the opposite of what happened.
     #[test]
     fn the_state_column_means_outcome_or_direction() {
         let won = Tx::from(
-            &tx("a", "0.021", "210", 100, &[THEM], &[], Some((962_488, 1_786_761_453))),
-            OWN,
-        );
+            &tx("a", "0.021", "210", 100, &[THEM], &[], Some((962_488, 1_786_761_453))), &ours());
         assert_eq!(won.state_label(), "success");
         assert_eq!(won.state_color(P), P.green);
 
         let mut raw = tx("b", "0.001", "300", 100, &[OWN], &[THEM], None);
         raw.status = BitcoinTransactionStatus::Dropped;
-        let lost = Tx::from(&raw, OWN);
+        let lost = Tx::from(&raw, &ours());
         assert_eq!(lost.state_label(), "rejected");
         assert_eq!(lost.state_color(P), P.red);
 
         // Waiting rows name their direction — never a fee, which is a cost and
         // belongs on the detail line. A direction is not a severity, so
         // neither one is coloured.
-        let out = Tx::from(&tx("c", "0.001", "300", 100, &[OWN], &[THEM], None), OWN);
-        let inc = Tx::from(&tx("d", "0.001", "0", 100, &[THEM], &[], None), OWN);
+        let out = Tx::from(&tx("c", "0.001", "300", 100, &[OWN], &[THEM], None), &ours());
+        let inc = Tx::from(&tx("d", "0.001", "0", 100, &[THEM], &[], None), &ours());
         assert_eq!(out.state_label(), "outgoing");
         assert_eq!(inc.state_label(), "incoming");
         assert_eq!(out.state_color(P), P.dim);
@@ -743,7 +767,7 @@ mod tests {
         raw.status = BitcoinTransactionStatus::Replaced;
         raw.replaced_by = Some("c0ffee0000000000000000000000000000000000000000000000000000001234".into());
         raw.dropped_at = Some("150".into());
-        let t = Tx::from(&raw, OWN);
+        let t = Tx::from(&raw, &ours());
         assert!(!t.unresolved());
         assert_eq!(t.state_label(), "replaced");
         assert_eq!(t.state_color(P), P.dim);
@@ -770,7 +794,7 @@ mod tests {
         orig.dropped_at = Some("150".into());
         let bump = tx("4c25", "0.00012505", "300", 160, &[OWN], &[THEM], None);
 
-        let rows = fold_replaced(vec![Tx::from(&orig, OWN), Tx::from(&bump, OWN)]);
+        let rows = fold_replaced(vec![Tx::from(&orig, &ours()), Tx::from(&bump, &ours())]);
         assert_eq!(rows.len(), 1, "two txids, one payment, one row");
         let live = &rows[0];
         assert_eq!(live.txid, "4c25");
@@ -783,7 +807,7 @@ mod tests {
 
         // Confirmed replacement: still one row, now a success.
         let mined = tx("4c25", "0.00012505", "300", 160, &[OWN], &[THEM], Some((965_706, 200)));
-        let rows = fold_replaced(vec![Tx::from(&orig, OWN), Tx::from(&mined, OWN)]);
+        let rows = fold_replaced(vec![Tx::from(&orig, &ours()), Tx::from(&mined, &ours())]);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].state_label(), "success");
         assert!(flat(&detail_lines(&rows[0], &ctx())).contains("bumped from 28 sats"));
@@ -792,13 +816,13 @@ mod tests {
         // what it was replaced at.
         let mut dead = tx("4c25", "0.00012505", "300", 160, &[OWN], &[THEM], None);
         dead.status = BitcoinTransactionStatus::Dropped;
-        let rows = fold_replaced(vec![Tx::from(&orig, OWN), Tx::from(&dead, OWN)]);
+        let rows = fold_replaced(vec![Tx::from(&orig, &ours()), Tx::from(&dead, &ours())]);
         assert_eq!(rows.len(), 2);
         let o = rows.iter().find(|t| t.txid == "729a").unwrap();
         assert_eq!(o.replacement_fee, Some(300));
 
         // No record of the replacement at all: the original stays, unfolded.
-        let rows = fold_replaced(vec![Tx::from(&orig, OWN)]);
+        let rows = fold_replaced(vec![Tx::from(&orig, &ours())]);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].state_label(), "replaced");
     }
@@ -806,11 +830,11 @@ mod tests {
     /// Only a pending OUTGOING row can bump its fee.
     #[test]
     fn the_bump_link_is_offered_exactly_to_pending_outgoing_rows() {
-        let out = Tx::from(&tx("c", "0.001", "300", 100, &[OWN], &[THEM], None), OWN);
+        let out = Tx::from(&tx("c", "0.001", "300", 100, &[OWN], &[THEM], None), &ours());
         assert!(matches!(tail(&out, P), Tail::Link { label: "modify fee", msg: Message::BtcBumpClicked(_), .. }));
-        let inc = Tx::from(&tx("d", "0.001", "0", 100, &[THEM], &[], None), OWN);
+        let inc = Tx::from(&tx("d", "0.001", "0", 100, &[THEM], &[], None), &ours());
         assert!(matches!(tail(&inc, P), Tail::Prose { .. }));
-        let won = Tx::from(&tx("a", "0.021", "210", 100, &[OWN], &[THEM], Some((1, 2))), OWN);
+        let won = Tx::from(&tx("a", "0.021", "210", 100, &[OWN], &[THEM], Some((1, 2))), &ours());
         assert!(matches!(tail(&won, P), Tail::Link { label: "copy txid", .. }));
     }
 
@@ -828,9 +852,9 @@ mod tests {
     #[test]
     fn the_two_sets_are_disjoint_and_newest_first() {
         let mut all = vec![
-            Tx::from(&tx("old", "0.1", "10", 100, &[OWN], &[THEM], Some((1, 150))), OWN),
-            Tx::from(&tx("new", "0.1", "10", 200, &[OWN], &[THEM], Some((2, 250))), OWN),
-            Tx::from(&tx("pend", "0.1", "10", 300, &[OWN], &[THEM], None), OWN),
+            Tx::from(&tx("old", "0.1", "10", 100, &[OWN], &[THEM], Some((1, 150))), &ours()),
+            Tx::from(&tx("new", "0.1", "10", 200, &[OWN], &[THEM], Some((2, 250))), &ours()),
+            Tx::from(&tx("pend", "0.1", "10", 300, &[OWN], &[THEM], None), &ours()),
         ];
         all.sort_by_key(|t| std::cmp::Reverse(t.at().unwrap_or(0)));
         let (pending, settled): (Vec<Tx>, Vec<Tx>) = all.into_iter().partition(|t| t.unresolved());

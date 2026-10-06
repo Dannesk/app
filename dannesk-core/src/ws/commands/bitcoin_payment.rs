@@ -26,6 +26,73 @@ pub struct Utxo {
     pub address: String,
 }
 
+/// The script family of each coin, from its owner address — the same
+/// judgement the signer makes per input. A coin whose address does not parse
+/// (never, for a coin the relay pushed) is budgeted as the wallet's own type.
+pub fn kinds_of(coins: &[Utxo]) -> Vec<BtcScriptType> {
+    let own = crate::btc_script_type::stored();
+    coins
+        .iter()
+        .map(|c| BtcScriptType::of_address(&c.address).unwrap_or(own))
+        .collect()
+}
+
+/// Exact virtual size of the transaction `construct_transaction` will build:
+/// one input per entry of `inputs`, each costed in its own script family,
+/// and the given output scripts.
+///
+/// Per input: 41 fixed non-witness bytes (outpoint, scriptSig length,
+/// sequence) plus the family's scriptSig, and the family's witness bytes.
+/// Witness sizes are worst case — a 73-byte DER signature where one is used
+/// — so the paid rate lands at or above the one picked, never a hair under.
+/// A transaction with no witness input at all (a legacy wallet) has no
+/// marker and flag bytes, and is costed without them.
+///
+/// This replaced the flat 140 vB guess (`ASSUMED_VBYTES`, gone): a wallet
+/// whose send needed three inputs was underpaying its chosen rate by more
+/// than half under that assumption, and one that emptied into a single
+/// output was overpaying. The input count is real — the pushed UTXO set is on
+/// hand — so the size is too.
+pub fn vsize_for(inputs: &[BtcScriptType], out_spk_lens: &[usize]) -> u64 {
+    fn varint(n: usize) -> u64 {
+        if n < 0xfd { 1 } else { 3 }
+    }
+    let outs: u64 = out_spk_lens
+        .iter()
+        .map(|l| 8 + varint(*l) + *l as u64)
+        .sum();
+    let ins: u64 = inputs.iter().map(|k| 41 + k.script_sig_len()).sum();
+    let witness: u64 = inputs.iter().map(|k| k.witness_len()).sum();
+    let base = 4 + varint(inputs.len()) + ins + varint(out_spk_lens.len()) + outs + 4;
+    if witness == 0 {
+        return base;
+    }
+    (base * 4 + 2 + witness).div_ceil(4)
+}
+
+/// A rate priced against a concrete vsize, in **absolute satoshis**.
+///
+/// The rate is sat/vB and what we sign is a flat total, so the two are bridged
+/// exactly once, here. Rounded up: rounding a fee down is how you land a hair
+/// under the rate you picked.
+///
+/// **No clamping.** indexd already lifts every tier to the node's live
+/// `mempoolminfee` before publishing (`node_stats::walk_mempool`), so these
+/// numbers are floored by the network's own answer. A second floor of our own on
+/// top of that was flattening four distinct prices — 14 / 52 / 54 / 61 sats at
+/// the current rates — into one, and then had to explain why a tier called
+/// `minimum` was outbidding `high`. There was nothing to explain: the
+/// contradiction was ours.
+pub fn tier_sats_at(rate: f32, vsize: u64) -> u64 {
+    // Snapped before the ceiling, because the rate crosses the wire as `f32`
+    // and comes back a hair off. `0.1` arrives as 0.100000001490116…, which
+    // times 140 is 14.0000002 — and a bare `ceil` turns the node's exact
+    // 14-satoshi floor into 15. Rounding to six places lands it back on the
+    // number the node actually said, and is far finer than any real feerate.
+    let raw = rate as f64 * vsize as f64;
+    ((raw * 1e6).round() / 1e6).ceil() as u64
+}
+
 /// The coins this wallet may sign against, read from the pushed set — there is
 /// no per-signing fetch any more (the relay pushes the whole set on every
 /// event/subscribe/reconnect, see project_btc_utxo_in_redis).
@@ -34,6 +101,9 @@ pub struct Utxo {
 /// coin whose creating tx we sent — spendable immediately, and what lets
 /// back-to-back sends work). A FOREIGN height-0 coin is someone else's
 /// RBF-able payment and is excluded until it confirms.
+/// A coin a mempool transaction already spends — ours or anyone's — is never
+/// offered, whatever its height: the set marks it (the relay's push, or our
+/// own dispatch moments earlier), and the node would refuse it anyway.
 ///
 /// Deterministic order — confirmed oldest-first, own pending change last — so
 /// the fee quoted in step 2 and the transaction signed here select the same
@@ -64,6 +134,7 @@ pub fn eligible_utxos(wallet: &str) -> Result<Vec<Utxo>, String> {
     };
     let mut coins: Vec<(u64, String, u32, u64, String)> = set
         .iter()
+        .filter(|u| u.spent_by.is_none())
         .filter(|u| u.height > 0 || own_send(&u.txid))
         .map(|u| (u.height, u.txid.clone(), u.vout, u.sats, u.address.clone()))
         .collect();
@@ -503,10 +574,7 @@ pub fn plan_replacement(
     if change_sats.is_some() {
         out_lens.push(change_spk.as_ref().map_or(crate::btc_script_type::stored().spk_len(), |s| s.len()));
     }
-    let vsize = crate::ui::managebtc::btcsend::vsize_for(
-        &crate::ui::managebtc::btcsend::kinds_of(&inputs),
-        &out_lens,
-    );
+    let vsize = vsize_for(&kinds_of(&inputs), &out_lens);
 
     let floor = min_replacement_fee(info, vsize);
     if effective_fee < floor {
@@ -568,7 +636,6 @@ pub fn quote_replacement(
     spare: Option<&Utxo>,
     rate: f32,
 ) -> Result<ReplacementPlan, String> {
-    use crate::ui::managebtc::btcsend::tier_sats_at;
     let mut fee = tier_sats_at(rate, info.vsize);
     let mut plan = plan_replacement(info, ours, spare, fee)?;
     for _ in 0..3 {
@@ -918,5 +985,108 @@ mod rbf_tests {
         assert_eq!(plan.fee, 1_410);
         // 1 sat/vB cannot beat the original's 1 sat/vB: not offered.
         assert!(quote_replacement(&info(), &ours(), None, 1.0).is_err());
+    }
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::*;
+    use crate::btc_script_type::BtcScriptType;
+
+    /// A tier costs its rate times the size, rounded up so the signed fee is
+    /// never a hair under the rate that was picked — and nothing else. Any
+    /// flooring has already happened at the node. Pinned at 140 vB here purely
+    /// so the historical expectations still read; the size is a real
+    /// measurement everywhere outside tests now.
+    #[test]
+    fn a_tier_costs_its_rate_and_nothing_else() {
+        assert_eq!(tier_sats_at(1.0, 140), 140);
+        assert_eq!(tier_sats_at(0.1, 140), 14);
+        assert_eq!(tier_sats_at(3.0, 140), 420);
+        assert_eq!(tier_sats_at(2.5, 140), 350);
+        assert_eq!(tier_sats_at(1.001, 140), 141);
+    }
+
+    /// The exact sizes of the transactions this wallet actually builds. The
+    /// 1-in/2-out case lands on 141 — one vB over the old flat guess — and
+    /// every added input costs 68–69 vB, which is exactly the underquote the
+    /// constant used to hide.
+    #[test]
+    fn vsize_is_exact_for_the_shapes_we_build() {
+        use BtcScriptType::*;
+        // 1 P2WPKH input, recipient + change both P2WPKH.
+        assert_eq!(vsize_for(&[NativeSegwit], &[22, 22]), 141);
+        // Each further input: 41 base bytes ×4 + 109 witness = 273 weight.
+        assert_eq!(vsize_for(&[NativeSegwit; 2], &[22, 22]), 209);
+        assert_eq!(vsize_for(&[NativeSegwit; 3], &[22, 22]), 278);
+        // The change-less max-send shape is a whole output smaller.
+        assert_eq!(vsize_for(&[NativeSegwit], &[22]), 110);
+        // Paying legacy (25-byte spk) and taproot (34-byte spk) costs more.
+        assert_eq!(vsize_for(&[NativeSegwit], &[25, 22]), 144);
+        assert_eq!(vsize_for(&[NativeSegwit], &[34, 22]), 153);
+    }
+
+    /// The other three families, each spending one coin to a bc1q recipient
+    /// with change in its own script. Taproot is the cheapest input on the
+    /// network, legacy the dearest, and a legacy-only transaction carries no
+    /// segwit marker at all.
+    #[test]
+    fn vsize_per_input_family() {
+        use BtcScriptType::*;
+        // base 4+1+41+1+(31+43)+4 = 125; weight 500+2+66 = 568 → 142.
+        assert_eq!(vsize_for(&[Taproot], &[22, 34]), 142);
+        // base 4+1+(41+23)+1+(31+32)+4 = 137; weight 548+2+109 = 659 → 165.
+        assert_eq!(vsize_for(&[NestedSegwit], &[22, 23]), 165);
+        // base 4+1+(41+108)+1+(31+34)+4 = 224, no witness → 224.
+        assert_eq!(vsize_for(&[Legacy], &[22, 25]), 224);
+        // Mixed inputs are summed per family, not by the wallet's default:
+        // base 4+1+82+1+74+4 = 166; weight 664+2+(66+109) = 841 → 211.
+        assert_eq!(vsize_for(&[Taproot, NativeSegwit], &[22, 34]), 211);
+    }
+
+    /// The live reading that exposed the old bug: 0.1 / 0.37 / 0.38 / 0.43
+    /// sat/vB. These are four DISTINCT prices. A client-side 140-sat floor
+    /// flattened them into one and then had to explain why `minimum` outbid
+    /// `high`; nothing here may reintroduce that.
+    #[test]
+    fn the_live_rates_are_four_distinct_prices() {
+        let live = [0.1f32, 0.37, 0.38, 0.43].map(|r| tier_sats_at(r, 140));
+        assert_eq!(live, [14, 52, 54, 61]);
+        // The cheapest tier is the cheapest. This is the invariant the old
+        // floor broke, and it holds for free once nothing clamps.
+        assert!(live[0] <= live[3], "the minimum is outbidding the top tier");
+    }
+}
+
+#[cfg(test)]
+mod offer_tests {
+    use super::*;
+    use crate::channel::BtcUtxo;
+
+    /// What the signer may pick from is the set minus every coin a mempool
+    /// transaction already spends — the mark the relay pushes, or the one our
+    /// own dispatch sets moments earlier. Whatever a balance pane shows, a
+    /// marked coin is never offered, so no transaction is ever built on one.
+    #[test]
+    fn a_marked_coin_is_never_offered_to_the_signer() {
+        let wallet = "bc1qoffer-test";
+        let coin = |txid: &str, sats: u64, height: u64, spent_by: Option<&str>| BtcUtxo {
+            txid: txid.to_string(),
+            vout: 0,
+            sats,
+            height,
+            address: wallet.to_string(),
+            spent_by: spent_by.map(String::from),
+        };
+        CHANNEL.btc_utxos_tx.send_replace((
+            Some(wallet.to_string()),
+            vec![
+                coin("free", 5_923, 965_711, None),
+                coin("consumed", 5_802, 969_974, Some("33cf")),
+                coin("foreign", 100, 0, None),
+            ],
+        ));
+        let offered: Vec<String> = eligible_utxos(wallet).unwrap().into_iter().map(|u| u.txid).collect();
+        assert_eq!(offered, vec!["free".to_string()]);
     }
 }

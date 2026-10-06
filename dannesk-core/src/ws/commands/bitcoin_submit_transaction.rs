@@ -42,8 +42,10 @@ pub(crate) fn stash_in_flight(wallet: &str, tx_hex: &str, replaces: Option<&str>
     }
 }
 
-/// The broadcast was accepted: deduct its inputs from the local set, add our
-/// own outputs back at height 0, and write a minimal pending row so the
+/// The broadcast was accepted: mark its inputs in the local set as consumed
+/// by it (they stay: the chain still holds them, so the confirmed figure does
+/// not move before the block, and marked they are never offered again), add
+/// our own outputs at height 0, and write a minimal pending row so the
 /// eligibility check recognises that change as OUR send (the relay's full
 /// record upserts over the row within seconds — `or_insert` keeps whichever
 /// arrived first).
@@ -80,9 +82,8 @@ fn apply_local_spend(txid: &str) {
         if set_wallet.as_deref() != Some(wallet.as_str()) {
             return;
         }
-        set.retain(|u| {
-            let gone = spent.iter().any(|(t, v)| *t == u.txid && *v == u.vout);
-            if gone {
+        for u in set.iter_mut() {
+            if spent.iter().any(|(t, v)| *t == u.txid && *v == u.vout) {
                 spent_sats += u.sats;
                 spent_coins.push(crate::channel::BtcRbfInput {
                     txid: u.txid.clone(),
@@ -90,20 +91,30 @@ fn apply_local_spend(txid: &str) {
                     sats: u.sats,
                     address: Some(u.address.clone()),
                 });
+                // The relay's push carries the same mark moments later; a
+                // replacement re-marks the original's inputs with its own txid.
+                u.spent_by = Some(txid.to_string());
             }
-            // A replaced transaction's outputs are phantoms now — its change
-            // was ours at height 0 and can never confirm.
-            let replaced = replaces.as_deref() == Some(u.txid.as_str());
-            !gone && !replaced
-        });
+        }
+        // A replaced transaction's outputs are phantoms now — its change was
+        // ours at height 0 and can never confirm.
+        set.retain(|u| replaces.as_deref() != Some(u.txid.as_str()));
         for (vout, out) in tx.output.iter().enumerate() {
-            if let Some(owner) = owner_of(&out.script_pubkey) {
+            // The relay's push for the change address may have landed first —
+            // the node announces a transaction while the broadcast is still
+            // answering — and then this coin is in the set already. A second
+            // entry would count the change twice and offer one coin as two.
+            let held = set.iter().any(|u| u.txid == txid && u.vout == vout as u32);
+            if let Some(owner) = owner_of(&out.script_pubkey)
+                && !held
+            {
                 set.push(BtcUtxo {
                     txid: txid.to_string(),
                     vout: vout as u32,
                     sats: out.value.to_sat(),
                     height: 0,
                     address: owner,
+                    spent_by: None,
                 });
             }
         }
@@ -129,8 +140,8 @@ fn apply_local_spend(txid: &str) {
         })
         .collect();
     // Only a complete body is worth carrying: every input must have been in
-    // the local set (a replacement's inputs were NOT — they left with the
-    // original — and its row gets the body from the relay's record instead).
+    // the local set — which an ordinary send and a replacement both satisfy
+    // now that a consumed coin stays in the set, marked, until the block.
     let inputs = if spent_coins.len() == tx.input.len() { spent_coins } else { Vec::new() };
     let outputs: Vec<crate::channel::BtcRbfOutput> = tx
         .output
@@ -370,7 +381,7 @@ pub async fn execute(
     dispatched();
 
     if let Err(e) =
-        bitcoin_transaction_sender::send_transaction(&wallet, &tx_type, tx_hex, None).await
+        bitcoin_transaction_sender::send_transaction(&wallet, &tx_type, tx_hex, None, Some(&change_address)).await
     {
         discard_in_flight(None);
         fail_log(&e);

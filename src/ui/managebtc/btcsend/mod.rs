@@ -35,78 +35,13 @@ use crate::controller::app_state::{AppState, BtcFeeTier};
 use crate::controller::message::Message;
 use crate::utils::theme::CompactPalette;
 use crate::ws::commands::bitcoin_payment::{self, Utxo};
+// The size and fee arithmetic is the core's, beside the signer it must agree with.
+pub use crate::ws::commands::bitcoin_payment::{kinds_of, tier_sats_at, vsize_for};
 
 /// This wallet's own scriptPubKey length — what the change output costs.
 /// Read from btc.json's `script_type`; a wallet without the field is bc1q.
 fn change_spk_len() -> usize {
     crate::btc_script_type::stored().spk_len()
-}
-
-/// The script family of each coin, from its owner address — the same
-/// judgement the signer makes per input. A coin whose address does not parse
-/// (never, for a coin the relay pushed) is budgeted as the wallet's own type.
-pub fn kinds_of(coins: &[Utxo]) -> Vec<BtcScriptType> {
-    let own = crate::btc_script_type::stored();
-    coins
-        .iter()
-        .map(|c| BtcScriptType::of_address(&c.address).unwrap_or(own))
-        .collect()
-}
-
-/// Exact virtual size of the transaction `construct_transaction` will build:
-/// one input per entry of `inputs`, each costed in its own script family,
-/// and the given output scripts.
-///
-/// Per input: 41 fixed non-witness bytes (outpoint, scriptSig length,
-/// sequence) plus the family's scriptSig, and the family's witness bytes.
-/// Witness sizes are worst case — a 73-byte DER signature where one is used
-/// — so the paid rate lands at or above the one picked, never a hair under.
-/// A transaction with no witness input at all (a legacy wallet) has no
-/// marker and flag bytes, and is costed without them.
-///
-/// This replaced the flat 140 vB guess (`ASSUMED_VBYTES`, gone): a wallet
-/// whose send needed three inputs was underpaying its chosen rate by more
-/// than half under that assumption, and one that emptied into a single
-/// output was overpaying. The input count is real — the pushed UTXO set is on
-/// hand — so the size is too.
-pub fn vsize_for(inputs: &[BtcScriptType], out_spk_lens: &[usize]) -> u64 {
-    fn varint(n: usize) -> u64 {
-        if n < 0xfd { 1 } else { 3 }
-    }
-    let outs: u64 = out_spk_lens
-        .iter()
-        .map(|l| 8 + varint(*l) + *l as u64)
-        .sum();
-    let ins: u64 = inputs.iter().map(|k| 41 + k.script_sig_len()).sum();
-    let witness: u64 = inputs.iter().map(|k| k.witness_len()).sum();
-    let base = 4 + varint(inputs.len()) + ins + varint(out_spk_lens.len()) + outs + 4;
-    if witness == 0 {
-        return base;
-    }
-    (base * 4 + 2 + witness).div_ceil(4)
-}
-
-/// A rate priced against a concrete vsize, in **absolute satoshis**.
-///
-/// The rate is sat/vB and what we sign is a flat total, so the two are bridged
-/// exactly once, here. Rounded up: rounding a fee down is how you land a hair
-/// under the rate you picked.
-///
-/// **No clamping.** indexd already lifts every tier to the node's live
-/// `mempoolminfee` before publishing (`node_stats::walk_mempool`), so these
-/// numbers are floored by the network's own answer. A second floor of our own on
-/// top of that was flattening four distinct prices — 14 / 52 / 54 / 61 sats at
-/// the current rates — into one, and then had to explain why a tier called
-/// `minimum` was outbidding `high`. There was nothing to explain: the
-/// contradiction was ours.
-pub fn tier_sats_at(rate: f32, vsize: u64) -> u64 {
-    // Snapped before the ceiling, because the rate crosses the wire as `f32`
-    // and comes back a hair off. `0.1` arrives as 0.100000001490116…, which
-    // times 140 is 14.0000002 — and a bare `ceil` turns the node's exact
-    // 14-satoshi floor into 15. Rounding to six places lands it back on the
-    // number the node actually said, and is far finer than any real feerate.
-    let raw = rate as f64 * vsize as f64;
-    ((raw * 1e6).round() / 1e6).ceil() as u64
 }
 
 /// The eligible coins of the current wallet, in signing's own selection order.
@@ -742,70 +677,6 @@ mod tests {
             let text = format!("{:.8}", sats as f64 / 1e8);
             assert_eq!(to_sats(text.parse().unwrap()), sats, "{text}");
         }
-    }
-
-    /// A tier costs its rate times the size, rounded up so the signed fee is
-    /// never a hair under the rate that was picked — and nothing else. Any
-    /// flooring has already happened at the node. Pinned at 140 vB here purely
-    /// so the historical expectations still read; the size is a real
-    /// measurement everywhere outside tests now.
-    #[test]
-    fn a_tier_costs_its_rate_and_nothing_else() {
-        assert_eq!(tier_sats_at(1.0, 140), 140);
-        assert_eq!(tier_sats_at(0.1, 140), 14);
-        assert_eq!(tier_sats_at(3.0, 140), 420);
-        assert_eq!(tier_sats_at(2.5, 140), 350);
-        assert_eq!(tier_sats_at(1.001, 140), 141);
-    }
-
-    /// The exact sizes of the transactions this wallet actually builds. The
-    /// 1-in/2-out case lands on 141 — one vB over the old flat guess — and
-    /// every added input costs 68–69 vB, which is exactly the underquote the
-    /// constant used to hide.
-    #[test]
-    fn vsize_is_exact_for_the_shapes_we_build() {
-        use BtcScriptType::*;
-        // 1 P2WPKH input, recipient + change both P2WPKH.
-        assert_eq!(vsize_for(&[NativeSegwit], &[22, 22]), 141);
-        // Each further input: 41 base bytes ×4 + 109 witness = 273 weight.
-        assert_eq!(vsize_for(&[NativeSegwit; 2], &[22, 22]), 209);
-        assert_eq!(vsize_for(&[NativeSegwit; 3], &[22, 22]), 278);
-        // The change-less max-send shape is a whole output smaller.
-        assert_eq!(vsize_for(&[NativeSegwit], &[22]), 110);
-        // Paying legacy (25-byte spk) and taproot (34-byte spk) costs more.
-        assert_eq!(vsize_for(&[NativeSegwit], &[25, 22]), 144);
-        assert_eq!(vsize_for(&[NativeSegwit], &[34, 22]), 153);
-    }
-
-    /// The other three families, each spending one coin to a bc1q recipient
-    /// with change in its own script. Taproot is the cheapest input on the
-    /// network, legacy the dearest, and a legacy-only transaction carries no
-    /// segwit marker at all.
-    #[test]
-    fn vsize_per_input_family() {
-        use BtcScriptType::*;
-        // base 4+1+41+1+(31+43)+4 = 125; weight 500+2+66 = 568 → 142.
-        assert_eq!(vsize_for(&[Taproot], &[22, 34]), 142);
-        // base 4+1+(41+23)+1+(31+32)+4 = 137; weight 548+2+109 = 659 → 165.
-        assert_eq!(vsize_for(&[NestedSegwit], &[22, 23]), 165);
-        // base 4+1+(41+108)+1+(31+34)+4 = 224, no witness → 224.
-        assert_eq!(vsize_for(&[Legacy], &[22, 25]), 224);
-        // Mixed inputs are summed per family, not by the wallet's default:
-        // base 4+1+82+1+74+4 = 166; weight 664+2+(66+109) = 841 → 211.
-        assert_eq!(vsize_for(&[Taproot, NativeSegwit], &[22, 34]), 211);
-    }
-
-    /// The live reading that exposed the old bug: 0.1 / 0.37 / 0.38 / 0.43
-    /// sat/vB. These are four DISTINCT prices. A client-side 140-sat floor
-    /// flattened them into one and then had to explain why `minimum` outbid
-    /// `high`; nothing here may reintroduce that.
-    #[test]
-    fn the_live_rates_are_four_distinct_prices() {
-        let live = [0.1f32, 0.37, 0.38, 0.43].map(|r| tier_sats_at(r, 140));
-        assert_eq!(live, [14, 52, 54, 61]);
-        // The cheapest tier is the cheapest. This is the invariant the old
-        // floor broke, and it holds for free once nothing clamps.
-        assert!(live[0] <= live[3], "the minimum is outbidding the top tier");
     }
 
     /// The selection walk the quotes run is the same first-fit signing runs,

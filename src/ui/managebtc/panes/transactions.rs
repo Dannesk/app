@@ -62,9 +62,10 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         return bump(state, cp, scale);
     }
 
-    let (_, address_opt, _, _) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
-    let own = address_opt.as_deref().unwrap_or("");
-    let (pending, settled) = tx::split(own);
+    // Every address of the wallet, the master first: a row's direction is
+    // judged against all of them, never against the master alone.
+    let ours: Vec<String> = crate::wallet::btc_address_records().into_iter().map(|r| r.address).collect();
+    let (pending, settled) = tx::split(&ours);
     if pending.is_empty() && settled.is_empty() {
         return empty("No transactions to show", cp, scale);
     }

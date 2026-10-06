@@ -40,7 +40,7 @@ use crate::channel::{BtcBand, BtcNodeStats as NodeFrame, BANDS};
 use crate::controller::app_state::AppState;
 use crate::controller::message::Message;
 use crate::ui::components::grid::{self, drow, NA};
-use crate::ui::managebtc::node::trim_rate;
+use crate::ui::managebtc::node::{trim_rate, NodeFrameView};
 use crate::utils::fonts::{self, MONO};
 use crate::utils::theme::CompactPalette;
 use crate::utils::add_commas;

@@ -112,10 +112,10 @@ pub async fn process_response(
                 // the moment the app opens; the relay's fetch-through refresh
                 // re-pushes a fresh copy (`btc_utxos`) moments later either
                 // way. Absent field (old relay) = leave whatever we hold.
-                if let Some(utxos) = data.get("utxos").filter(|u| u.is_array()) {
+                if data.get("utxos").is_some_and(|u| u.is_array()) {
                     crate::ws::commands::get_btc_utxos::merge_btc_utxos(
                         wallet,
-                        crate::ws::commands::get_btc_utxos::parse_utxos(utxos, wallet),
+                        crate::ws::commands::get_btc_utxos::parse_coins(&data, wallet),
                     );
                 }
 
@@ -166,7 +166,7 @@ pub async fn process_response(
 ///    and every link rise, and the session is bound to nothing until it does.
 pub(crate) fn apply_whole_wallet(data: &Value) -> Result<(), String> {
     use crate::bridge::btc_receive_rotation::{derive_member, send_live_list};
-    use crate::ws::commands::get_btc_utxos::{parse_utxos, replace_btc_utxos};
+    use crate::ws::commands::get_btc_utxos::{parse_coins, replace_btc_utxos};
 
     let wallet = data.get("wallet").and_then(|w| w.as_str()).ok_or("Missing wallet field")?;
     let records = crate::wallet::btc_address_records();
@@ -254,13 +254,10 @@ pub(crate) fn apply_whole_wallet(data: &Value) -> Result<(), String> {
     }
 
     // After the write: the union only accepts coins of recorded addresses.
-    let mut union = data
-        .get("utxos")
-        .map(|u| parse_utxos(u, wallet))
-        .unwrap_or_default();
+    let mut union = parse_coins(data, wallet);
     for f in data.get("funded").and_then(|f| f.as_array()).into_iter().flatten() {
         if let Some(addr) = f.get("address").and_then(|a| a.as_str()) {
-            union.extend(parse_utxos(&f["utxos"], addr));
+            union.extend(parse_coins(f, addr));
         }
     }
     replace_btc_utxos(wallet, union);
@@ -277,6 +274,11 @@ pub(crate) fn apply_whole_wallet(data: &Value) -> Result<(), String> {
         state.apply_reply(rows, data, false);
     });
 
+    // The change address on offer is derived and recorded here, not at the
+    // first send, so the live list watches it from the first frame. A wallet
+    // reimported while its send pends would otherwise not see that send's
+    // change until it confirmed and the next open (2026-10-06 review).
+    let _ = crate::bridge::btc_receive_rotation::ensure_change_address();
     send_live_list();
     Ok(())
 }

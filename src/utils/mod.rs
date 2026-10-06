@@ -1,22 +1,13 @@
-pub mod entropy;
 pub mod fonts;
-pub mod formatting;
 pub mod icons;
-pub mod liquidity;
-pub mod orderbook;
-pub mod reserves;
 pub mod sparkline;
-pub mod price;
 pub mod qr;
 pub mod plain_field;
 pub mod secure_input;
 pub mod theme;
-pub mod tokens;
 pub mod bloom;
 pub mod clipboard;
 
-pub use formatting::add_commas;
-pub use formatting::format_token_amount;
-pub use formatting::format_usd;
-pub use formatting::money;
-pub use formatting::fiat_amount;
+// The chain-neutral helpers live in dannesk-core and keep their old paths here.
+pub use dannesk_core::utils::{entropy, formatting, liquidity, orderbook, price, reserves, tokens};
+pub use dannesk_core::utils::{add_commas, fiat_amount, format_token_amount, format_usd, money};

@@ -104,7 +104,9 @@ pub async fn execute(bitcoin_current_wallet: String, mut cmd: WSCommand) -> Resu
     dispatched();
 
     if let Err(e) =
-        bitcoin_transaction_sender::send_transaction(&wallet, &tx_type, tx_hex, Some(&old_txid)).await
+        // The original named its change address at its own broadcast, and the
+        // relay still holds it under that txid; a bump pays the same address.
+        bitcoin_transaction_sender::send_transaction(&wallet, &tx_type, tx_hex, Some(&old_txid), None).await
     {
         crate::ws::commands::bitcoin_submit_transaction::discard_in_flight(None);
         fail_log(&e);

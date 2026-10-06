@@ -1,6 +1,6 @@
 
 use crate::channel::{CHANNEL, ActivityLogState, WSCommand};
-use crate::controller::app_state::ImportMode;
+use crate::wallet::ImportMode;
 use crate::encrypt::encrypt_data;
 use crate::ws::commands::import_wallet::{PendingXrpImport, set_pending_xrp};
 use bip39::{Language, Mnemonic};

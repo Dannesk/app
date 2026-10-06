@@ -197,6 +197,12 @@ pub struct BtcUtxo {
     /// our own pending change is spendable — the sender-side check in
     /// `bitcoin_payment::eligible_utxos` tells the two apart.
     pub height: u64,
+    /// The mempool transaction spending this coin, when one does. The coin
+    /// stays in the set until a block spends it — the chain still holds it, so
+    /// the confirmed figure counts it — and nothing offers it to a signer. Set
+    /// by the relay's push and the whole-wallet fetch (`spent` beside `utxos`),
+    /// and by our own dispatch moments before the push arrives.
+    pub spent_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

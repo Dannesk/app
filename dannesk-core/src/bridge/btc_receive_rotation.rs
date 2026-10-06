@@ -348,11 +348,16 @@ pub fn derive_member(
 ///
 /// 1. the master (#0) — leaves only with the wallet;
 /// 2. the receive and the change address currently on offer;
-/// 3. a member holding an UNCONFIRMED coin — an address that was on offer and
-///    has been paid, or our own pending change — until it confirms.
+/// 3. every member holding a coin, confirmed or pending: an address that was
+///    on offer and has been paid, our own pending change, and a used address a
+///    coin still sits on. Every coin that can change gets a push this way, and
+///    a consumed coin's mark comes from the tracker that saw the spend
+///    (2026-10-06: a used address's spent coin sat in the set all session,
+///    because nothing ever pushed for that address).
 ///
-/// Nothing else is ever watched: used addresses are fetched with the wallet
-/// (`get_bitcoin_cached_balance` carrying the account xpub), never watched.
+/// Nothing else is ever watched: an emptied used address is fetched with the
+/// wallet (`get_bitcoin_cached_balance` carrying the account xpub), never
+/// watched.
 /// Sent after every whole-wallet reply (import, open, link rise), on every
 /// pool change, on every change rotation, and when the UTXO set changes.
 /// A wallet with no account key yet has no list: it is one address on the
@@ -387,7 +392,7 @@ pub fn send_live_list() {
     {
         list.push(r.address.clone());
     }
-    for u in CHANNEL.btc_utxos_rx.borrow().1.iter().filter(|u| u.height == 0) {
+    for u in CHANNEL.btc_utxos_rx.borrow().1.iter() {
         if records.iter().any(|r| r.address == u.address) && !list.contains(&u.address) {
             list.push(u.address.clone());
         }

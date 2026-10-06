@@ -1,0 +1,34 @@
+[package]
+name = "dannesk-core"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Everything under Dannesk's user interface: the socket to the proxy, the state bus, wallets, signing and storage. Shared by the desktop app and Android."
+repository = "https://github.com/Dannesk/app"
+publish = false  # GPL and ours: it travels with the apps, never through crates.io
+
+[dependencies]
+xrpl_codec = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
+uuid = { workspace = true }
+zeroize = { workspace = true }
+bitcoin = { workspace = true }
+secp256k1 = { workspace = true }
+bip39 = { workspace = true }
+aes-gcm = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+argon2 = { workspace = true }
+rustls = { workspace = true }
+sha2 = { workspace = true }
+ripemd = { workspace = true }
+bs58 = { workspace = true }
+hex = { workspace = true }
+zstd = { workspace = true }
+region = { workspace = true }
+libc = { workspace = true }
