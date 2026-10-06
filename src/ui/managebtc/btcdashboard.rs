@@ -68,7 +68,7 @@ use crate::ui::components::tui::MONO_ADVANCE;
 use crate::ui::components::signing::SignFields;
 use crate::utils::{fiat_amount, money};
 use crate::ui::components::compact;
-use crate::ui::managebtc::node::{band_color, fee_band, tip_age, trim_rate};
+use crate::ui::managebtc::node::{band_color, fee_band, tip_age, trim_rate, NodeFrameView};
 use crate::ui::managebtc::btcsend;
 use crate::ui::managebtc::panes as panes_ui;
 use crate::utils::fonts::{LIGHT, MONO};
@@ -218,56 +218,33 @@ fn pane_content<'a>(
 
 /// The two figures the pane states, in satoshis — mempool.space's own split
 /// (user, 2026-09-16: "confirmed really is the raw balance"), applied to
-/// every address of the wallet.
+/// every address of the wallet and read straight off the coin set.
 ///
-/// **`confirmed` is the chain's view**: every confirmed coin, counting a
-/// coin our own pending send has consumed — the chain has not seen that
-/// spend yet, and the number the user checks us against is the chain's.
-/// **`unconfirmed` is the mempool's net delta**: coins created for us minus
-/// confirmed coins our pending sends spend — so `confirmed + unconfirmed`
-/// is where the balance lands once the mempool clears, a send reads
-/// `−(amount + fee)`, an incoming payment `+amount`, and a quiet mempool
-/// reads zero.
-///
-/// The consumed coins come from the record's own `inputs` when it carries
-/// them; a record from before the body rode the record rebuilds the figure
-/// from `amount + fee + the change that came back`. An input that is itself
-/// pending change (a send chained on a send) was never confirmed, so it is
-/// neither put back into `confirmed` nor subtracted from `unconfirmed`.
+/// **`confirmed` is the chain's view**: every confirmed coin, counting one
+/// our own pending send has consumed — the chain has not seen that spend
+/// yet, and the number the user checks us against is the chain's. The set
+/// keeps such a coin, marked with its spender, until a block spends it, so
+/// nothing here is reconstructed: the figure moves when a block lands and at
+/// no other moment (user, 2026-10-06, after a send read +$5, then +$10 on a
+/// reopen: the old arithmetic added the consumed coins back on top of a set
+/// that still held them).
+/// **`unconfirmed` is the mempool's net delta**: coins created for us and not
+/// consumed again, minus the confirmed coins our pending sends consume — so
+/// `confirmed + unconfirmed` is where the balance lands once the mempool
+/// clears, a send reads `−(amount + fee)`, an incoming payment `+amount`, a
+/// quiet mempool zero, and a send chained on our own pending change counts
+/// the confirmed coin once.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct BalanceFigures {
     confirmed: u64,
     unconfirmed: i64,
 }
 
-fn balance_figures(
-    union: &[crate::channel::BtcUtxo],
-    txs: &std::collections::HashMap<String, crate::channel::BtcTransactionData>,
-    ours: &[String],
-) -> BalanceFigures {
-    use crate::channel::BitcoinTransactionStatus::Pending;
-    let is_pending = |txid: &str| txs.get(txid).is_some_and(|t| t.status == Pending);
-    let confirmed_in_union: u64 = union.iter().filter(|u| u.height > 0).map(|u| u.sats).sum();
-    let mempool_in_union: u64 = union.iter().filter(|u| u.height == 0).map(|u| u.sats).sum();
-    let change_of = |txid: &str| -> u64 {
-        union.iter().filter(|u| u.height == 0 && u.txid == txid).map(|u| u.sats).sum()
-    };
-    let spent_confirmed: u64 = txs
-        .values()
-        .filter(|t| t.status == Pending && t.sender_addresses.iter().any(|a| ours.contains(a)))
-        .map(|t| {
-            if t.inputs.is_empty() {
-                let out = t.amount.parse::<f64>().map(btcsend::to_sats).unwrap_or(0);
-                out + t.fees.parse::<u64>().unwrap_or(0) + change_of(&t.txid)
-            } else {
-                t.inputs.iter().filter(|i| !is_pending(&i.txid)).map(|i| i.sats).sum()
-            }
-        })
-        .sum();
-    BalanceFigures {
-        confirmed: confirmed_in_union + spent_confirmed,
-        unconfirmed: mempool_in_union as i64 - spent_confirmed as i64,
-    }
+fn balance_figures(union: &[crate::channel::BtcUtxo]) -> BalanceFigures {
+    let confirmed: u64 = union.iter().filter(|u| u.height > 0).map(|u| u.sats).sum();
+    let created: u64 = union.iter().filter(|u| u.height == 0 && u.spent_by.is_none()).map(|u| u.sats).sum();
+    let consumed: u64 = union.iter().filter(|u| u.height > 0 && u.spent_by.is_some()).map(|u| u.sats).sum();
+    BalanceFigures { confirmed, unconfirmed: created as i64 - consumed as i64 }
 }
 
 /// What the chain says you hold, and what that is worth: the fiat figure
@@ -295,17 +272,15 @@ fn balance_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
     let mask = |s: String| if hide { "\u{2022}".repeat(4) } else { s };
 
     let records = crate::wallet::btc_address_records();
-    let ours: Vec<String> = records.iter().map(|r| r.address.clone()).collect();
     let master = records.first().map(|r| r.address.clone()).unwrap_or_default();
     let (figures, on_master, on_others, others_n) = {
         let union = CHANNEL.btc_utxos_rx.borrow();
-        let txs = CHANNEL.btc_transactions_rx.borrow();
         let on_master: u64 = union.1.iter().filter(|u| u.address == master).map(|u| u.sats).sum();
         let on_others: u64 = union.1.iter().filter(|u| u.address != master).map(|u| u.sats).sum();
         let mut others: Vec<&str> = union.1.iter().filter(|u| u.address != master).map(|u| u.address.as_str()).collect();
         others.sort_unstable();
         others.dedup();
-        (balance_figures(&union.1, &txs.transactions, &ours), on_master, on_others, others.len())
+        (balance_figures(&union.1), on_master, on_others, others.len())
     };
     let btc = |sats: u64| format!("{:.8}", sats as f64 / 1e8);
 
@@ -1184,106 +1159,84 @@ mod tests {
 #[cfg(test)]
 mod balance_figure_tests {
     use super::{balance_figures, BalanceFigures};
-    use crate::channel::{BitcoinTransactionStatus, BtcRbfInput, BtcTransactionData, BtcUtxo};
-    use std::collections::HashMap;
+    use crate::channel::BtcUtxo;
 
     const OWN: &str = "bc1qown";
     const CHANGE: &str = "bc1qchange";
-    const THEM: &str = "bc1qthem";
 
-    fn coin(txid: &str, sats: u64, height: u64, address: &str) -> BtcUtxo {
-        BtcUtxo { txid: txid.to_string(), vout: 0, sats, address: address.to_string(), height }
-    }
-
-    fn tx(txid: &str, status: BitcoinTransactionStatus, amount: &str, fees: &str, sender: &str) -> BtcTransactionData {
-        BtcTransactionData {
+    fn coin(txid: &str, sats: u64, height: u64, address: &str, spent_by: Option<&str>) -> BtcUtxo {
+        BtcUtxo {
             txid: txid.to_string(),
-            status,
-            amount: amount.to_string(),
-            fees: fees.to_string(),
-            receiver_addresses: vec![THEM.to_string()],
-            sender_addresses: vec![sender.to_string()],
-            timestamp: "1".to_string(),
-            confirmed_at: None,
-            dropped_at: None,
-            block_height: None,
-            replaced_by: None,
-            inputs: Vec::new(),
-            outputs: Vec::new(),
-            vsize: None,
+            vout: 0,
+            sats,
+            address: address.to_string(),
+            height,
+            spent_by: spent_by.map(String::from),
         }
-    }
-
-    fn input(txid: &str, sats: u64, address: &str) -> BtcRbfInput {
-        BtcRbfInput { txid: txid.to_string(), vout: 0, sats, address: Some(address.to_string()) }
-    }
-
-    fn ours() -> Vec<String> {
-        vec![OWN.to_string(), CHANGE.to_string()]
     }
 
     /// A quiet mempool: the chain figure alone, unconfirmed exactly zero.
     #[test]
     fn a_quiet_wallet_reads_zero_unconfirmed() {
-        let union = vec![coin("a", 106_145, 955_129, OWN), coin("b", 93_764_195, 965_706, CHANGE)];
-        let f = balance_figures(&union, &HashMap::new(), &ours());
-        assert_eq!(f, BalanceFigures { confirmed: 93_870_340, unconfirmed: 0 });
+        let union = vec![coin("a", 106_145, 955_129, OWN, None), coin("b", 93_764_195, 965_706, CHANGE, None)];
+        assert_eq!(balance_figures(&union), BalanceFigures { confirmed: 93_870_340, unconfirmed: 0 });
     }
 
-    /// The 2026-09-06 send: the 0.9377 coin left the union, change came back
-    /// at height 0. The chain still counts the coin; unconfirmed reads
-    /// `−(amount + fee)` — mempool.space's own two numbers.
+    /// The 2026-10-06 send that found the old arithmetic out: two confirmed
+    /// coins consumed, 5,857 to the recipient, 300 fee, 5,568 change. The
+    /// chain still counts both coins — the figure does not move — and
+    /// unconfirmed reads `−(amount + fee)`: mempool.space's two numbers.
     #[test]
     fn a_pending_send_keeps_the_chain_figure_and_states_the_delta() {
-        let union = vec![coin("a", 9_800, 922_340, OWN), coin("4c25", 93_764_195, 0, CHANGE)];
-        let mut t = tx("4c25", BitcoinTransactionStatus::Pending, "0.00012505", "300", OWN);
-        t.inputs = vec![input("465c", 93_767_200, OWN), input("7427", 9_800, OWN)];
-        let txs = HashMap::from([("4c25".to_string(), t)]);
-        let f = balance_figures(&union, &txs, &ours());
-        assert_eq!(f, BalanceFigures { confirmed: 9_800 + 93_767_200 + 9_800, unconfirmed: -(12_505 + 300) });
-        assert_eq!(f.confirmed as i64 + f.unconfirmed, union.iter().map(|u| u.sats as i64).sum::<i64>());
+        let union = vec![
+            coin("5154", 5_802, 969_974, OWN, Some("33cf")),
+            coin("b4d4", 5_923, 965_711, CHANGE, Some("33cf")),
+            coin("33cf", 5_568, 0, CHANGE, None),
+        ];
+        let f = balance_figures(&union);
+        assert_eq!(f, BalanceFigures { confirmed: 11_725, unconfirmed: -(5_857 + 300) });
+        assert_eq!(f.confirmed as i64 + f.unconfirmed, 5_568);
     }
 
-    /// A record without a body rebuilds the consumed coins from
-    /// `amount + fee + change` and lands on the same two figures.
+    /// A reopen while the send pends brings the same set back from the
+    /// whole-wallet fetch, marks and all: a push and a fetch cannot land on
+    /// different figures, because there is nothing to reconstruct.
     #[test]
-    fn a_bodiless_record_rebuilds_the_spent_coins() {
-        let union = vec![coin("4c25", 93_764_195, 0, CHANGE)];
-        let txs = HashMap::from([(
-            "4c25".to_string(),
-            tx("4c25", BitcoinTransactionStatus::Pending, "0.00012505", "300", OWN),
-        )]);
-        let f = balance_figures(&union, &txs, &ours());
-        assert_eq!(f, BalanceFigures { confirmed: 93_777_000, unconfirmed: -12_805 });
+    fn the_figures_are_a_function_of_the_set_alone() {
+        let a = vec![coin("x", 10_000, 10, OWN, Some("p")), coin("p", 6_700, 0, CHANGE, None)];
+        let b: Vec<BtcUtxo> = a.iter().rev().cloned().collect();
+        assert_eq!(balance_figures(&a), balance_figures(&b));
+        assert_eq!(balance_figures(&a), BalanceFigures { confirmed: 10_000, unconfirmed: 6_700 - 10_000 });
     }
 
-    /// A foreign payment in the mempool is unconfirmed, positive; a replaced
-    /// or dropped record consumes nothing.
+    /// A foreign payment in the mempool is unconfirmed, positive, and the
+    /// chain figure does not move for it either.
     #[test]
-    fn foreign_mempool_coins_are_unconfirmed_and_dead_records_are_ignored() {
-        let union = vec![coin("a", 1_000, 10, OWN), coin("in", 5_000, 0, OWN)];
-        let txs = HashMap::from([
-            ("in".to_string(), tx("in", BitcoinTransactionStatus::Pending, "0.00005", "100", THEM)),
-            ("old".to_string(), tx("old", BitcoinTransactionStatus::Replaced, "0.5", "28", OWN)),
-            ("gone".to_string(), tx("gone", BitcoinTransactionStatus::Dropped, "0.5", "28", OWN)),
-        ]);
-        let f = balance_figures(&union, &txs, &ours());
-        assert_eq!(f, BalanceFigures { confirmed: 1_000, unconfirmed: 5_000 });
+    fn a_foreign_mempool_coin_is_unconfirmed_and_positive() {
+        let union = vec![coin("a", 1_000, 10, OWN, None), coin("in", 5_000, 0, OWN, None)];
+        assert_eq!(balance_figures(&union), BalanceFigures { confirmed: 1_000, unconfirmed: 5_000 });
     }
 
-    /// A send chained on pending change: that input was never confirmed, so
-    /// it is neither put back into `confirmed` nor subtracted twice.
+    /// A send chained on pending change: the first send's change is consumed
+    /// again at height 0, so the confirmed coin is counted once and the delta
+    /// is both sends' amounts and fees together.
     #[test]
     fn a_send_on_pending_change_counts_the_confirmed_coin_once() {
         // P spent a 10,000 confirmed coin: 6,000 out, 3,000 change, 1,000 fee.
         // Q spent P's change: 1,000 out, 1,500 change, 500 fee.
-        let union = vec![coin("q", 1_500, 0, CHANGE)];
-        let mut p = tx("p", BitcoinTransactionStatus::Pending, "0.00006", "1000", OWN);
-        p.inputs = vec![input("c", 10_000, OWN)];
-        let mut q = tx("q", BitcoinTransactionStatus::Pending, "0.00001", "500", CHANGE);
-        q.inputs = vec![input("p", 3_000, CHANGE)];
-        let txs = HashMap::from([("p".to_string(), p), ("q".to_string(), q)]);
-        let f = balance_figures(&union, &txs, &ours());
-        assert_eq!(f, BalanceFigures { confirmed: 10_000, unconfirmed: 1_500 - 10_000 });
+        let union = vec![
+            coin("c", 10_000, 10, OWN, Some("p")),
+            coin("p", 3_000, 0, CHANGE, Some("q")),
+            coin("q", 1_500, 0, CHANGE, None),
+        ];
+        assert_eq!(balance_figures(&union), BalanceFigures { confirmed: 10_000, unconfirmed: 1_500 - 10_000 });
+    }
+
+    /// The block lands: the consumed coins leave the set, the change is
+    /// confirmed, and the figure moves exactly once, to the change.
+    #[test]
+    fn confirmation_moves_the_figure_once() {
+        let union = vec![coin("33cf", 5_568, 970_141, CHANGE, None)];
+        assert_eq!(balance_figures(&union), BalanceFigures { confirmed: 5_568, unconfirmed: 0 });
     }
 }

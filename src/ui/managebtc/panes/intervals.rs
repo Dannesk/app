@@ -45,7 +45,7 @@ use crate::channel::{BtcBlock, BtcNodeStats as NodeFrame, BLOCK_TRAIN};
 use crate::controller::app_state::AppState;
 use crate::controller::message::Message;
 use crate::ui::components::grid::{self, drow, NA};
-use crate::ui::managebtc::node::tip_age;
+use crate::ui::managebtc::node::{tip_age, NodeFrameView};
 use crate::ui::managebtc::panes::mempool::{axis_row, readout, slot_at, track, BarHover, AXIS, LABEL_PAD, MONO_ADVANCE};
 use crate::utils::add_commas;
 use crate::utils::fonts;

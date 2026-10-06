@@ -209,6 +209,9 @@ impl BitcoinWalletOperations {
 
         // 4. Reset UI/Channels — rows and the paging with them.
         let _ = CHANNEL.btc_transactions_tx.send(BtcTransactionState::default());
+        // The coin set goes with the wallet: the next wallet's first frame would
+        // replace it anyway, but nothing may sum a removed wallet's coins meanwhile.
+        let _ = CHANNEL.btc_utxos_tx.send((None, Vec::new()));
         let _ = CHANNEL.bitcoin_wallet_tx.send((0.0, None, false, crate::channel::KeyMode::Standard));
         // The files are gone, so what they said about a stored 25th word has to
         // go too. Left set, it would outlive the wallet it described and tell

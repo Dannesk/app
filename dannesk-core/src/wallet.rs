@@ -3,6 +3,23 @@ use crate::bridge::json_storage;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
+/// How an imported wallet's key is protected at rest. Chosen on the import
+/// screen; drives both the entry UI and the storage backend.
+///   • `Standard` — passphrase-encrypted file on disk.
+///   • `Cold`     — nothing persisted; the key lives only for this session.
+///
+/// There is deliberately no hardware tier. A file works on 100% of devices; no
+/// enclave does, and none of them (TPM 2.0, Apple SE, Android StrongBox) can
+/// run secp256k1 inside the boundary anyway — so every one could only wrap a
+/// blob we then unwrap into ordinary RAM, for the cost of a per-platform
+/// backend. Revisit only if enclaves gain in-boundary support for our curves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImportMode {
+    #[default]
+    Standard,
+    Cold,
+}
+
 /// One watched address of the BTC wallet: `m/{purpose}'/0'/0'/{chain}/{index}`,
 /// the purpose being the wallet's `script_type` (84' for the bc1q default).
 /// Record 0 is ALWAYS #0 (`0/0`) — the wallet's permanent identity, what the

@@ -1,6 +1,6 @@
 use crate::btc_script_type::BtcScriptType;
 use crate::channel::{CHANNEL, ActivityLogState, WSCommand};
-use crate::controller::app_state::ImportMode;
+use crate::wallet::ImportMode;
 use crate::encrypt::encrypt_data;
 use crate::ws::commands::bitcoin_import_wallet::{PendingBtcImport, set_pending_btc};
 use bip39::{Language, Mnemonic};

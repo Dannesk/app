@@ -94,7 +94,7 @@ mod tests {
     /// trusting anyone to keep two strings in step by hand.
     #[test]
     fn path_is_the_derivers() {
-        let deriver = include_str!("../../bridge/xrp_import_logic.rs");
+        let deriver = include_str!("../../../dannesk-core/src/bridge/xrp_import_logic.rs");
         assert!(deriver.contains(&format!("\"{PATH}\"")), "PATH is not the XRP deriver's path");
     }
 }

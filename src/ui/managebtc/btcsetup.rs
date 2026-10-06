@@ -120,7 +120,7 @@ mod tests {
     /// trusting anyone to keep two strings in step by hand.
     #[test]
     fn path_is_the_derivers() {
-        let deriver = include_str!("../../bridge/btc_import_logic.rs");
+        let deriver = include_str!("../../../dannesk-core/src/bridge/btc_import_logic.rs");
         let path = BtcScriptType::NativeSegwit.path();
         assert!(deriver.contains(&format!("\"{path}\"")), "native path is not the BTC deriver's path");
     }

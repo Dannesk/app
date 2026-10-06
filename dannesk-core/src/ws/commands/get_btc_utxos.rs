@@ -14,6 +14,12 @@
 //! definition), and drops pushes for addresses that are not in btc.json (a
 //! stale subscription from a replaced wallet must not leak coins into the new
 //! one's spendable set).
+//!
+//! A frame carries two lists (2026-10-06): `utxos`, the coins that are free,
+//! and `spent`, the coins a mempool transaction has consumed, each naming its
+//! spender. Both enter the union — a consumed coin is still the chain's until
+//! a block spends it — and [`parse_coins`] is the one reader of the pair, so
+//! the push and the fetch cannot disagree about what a coin is.
 
 use crate::channel::{BtcUtxo, CHANNEL};
 use serde_json::Value;
@@ -42,9 +48,19 @@ pub fn parse_utxos(v: &Value, owner: &str) -> Vec<BtcUtxo> {
                 sats: u["sats"].as_u64()?,
                 height: u["height"].as_u64()?,
                 address: owner.to_string(),
+                spent_by: u["spent_by"].as_str().map(String::from),
             })
         })
         .collect()
+}
+
+/// Both coin lists of one frame or one `funded` entry, as one set: `utxos`
+/// (free) and `spent` (consumed, each marked with its spender). A frame from a
+/// relay before the mark has no second list, and reads as it always did.
+pub fn parse_coins(frame: &Value, owner: &str) -> Vec<BtcUtxo> {
+    let mut coins = parse_utxos(&frame["utxos"], owner);
+    coins.extend(parse_utxos(&frame["spent"], owner));
+    coins
 }
 
 /// Fold one address's freshly-pushed set into the union and recompute the
@@ -91,9 +107,11 @@ pub fn replace_btc_utxos(primary: &str, set: Vec<BtcUtxo>) {
     recompute_btc_balance();
 }
 
-/// Aggregate balance = the union's confirmed coins summed — the same
-/// definition the relay uses per address (`balance` = set summed), applied
-/// across the wallet. The identity and key-state fields are left alone.
+/// Aggregate balance = the union's confirmed coins summed, consumed by a
+/// pending send or not — the chain's own figure, the same definition the
+/// relay uses per address, applied across the wallet. It moves when a block
+/// lands and at no other moment. The identity and key-state fields are left
+/// alone.
 pub fn recompute_btc_balance() {
     let sats: u64 = CHANNEL
         .btc_utxos_rx
@@ -124,6 +142,33 @@ pub async fn process_response(
         .get("wallet")
         .and_then(|w| w.as_str())
         .ok_or("Missing wallet field")?;
-    merge_btc_utxos(wallet, parse_utxos(&data["utxos"], wallet));
+    merge_btc_utxos(wallet, parse_coins(&data, wallet));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Both lists of a frame become one set: the free coins unmarked, the
+    /// consumed ones carrying their spender. A coin that fails to parse is
+    /// dropped, never the frame.
+    #[test]
+    fn both_lists_of_a_frame_become_one_marked_set() {
+        let frame = json!({
+            "utxos": [{ "txid": "aa", "vout": 0, "sats": 5_923, "height": 965_711 }, { "txid": "broken" }],
+            "spent": [{ "txid": "bb", "vout": 1, "sats": 5_802, "height": 969_974, "spent_by": "cc" }],
+        });
+        let coins = parse_coins(&frame, "bc1qme");
+        assert_eq!(coins.len(), 2);
+        assert_eq!(coins[0].txid, "aa");
+        assert_eq!(coins[0].spent_by, None);
+        assert_eq!(coins[1].txid, "bb");
+        assert_eq!(coins[1].spent_by.as_deref(), Some("cc"));
+        assert!(coins.iter().all(|c| c.address == "bc1qme"));
+        // A frame from a relay before the mark has no second list.
+        let old = json!({ "utxos": [{ "txid": "aa", "vout": 0, "sats": 1, "height": 1 }] });
+        assert_eq!(parse_coins(&old, "bc1qme").len(), 1);
+    }
 }

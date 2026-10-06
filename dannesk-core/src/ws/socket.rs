@@ -117,7 +117,10 @@ pub async fn run_websocket(
         // until 2026-09-20). The proxy keeps it — nothing upstream reads it.
         // `v` names the handshake this build speaks, so the proxy can one day
         // ask more of a newer client without breaking this one (AUTH.md, C/D).
-        let hello = format!(r#"{{"type":"hello","v":1,"app":"{}"}}"#, env!("CARGO_PKG_VERSION"));
+        // `app` is the app's version, registered through `crate::init`; this
+        // crate's own version is not what a user reports.
+        let app_version = crate::app().map_or("unregistered", |app| app.version);
+        let hello = format!(r#"{{"type":"hello","v":1,"app":"{}"}}"#, app_version);
         if ws_sink.send(frame(TAG_RELAY, &hello)).await.is_err() {
             if backoff_or_shutdown(&mut backoff, &mut shutdown_rx).await {
                 return Ok(());

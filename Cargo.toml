@@ -7,11 +7,13 @@ description = "DeFi Wallet for XRPL and Bitcoin."
 
 
 [workspace]
-members = ["xrpl_codec"]
+members = ["dannesk-core", "xrpl_codec"]
 
-[dependencies]
-xrpl_codec = { path = "xrpl_codec" }  # our XRPL transaction and address codec, under MIT
-iced = { git = "https://github.com/iced-rs/iced", rev = "56be3ede2b21f4880d1a1d7154bf8fcb84a729da", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }
+# One version of every library for the whole workspace. A member writes
+# `{ workspace = true }`, so the app and the core cannot drift apart.
+[workspace.dependencies]
+dannesk-core = { path = "dannesk-core" }
+xrpl_codec = { path = "xrpl_codec" }
 chrono = "0.4.45"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -21,7 +23,7 @@ futures-util = "0.3.34"  # For StreamExt and SinkExt
 uuid = { version = "1.27.0", features = ["v4"] }
 zeroize = { version = "1.9", features = ["derive", "serde"] }
 bitcoin = "0.32.102"
-secp256k1 = "0.33.1" 
+secp256k1 = "0.33.1"
 bip39 = "3.0.0"
 aes-gcm = "0.11.1"
 rand = "0.10.3"
@@ -37,8 +39,28 @@ bs58 = { version = "0.5.1", features = ["check"] }
 hex = "0.4.3"
 zstd = "0.14.0"
 region = "4.0.1"
-libc = "0.2.190"  # already in tree via region; used directly for process hardening (core dumps / ptrace)
-arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }  # already in iced, but used directly to mark a copied phrase secret (utils/clipboard.rs)
+libc = "0.2.190"
+arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }
+
+[dependencies]
+dannesk-core = { workspace = true }  # everything under the UI, shared with Android
+xrpl_codec = { workspace = true }  # our XRPL transaction and address codec, under MIT
+iced = { git = "https://github.com/iced-rs/iced", rev = "56be3ede2b21f4880d1a1d7154bf8fcb84a729da", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+zeroize = { workspace = true }
+bitcoin = { workspace = true }
+bip39 = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+dirs = { workspace = true }
+qrcode = { workspace = true }
+image = { workspace = true }
+sha2 = { workspace = true }
+libc = { workspace = true }  # the start-up trace (src/startup_trace.rs); the process hardening is the core's
+arboard = { workspace = true }  # already in iced, but used directly to mark a copied phrase secret (utils/clipboard.rs)
 
 [features]
 startup-trace = []

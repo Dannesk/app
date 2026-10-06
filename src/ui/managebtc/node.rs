@@ -54,15 +54,23 @@ pub(crate) fn fee_band(rate: f32) -> usize {
     FEE_BANDS.iter().position(|(hi, _)| rate < *hi).unwrap_or(FEE_BANDS.len() - 1)
 }
 
-impl NodeFrame {
-    pub(crate) fn current() -> Self {
-        *CHANNEL.btc_node_rx.borrow()
-    }
-
+/// The frame as the grid reads it: the current one, and its status word. A
+/// trait, not an `impl`, because the frame is dannesk-core's type and the
+/// words and colours are the grid's.
+pub(crate) trait NodeFrameView {
+    fn current() -> Self;
     /// What the status dot says. One word, and the only claim the grid makes
     /// about the node. Every word is evidence the node reported about itself;
     /// none is inferred from how long the chain has been quiet.
-    pub(crate) fn status(&self, p: &'static CompactPalette) -> (&'static str, Color) {
+    fn status(&self, p: &'static CompactPalette) -> (&'static str, Color);
+}
+
+impl NodeFrameView for NodeFrame {
+    fn current() -> Self {
+        *CHANNEL.btc_node_rx.borrow()
+    }
+
+    fn status(&self, p: &'static CompactPalette) -> (&'static str, Color) {
         // Nothing measured at all: the relay dropped the frame because it lost
         // indexd. Say so rather than draw a green dot over a row of dashes.
         if self.sync.is_none() && self.peers.is_none() && self.tip_height.is_none() {

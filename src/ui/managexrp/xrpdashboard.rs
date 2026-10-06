@@ -648,15 +648,27 @@ fn band_color(band: usize, p: &'static CompactPalette) -> Color {
 
 // ── Node data ────────────────────────────────────────────────────────────────
 
-impl NodeFrame {
+/// The frame's display verdicts: one word and a colour per question. A trait,
+/// not an `impl`, because the frame is dannesk-core's type and the words and
+/// colours are this screen's.
+pub(crate) trait NodeFrameView {
     /// Nothing measured at all: the relay dropped the frame because it lost
     /// the node.
+    fn is_empty(&self) -> bool;
+    /// The fee verdict: one word and its colour, or `None` when unmeasured.
+    fn verdict(&self, p: &'static CompactPalette) -> Option<(&'static str, Color)>;
+    /// What the status dot says — the only claim this screen makes about the
+    /// node. A not-synced node reports rippled's own state word (`syncing`,
+    /// `connected`, `tracking`…) rather than a paraphrase.
+    fn status(&self, p: &'static CompactPalette) -> (String, Color);
+}
+
+impl NodeFrameView for NodeFrame {
     fn is_empty(&self) -> bool {
         self.ledger_index.is_none() && self.peers.is_none() && self.state.is_none()
     }
 
-    /// The fee verdict: one word and its colour, or `None` when unmeasured.
-    pub(crate) fn verdict(&self, p: &'static CompactPalette) -> Option<(&'static str, Color)> {
+    fn verdict(&self, p: &'static CompactPalette) -> Option<(&'static str, Color)> {
         let (open, base) = (self.open_ledger_fee?, self.fee_base?);
         if base == 0 {
             return None;
@@ -666,10 +678,7 @@ impl NodeFrame {
         Some((FEE_BANDS[band].1, band_color(band, p)))
     }
 
-    /// What the status dot says — the only claim this screen makes about the
-    /// node. A not-synced node reports rippled's own state word (`syncing`,
-    /// `connected`, `tracking`…) rather than a paraphrase.
-    pub(crate) fn status(&self, p: &'static CompactPalette) -> (String, Color) {
+    fn status(&self, p: &'static CompactPalette) -> (String, Color) {
         if self.is_empty() {
             return ("offline".to_string(), p.red);
         }

@@ -27,18 +27,19 @@ pub fn get_config_path(filename: &str) -> io::Result<PathBuf> {
     Ok(path)
 }
 
-/// The folder every file of the app lives in: `Dannesk` under the user's
-/// config directory.
+/// The folder every file of the app lives in: the one the app registered
+/// through [`crate::init`]. Before that every path fails closed, so nothing is
+/// ever read from or written to a directory this crate guessed.
 #[cfg(not(test))]
 fn app_dir() -> io::Result<PathBuf> {
-    Ok(dirs::config_dir()
+    crate::app()
+        .map(|app| app.data_dir.clone())
         .ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
-                "Could not determine config directory",
+                "The app has not registered its storage directory",
             )
-        })?
-        .join("Dannesk"))
+        })
 }
 
 /// Tests get a folder of their own under the system's temp directory, one per

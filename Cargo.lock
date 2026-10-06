@@ -6,36 +6,25 @@ version = 4
 name = "Dannesk"
 version = "0.1.2"
 dependencies = [
- "aes-gcm",
  "arboard",
- "argon2",
  "base64 0.23.1",
  "bip39",
  "bitcoin",
- "bs58",
  "chrono",
+ "dannesk-core",
  "dirs",
- "futures-util",
- "hex",
  "iced",
  "image",
  "libc",
  "qrcode",
  "rand 0.10.3",
- "region",
- "ripemd",
- "rustls",
- "secp256k1 0.33.1",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "tokio",
- "tokio-tungstenite",
- "uuid",
  "winres",
  "xrpl_codec",
  "zeroize",
- "zstd",
 ]
 
 [[package]]
@@ -945,6 +934,36 @@ name = "cursor-icon"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
+
+[[package]]
+name = "dannesk-core"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "base64 0.23.1",
+ "bip39",
+ "bitcoin",
+ "bs58",
+ "chrono",
+ "futures-util",
+ "hex",
+ "libc",
+ "rand 0.10.3",
+ "region",
+ "ripemd",
+ "rustls",
+ "secp256k1 0.33.1",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tokio",
+ "tokio-tungstenite",
+ "uuid",
+ "xrpl_codec",
+ "zeroize",
+ "zstd",
+]
 
 [[package]]
 name = "data-encoding"

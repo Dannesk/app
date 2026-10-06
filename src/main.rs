@@ -4,21 +4,15 @@ use iced::{Task, Subscription};
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 
-pub mod bridge;
-pub mod btc_script_type;
-pub mod channel;
 pub mod controller;
-pub mod decrypt;
-pub mod encrypt;
-pub mod gate;
 pub mod icon;
-pub mod secure;
-pub mod startup;
 pub mod startup_trace;
 pub mod ui;
-pub mod wallet;
 pub mod utils;
-pub mod ws;
+
+// Everything under the UI is the dannesk-core crate, shared with Android. It is
+// re-exported here so the app keeps addressing it as `crate::ws`, `crate::channel`…
+pub use dannesk_core::{bridge, btc_script_type, channel, decrypt, encrypt, gate, secure, wallet, ws};
 
 use crate::controller::app_state::AppState;
 use crate::controller::message::Message;
@@ -30,7 +24,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     secure::harden_process();
     startup_trace::stamp("main");
 
-    startup::init_globals();
+    // The core learns what only the app knows: its version, for the proxy's
+    // hello, and the directory its files live in. Nothing is read before this.
+    let data_dir = dirs::config_dir()
+        .ok_or("Could not determine the config directory")?
+        .join("Dannesk");
+    dannesk_core::init(dannesk_core::App { version: VERSION, data_dir })
+        .map_err(|_| "the core was initialised twice")?;
 
     // iced indexes every system font before its first frame, twice (text, then
     // the SVG renderer) — seconds on the first launch after a boot. Turn both
