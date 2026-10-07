@@ -3,13 +3,13 @@ name = "dannesk-core"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
-description = "Everything under Dannesk's user interface: the socket to the proxy, the state bus, wallets, signing and storage. Shared by the desktop app and Android."
+description = "Communication layer."
 repository = "https://github.com/Dannesk/app"
-publish = false  # GPL and ours: it travels with the apps, never through crates.io
+publish = false 
 
 [dependencies]
 xrpl_codec = { workspace = true }
-dannesk-noise-protocol = { workspace = true, features = ["tokio"] }  # the socket to the proxy: the handshake and the framing
+dannesk-noise-protocol = { workspace = true, features = ["tokio"] }  
 chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

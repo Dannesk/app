@@ -9,8 +9,6 @@ description = "DeFi Wallet for XRPL and Bitcoin."
 [workspace]
 members = ["dannesk-core", "xrpl_codec", "dannesk-noise-protocol"]
 
-# One version of every library for the whole workspace. A member writes
-# `{ workspace = true }`, so the app and the core cannot drift apart.
 [workspace.dependencies]
 dannesk-core = { path = "dannesk-core" }
 xrpl_codec = { path = "xrpl_codec" }
@@ -44,7 +42,7 @@ libc = "0.2.190"
 arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }
 
 [dependencies]
-dannesk-core = { workspace = true }  # everything under the UI, shared with Android
+dannesk-core = { workspace = true }  # our rust core
 xrpl_codec = { workspace = true }  # our XRPL transaction and address codec, under MIT
 iced = { git = "https://github.com/iced-rs/iced", rev = "56be3ede2b21f4880d1a1d7154bf8fcb84a729da", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }
 chrono = { workspace = true }

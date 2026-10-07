@@ -10,7 +10,7 @@
 # never does (RELEASE.md).
 #
 # The tree lives in $REPO_DIR (default ~/apt.dannesk.com) and is the source of
-# truth for the bucket: it keeps every version published so far and is synced
+# truth for the bucket: it keeps every version that can still connect and is synced
 # UP, never rebuilt from the bucket. Layout:
 #
 #   dannesk-archive-keyring.gpg              what the README's curl line fetches
@@ -82,7 +82,10 @@ cd "$REPO_DIR"
 # From the repository root, so each Filename: is pool/main/d/dannesk/… —
 # relative to the URIs line, which is how apt resolves it. --multiversion
 # lists every version in the pool: apt still installs the newest, and an
-# older one stays reachable as `apt install dannesk=<version>`.
+# older one stays reachable as `apt install dannesk=<version>`. A version
+# that can no longer connect (0.1.0–0.1.3 since the Noise socket, 2026-10-07)
+# is removed from the pool and the top level BEFORE this runs, and from the
+# bucket after the new index is up, so the index never names a missing file.
 for arch in $ARCHES; do
     d="dists/stable/main/binary-$arch"
     mkdir -p "$d"
@@ -117,7 +120,7 @@ echo
 echo "Repository built in $REPO_DIR for $VERSION. Next:"
 echo "  1. Upload to the bucket, the .debs first and the index last: the new .debs (pool/ and"
 echo "     the top level), SHA256SUMS + SHA256SUMS.asc, each Packages pair, then dists/stable/."
-echo "     Delete nothing; every version stays."
+echo "     Then delete from the bucket the versions removed from the pool, if any."
 echo "  2. On an install of the previous version: apt update && apt install --only-upgrade dannesk"
 echo "  3. Publish the draft release on GitHub as a pre-release, not before step 2 passes."
 echo "  4. Landing: VERSION in src/consts.ts, and SHA256SUMS + SHA256SUMS.asc from here into public/."
