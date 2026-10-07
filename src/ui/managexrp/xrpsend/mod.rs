@@ -225,10 +225,13 @@ fn picker_row<'a>(
     // Six places at most, the same readout as the balance and tokens panes;
     // the tail past six is `max ›`'s to spend, not the row's to print.
     let bal_str = format_token_amount(h.balance, 6);
-    let fiat_str = format!(
-        "\u{2248} {} {ccy}",
-        money(h.balance * crate::utils::price::cross(h.rate_key, ccy)),
-    );
+    // `—` with no rate, never `≈ 0.00`.
+    let rate = crate::utils::price::cross(h.rate_key, ccy);
+    let fiat_str = if rate > 0.0 {
+        format!("\u{2248} {} {ccy}", money(h.balance * rate))
+    } else {
+        grid::NA.to_string()
+    };
     let (left, right) =
         tokens_page::holding_columns(h.symbol, h.issuer.clone(), bal_str, fiat_str, cp, scale);
 

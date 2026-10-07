@@ -7,13 +7,14 @@ description = "DeFi Wallet for XRPL and Bitcoin."
 
 
 [workspace]
-members = ["dannesk-core", "xrpl_codec"]
+members = ["dannesk-core", "xrpl_codec", "dannesk-noise-protocol"]
 
 # One version of every library for the whole workspace. A member writes
 # `{ workspace = true }`, so the app and the core cannot drift apart.
 [workspace.dependencies]
 dannesk-core = { path = "dannesk-core" }
 xrpl_codec = { path = "xrpl_codec" }
+dannesk-noise-protocol = { path = "dannesk-noise-protocol" }
 chrono = "0.4.45"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

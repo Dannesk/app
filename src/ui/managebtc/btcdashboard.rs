@@ -623,9 +623,15 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
             // it while it is under.
             let note: Element<'a, Message> = match (fee, below_floor) {
                 (Some(f), false) => {
-                    let mut runs = vec![(format!("\u{2248} {}", fiat_of(f)), cp.muted)];
+                    // The fiat only with a rate: `≈ 0.00` is not true.
+                    let mut runs = Vec::new();
+                    if rate > 0.0 {
+                        runs.push((format!("\u{2248} {}", fiat_of(f)), cp.muted));
+                    }
                     if let Some(o) = outlook {
-                        runs.push(("  \u{b7}  ".to_string(), cp.faint));
+                        if !runs.is_empty() {
+                            runs.push(("  \u{b7}  ".to_string(), cp.faint));
+                        }
                         runs.push((o.to_string(), cp.muted));
                     }
                     compact::mono_runs(runs, HINT * scale)
@@ -657,11 +663,12 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
         } else {
             match fee {
                 Some(f) => {
-                    let mut runs = vec![
-                        (format!("{f} sats"), fee_colour),
-                        ("  \u{b7}  ".to_string(), cp.faint),
-                        (format!("\u{2248} {}", fiat_of(f)), cp.muted),
-                    ];
+                    let mut runs = vec![(format!("{f} sats"), fee_colour)];
+                    // The fiat only with a rate: `≈ 0.00` is not true.
+                    if rate > 0.0 {
+                        runs.push(("  \u{b7}  ".to_string(), cp.faint));
+                        runs.push((format!("\u{2248} {}", fiat_of(f)), cp.muted));
+                    }
                     if let Some(o) = outlook {
                         runs.push(("  \u{b7}  ".to_string(), cp.faint));
                         runs.push((o.to_string(), cp.muted));

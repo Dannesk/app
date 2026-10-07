@@ -84,6 +84,8 @@ pub fn merge_btc_utxos(owner: &str, set: Vec<BtcUtxo>) {
         union.extend(set);
     });
     recompute_btc_balance();
+    // The wallet's coins are in, so its balance is the chain's figure.
+    CHANNEL.loaded_tx.send_if_modified(|l| !std::mem::replace(&mut l.btc, true));
 }
 
 /// The whole wallet's coins at once — the whole-wallet frame
@@ -105,6 +107,8 @@ pub fn replace_btc_utxos(primary: &str, set: Vec<BtcUtxo>) {
         *union = set;
     });
     recompute_btc_balance();
+    // The wallet's coins are in, so its balance is the chain's figure.
+    CHANNEL.loaded_tx.send_if_modified(|l| !std::mem::replace(&mut l.btc, true));
 }
 
 /// Aggregate balance = the union's confirmed coins summed, consumed by a

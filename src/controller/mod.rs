@@ -386,6 +386,7 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
                 gate_fail(state, format!("enter all {PIN_DIGITS} digits"));
                 return Task::none();
             }
+            crate::startup_trace::stamp("PIN entered");
             let pin = std::mem::take(&mut state.gate_pin_input);
             if state.gate_exists {
                 // ── Enter mode ──
@@ -393,6 +394,7 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
                     Ok(true) => {
                         crate::gate::clear_attempts();
                         state.gate_unlocked = true;
+                        crate::startup_trace::stamp("PIN accepted");
                         state.gate_error = None;
                     }
                     Ok(false) => return gate_wrong_attempt(state),
@@ -628,6 +630,7 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         // layout re-shapes every paragraph with the system's fonts behind ours
         // (`utils/fonts.rs`).
         Message::SystemFontsIndexed => {}
+        Message::FetchTick => {}
         Message::FirstFrame => {
             crate::startup_trace::first_frame();
             return crate::utils::fonts::system_fonts_task();

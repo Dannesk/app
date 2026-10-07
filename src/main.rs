@@ -41,6 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     utils::fonts::index_before_window();
     startup_trace::stamp("font system ready");
     startup_trace::watch_libraries();
+    startup_trace::watch_data();
 
     let runtime = Builder::new_multi_thread()
         .worker_threads(4)

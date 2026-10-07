@@ -19,6 +19,8 @@ pub fn subscriptions(state: &AppState) -> Subscription<Message> {
         watch("wallet_balance", CHANNEL.wallet_balance_rx.clone()),
         watch("bitcoin_wallet", CHANNEL.bitcoin_wallet_rx.clone()),
         watch("rates", CHANNEL.rates_rx.clone()),
+        watch("loaded", CHANNEL.loaded_rx.clone()),
+        watch("launch", CHANNEL.launch_rx.clone()),
         watch("rates_ws_status", CHANNEL.rates_ws_status_rx.clone()),
         watch("relay_ws_status", CHANNEL.relay_ws_status_rx.clone()),
         watch("btc_ws_status", CHANNEL.btc_ws_status_rx.clone()),
@@ -90,6 +92,14 @@ pub fn subscriptions(state: &AppState) -> Subscription<Message> {
             iced::time::every(Duration::from_millis(16))
                 .map(|_| Message::BtcReimportSpinnerTick),
         );
+    }
+    // Balance's placeholder pulses while a figure is on its way at launch —
+    // bounded by `fetching`'s own limit, and only while that screen is up.
+    if state.gate_unlocked
+        && state.selected_tab == crate::controller::app_state::Tab::Balance
+        && crate::ui::managebalance::totalbalance::fetching()
+    {
+        subs.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::FetchTick));
     }
     // Tick while the log is on screen at all — not just while a step is active —
     // so the completion cascade (which runs *after* the last step finishes) still

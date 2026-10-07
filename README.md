@@ -83,3 +83,5 @@ Dannesk is licensed under the GNU General Public License v3.0 (GPL-3.0). See [LI
 The `xrpl_codec` crate in [xrpl_codec/](xrpl_codec/) is licensed under the MIT License. See [xrpl_codec/LICENSE](xrpl_codec/LICENSE).
 
 The `dannesk-core` crate in [dannesk-core/](dannesk-core/) is the application core, shared with the Android app, under the same GPL-3.0.
+
+The `dannesk-noise-protocol` crate in [dannesk-noise-protocol/](dannesk-noise-protocol/) is the encrypted socket between the app and its service: the Noise NK handshake, written from the specification and verified against its published test vectors, under the same GPL-3.0.

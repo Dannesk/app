@@ -3,8 +3,17 @@
 //! reconnect, the framing, and the four transport bools; what each service's
 //! frames MEAN is in `relay.rs` and `rates.rs`.
 //!
-//! Framing (§3): every frame is Binary, `[tag][flags][payload]`. Tag 0x00 is
-//! the proxy's own link frame; 0x01–0x04 name a service. Flag bit 0 = zstd.
+//! The socket is the Noise socket of `dannesk-noise-protocol` on plain TCP
+//! (2026-10-07): the proxy is dialled by address, the handshake is one
+//! exchange, and the hello — with the wallet's balance asks, when the wallet
+//! is known — rides INSIDE the handshake's first message. A balance is two
+//! round trips from a cold start: the TCP connect and that exchange. What the
+//! websocket used to do for us, the proxy's own stream (tag 0x00) now does: a
+//! `ping` every 30 s that we answer with a `pong`, and a `close` carrying the
+//! websocket's codes before the stream ends.
+//!
+//! Framing (§3): every frame is `[tag][flags][payload]`. Tag 0x00 is the
+//! proxy's own stream; 0x01–0x04 name a service. Flag bit 0 = zstd.
 //!
 //! Transport bools (§6, §7): `relay_ws_status` etc. keep their old meaning —
 //! "can an answer from that server reach us" — and are now `socket up AND
@@ -12,23 +21,59 @@
 //! dying behind the proxy no longer costs us the socket; it costs us one link,
 //! and when that link rises we re-sync exactly what a reconnect used to.
 
-use crate::channel::{CHANNEL, WSCommand};
+use crate::channel::{CHANNEL, Phase, WSCommand};
 use crate::ws::config::*;
 use crate::ws::rates;
 use crate::ws::relay::{self, RelayState};
 use crate::ws::RatesCommand;
-use futures_util::{SinkExt, StreamExt};
+use dannesk_noise_protocol::stream as noise;
 use std::collections::HashSet;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::{timeout, Duration, Instant};
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, client_async_tls, tungstenite::Message};
+use tokio_tungstenite::tungstenite::Message;
 
-/// A connect that hasn't completed in this long is treated as failed. WITHOUT
-/// this the task can hang forever: a weak or captive-portal network will
-/// complete the TCP handshake and then stall the TLS one, and a bare
-/// `connect_async` has no deadline of its own.
+/// A connect — the TCP dial, and then the handshake — that hasn't completed
+/// in this long is treated as failed. WITHOUT this the task can hang forever:
+/// a weak or captive-portal network will complete the TCP handshake and then
+/// stall, and neither `TcpStream::connect` nor the handshake has a deadline
+/// of its own.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// A second connect this long after the first, if the first is still
+/// waiting. A lost SYN otherwise costs the kernel's one-second resend, on a
+/// link that loses about a packet in three (measured on launches, 2026-10-06
+/// and -07: the connect took 0.7–1.0 s against a 0.2 s round trip). On a
+/// quiet link the first attempt answers before this fires.
+const SECOND_ATTEMPT: Duration = Duration::from_millis(250);
+
+/// The largest frame the proxy may send us in one piece. A history frame is
+/// tens of KB; a whole-wallet Bitcoin frame for a long-used wallet, more.
+const MAX_INBOUND_FRAME: usize = 16 * 1024 * 1024;
+
+/// Dials the proxy: one TCP connect, and a second one [`SECOND_ATTEMPT`]
+/// later if the first has not answered. The first to complete is the socket;
+/// the other is dropped, which closes it. One that fails outright leaves the
+/// other to decide.
+async fn dial() -> std::io::Result<TcpStream> {
+    let first = TcpStream::connect(PROXY_ADDR);
+    tokio::pin!(first);
+    let second = async {
+        tokio::time::sleep(SECOND_ATTEMPT).await;
+        TcpStream::connect(PROXY_ADDR).await
+    };
+    tokio::pin!(second);
+    tokio::select! {
+        done = &mut first => match done {
+            Ok(stream) => Ok(stream),
+            Err(_) => second.await,
+        },
+        done = &mut second => match done {
+            Ok(stream) => Ok(stream),
+            Err(_) => first.await,
+        },
+    }
+}
 
 /// No traffic at all for this long ⇒ assume a half-open socket and reconnect.
 /// Safe because the proxy GUARANTEES traffic: a ping and a link frame every
@@ -73,12 +118,18 @@ fn publish(connected: bool, links: Links) {
     let _ = CHANNEL.book_ws_status_tx.send(connected && links.book);
 }
 
-fn frame(tag: u8, payload: &str) -> Message {
+fn frame(tag: u8, payload: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(payload.len() + 2);
     out.push(tag);
     out.push(0);
     out.extend_from_slice(payload.as_bytes());
-    Message::Binary(out.into())
+    out
+}
+
+/// The `type` of a frame on the proxy's own stream: `status`, `ping`, `close`.
+fn proxy_frame_type(text: &str) -> Option<String> {
+    let data = serde_json::from_str::<serde_json::Value>(text).ok()?;
+    data.get("type").and_then(|t| t.as_str()).map(str::to_string)
 }
 
 /// Connect, stream, and reconnect FOREVER. There is no reason to ever stop
@@ -95,42 +146,119 @@ pub async fn run_websocket(
     // The books this client currently wants. Kept here, not on the server,
     // because bookd forgets a connection the moment its link drops.
     let mut books: HashSet<String> = HashSet::new();
+    // The launch phase (`channel::Launch`) is settled by the FIRST attempt
+    // alone: connected, or failed. Later reconnects say nothing — the screens
+    // read them off the link bools, as they always did.
+    let mut launched = false;
 
     loop {
         let mut links = Links::default();
         publish(false, links);
 
-        let connected = match timeout(CONNECT_TIMEOUT, connect_v4_first(WS_URL)).await {
-            Ok(Ok((stream, _))) => Some(stream),
-            Ok(Err(_)) | Err(_) => None,
-        };
-        let Some(ws_stream) = connected else {
-            if backoff_or_shutdown(&mut backoff, &mut shutdown_rx).await {
-                return Ok(());
+        crate::ws::trace("socket: connecting");
+        let stream = match timeout(CONNECT_TIMEOUT, dial()).await {
+            Ok(Ok(stream)) => stream,
+            Ok(Err(_)) | Err(_) => {
+                crate::ws::trace("socket: connect failed, retrying after the backoff");
+                settle_launch(&mut launched, Phase::Failed);
+                if backoff_or_shutdown(&mut backoff, &mut shutdown_rx).await {
+                    return Ok(());
+                }
+                continue;
             }
-            continue;
         };
+        // Small frames, latency first: nothing here gains from coalescing.
+        let _ = stream.set_nodelay(true);
+        crate::ws::trace("socket: tcp connected");
 
-        let (mut ws_sink, mut ws_stream) = ws_stream.split();
-
-        // The session's first frame, and the relay gate's opener (`auth_init`
-        // until 2026-09-20). The proxy keeps it — nothing upstream reads it.
-        // `v` names the handshake this build speaks, so the proxy can one day
-        // ask more of a newer client without breaking this one (AUTH.md, C/D).
-        // `app` is the app's version, registered through `crate::init`; this
-        // crate's own version is not what a user reports.
+        // THE FIRST MESSAGE. The session's hello first: the relay gate's
+        // opener (`auth_init` until 2026-09-20), which the proxy keeps —
+        // nothing upstream reads it. `v` names the handshake this build
+        // speaks, so the proxy can one day ask more of a newer client without
+        // breaking this one (AUTH.md, C/D). `app` is the app's version,
+        // registered through `crate::init`; this crate's own version is not
+        // what a user reports.
+        //
+        // Then what the wallet needs re-stated on a fresh connection — the
+        // cached-balance asks, and any removal still owed — exactly what a
+        // link rise sends, so that the balance comes back in the same round
+        // trip as the proxy's first word rather than one later. At app start
+        // the wallet is not known to this task until its open-time asks have
+        // come down the command channel; they are read now, having queued
+        // while the connect was in flight, and folded in here instead of
+        // going out as frames after the link report. Anything else queued
+        // meanwhile waits for the session, as it always did.
         let app_version = crate::app().map_or("unregistered", |app| app.version);
         let hello = format!(r#"{{"type":"hello","v":1,"app":"{}"}}"#, app_version);
-        if ws_sink.send(frame(TAG_RELAY, &hello)).await.is_err() {
-            if backoff_or_shutdown(&mut backoff, &mut shutdown_rx).await {
-                return Ok(());
+        let mut first: Vec<Vec<u8>> = vec![frame(TAG_RELAY, &hello)];
+        let mut deferred: Vec<WSCommand> = Vec::new();
+        while let Ok(cmd) = commands_rx.try_recv() {
+            if cmd.command == "get_cached_balance" || cmd.command == "get_bitcoin_cached_balance" {
+                relay_state.track(&cmd);
+            } else {
+                deferred.push(cmd);
             }
-            continue;
+        }
+        // The books the trade screen already wants — with an XRP wallet,
+        // every token's, from the controller's first sync — are only a
+        // want-set here, so they are read the same way and ride along.
+        while let Ok(cmd) = rates_cmd_rx.try_recv() {
+            rates::track(&mut books, &cmd);
+        }
+        // The Bitcoin relay's push routing is per connection: the live list
+        // that follows the whole-wallet reply must go out even if unchanged.
+        relay_state.forget_live_list();
+        let relay_asks = relay_state.resync_relay_payloads();
+        let btc_asks = relay_state.resync_btc_payloads();
+        for payload in relay_asks.iter().chain(btc_asks.iter()) {
+            if let Some((tag, wrapped)) = relay::wrap(payload) {
+                first.push(frame(tag, &wrapped));
+            }
+        }
+        // And what the wallet needs from rates and bookd — `history` for the
+        // price series, `subscribe` for each book the trade screen holds —
+        // which the loop below would otherwise say once their links are
+        // reported up: said here instead, so the prices come back in the same
+        // flight as the balance (user, 2026-10-07). With no wallet, nothing:
+        // there is nothing to price and no page to show it on.
+        let wallet_known = relay_state.has_wallet();
+        if wallet_known {
+            first.push(frame(TAG_RATES, &rates::history_frame(&rates::history_assets())));
+            for pair in &books {
+                first.push(frame(TAG_BOOK, &rates::subscribe_frame(pair, true)));
+            }
+        }
+        // Consumed by the proxy's first link report: a link that is up then
+        // has these already, and a rise is a re-sync only after that.
+        let mut asked_in_first = (!relay_asks.is_empty(), !btc_asks.is_empty());
+        let first_refs: Vec<&[u8]> = first.iter().map(Vec::as_slice).collect();
+        let handshake = noise::connect(stream, &PROXY_KEY.1, PROXY_KEY.0, &first_refs, MAX_INBOUND_FRAME);
+        let (mut reader, mut writer) = match timeout(CONNECT_TIMEOUT, handshake).await {
+            Ok(Ok(halves)) => halves,
+            Ok(Err(_)) | Err(_) => {
+                crate::ws::trace("socket: handshake failed, retrying after the backoff");
+                settle_launch(&mut launched, Phase::Failed);
+                if backoff_or_shutdown(&mut backoff, &mut shutdown_rx).await {
+                    return Ok(());
+                }
+                continue;
+            }
+        };
+        crate::ws::trace("socket: open (handshake done)");
+        for cmd in deferred {
+            relay_state.track(&cmd);
+            if relay_state.is_news(&cmd) {
+                relay_state.spawn_command(cmd);
+            }
         }
         // The hello is all a connection says for itself. Everything else is
-        // said on behalf of a WALLET — see the top of the loop below.
-        let mut rates_asked = false;
-        let mut books_told = false;
+        // said on behalf of a WALLET — in the first message when the wallet
+        // was known then, otherwise by the top of the loop below. A service
+        // reported down resets these and its rise says it again; the proxy
+        // may deliver its held copy of the first ask as well, and a history
+        // that arrives twice replaces the same series twice.
+        let mut rates_asked = wallet_known;
+        let mut books_told = wallet_known;
 
         // Backoff is reset by RECEIVING something, not by connecting — a proxy
         // that accepts and immediately drops would otherwise reset the delay on
@@ -160,12 +288,12 @@ pub async fn run_websocket(
                 let mut ok = true;
                 if links.rates && !rates_asked {
                     rates_asked = true;
-                    ok = ws_sink.send(frame(TAG_RATES, &rates::history_frame(&rates::history_assets()))).await.is_ok();
+                    ok = writer.send_frame(&frame(TAG_RATES, &rates::history_frame(&rates::history_assets()))).await.is_ok();
                 }
                 if links.book && !books_told {
                     books_told = true;
                     for pair in &books {
-                        ok = ok && ws_sink.send(frame(TAG_BOOK, &rates::subscribe_frame(pair, true))).await.is_ok();
+                        ok = ok && writer.send_frame(&frame(TAG_BOOK, &rates::subscribe_frame(pair, true))).await.is_ok();
                     }
                 }
                 if !ok {
@@ -174,7 +302,7 @@ pub async fn run_websocket(
             }
             tokio::select! {
                 _ = shutdown_rx.recv() => {
-                    let _ = ws_sink.close().await;
+                    let _ = writer.shutdown().await;
                     publish(false, links);
                     return Ok(());
                 }
@@ -202,7 +330,7 @@ pub async fn run_websocket(
                         let link_up = if tag == TAG_BTC { links.btc } else { links.relay };
                         if !link_up {
                             relay::report_unsent(payload.as_str());
-                        } else if ws_sink.send(frame(tag, &wrapped)).await.is_err() {
+                        } else if writer.send_frame(&frame(tag, &wrapped)).await.is_err() {
                             break;
                         }
                     }
@@ -213,61 +341,77 @@ pub async fn run_websocket(
                         RatesCommand::SubscribeBook(pair) => (TAG_BOOK, rates::subscribe_frame(pair, true)),
                         RatesCommand::UnsubscribeBook(pair) => (TAG_BOOK, rates::subscribe_frame(pair, false)),
                     };
-                    if ws_sink.send(frame(tag, &payload)).await.is_err() {
+                    if writer.send_frame(&frame(tag, &payload)).await.is_err() {
                         break;
                     }
                 }
-                result = ws_stream.next() => {
+                result = reader.recv_frame() => {
                     // Any frame at all proves the link is alive, pings included.
                     idle.as_mut().reset(Instant::now() + IDLE_TIMEOUT);
                     if !healthy {
                         healthy = true;
                         backoff = MIN_BACKOFF;
                     }
-                    match result {
-                        Some(Ok(Message::Binary(data))) => {
-                            let Some((tag, text)) = decode(&data) else { continue };
-                            match tag {
-                                TAG_PROXY => {
-                                    let before = links;
-                                    links = parse_links(&text, links);
-                                    publish_with(before, true, links);
-                                    // A link that rose is a service that forgot us.
-                                    if links.relay && !before.relay {
-                                        for payload in relay_state.resync_relay_payloads() {
-                                            if let Some((tag, wrapped)) = relay::wrap(&payload) {
-                                                let _ = ws_sink.send(frame(tag, &wrapped)).await;
-                                            }
-                                        }
-                                    }
-                                    if links.btc && !before.btc {
-                                        // Its push routing is per connection:
-                                        // the list that follows the re-sync's
-                                        // reply must go out even if unchanged.
-                                        relay_state.forget_live_list();
-                                        for payload in relay_state.resync_btc_payloads() {
-                                            if let Some((tag, wrapped)) = relay::wrap(&payload) {
-                                                let _ = ws_sink.send(frame(tag, &wrapped)).await;
-                                            }
-                                        }
-                                    }
-                                    // rates and bookd: a service that went
-                                    // down forgot us, so what the wallet needs
-                                    // is said again when it is back — by the
-                                    // block at the top of the loop.
-                                    if !links.rates { rates_asked = false; }
-                                    if !links.book { books_told = false; }
+                    // A close, an error, or the end of the stream.
+                    let Ok(data) = result else { break };
+                    let Some((tag, text)) = decode(&data) else { continue };
+                    match tag {
+                        // The proxy's own stream: the keepalive we answer, the
+                        // goodbye, and the link report.
+                        TAG_PROXY => match proxy_frame_type(&text).as_deref() {
+                            Some("ping") => {
+                                if writer.send_frame(&frame(TAG_PROXY, r#"{"type":"pong"}"#)).await.is_err() {
+                                    break;
                                 }
-                                TAG_RELAY | TAG_BTC => relay_state.handle_frame(text).await,
-                                TAG_RATES | TAG_BOOK => rates::process_message(&text),
-                                _ => {}
                             }
-                        }
-                        Some(Ok(Message::Ping(data))) => {
-                            let _ = ws_sink.send(Message::Pong(data)).await;
-                        }
-                        Some(Ok(Message::Close(_))) | Some(Err(_)) | None => {
-                            break;
+                            Some("close") => break,
+                            Some("status") => {
+                                let before = links;
+                                links = parse_links(&text, links);
+                                publish_with(before, true, links);
+                                // The first report of the first session: the
+                                // launch reached the proxy, and the link bools
+                                // now say what each figure waits for.
+                                settle_launch(&mut launched, Phase::Connected);
+                                // A link that rose is a service that forgot us
+                                // — unless this is the session's first report
+                                // and the asks already rode in the first
+                                // message: a link up now has them.
+                                let (relay_asked, btc_asked) = asked_in_first;
+                                asked_in_first = (false, false);
+                                if links.relay && !before.relay && !relay_asked {
+                                    for payload in relay_state.resync_relay_payloads() {
+                                        if let Some((tag, wrapped)) = relay::wrap(&payload) {
+                                            let _ = writer.send_frame(&frame(tag, &wrapped)).await;
+                                        }
+                                    }
+                                }
+                                if links.btc && !before.btc && !btc_asked {
+                                    // Its push routing is per connection:
+                                    // the list that follows the re-sync's
+                                    // reply must go out even if unchanged.
+                                    relay_state.forget_live_list();
+                                    for payload in relay_state.resync_btc_payloads() {
+                                        if let Some((tag, wrapped)) = relay::wrap(&payload) {
+                                            let _ = writer.send_frame(&frame(tag, &wrapped)).await;
+                                        }
+                                    }
+                                }
+                                // rates and bookd: a service that went
+                                // down forgot us, so what the wallet needs
+                                // is said again when it is back — by the
+                                // block at the top of the loop.
+                                if !links.rates { rates_asked = false; }
+                                if !links.book { books_told = false; }
+                            }
+                            _ => {}
+                        },
+                        TAG_RELAY | TAG_BTC => relay_state.handle_frame(text).await,
+                        TAG_RATES | TAG_BOOK => {
+                            if tag == TAG_RATES {
+                                crate::ws::trace("socket: first rates frame in");
+                            }
+                            rates::process_message(&text)
                         }
                         _ => {}
                     }
@@ -301,6 +445,14 @@ pub async fn run_websocket(
         if backoff_or_shutdown(&mut backoff, &mut shutdown_rx).await {
             return Ok(());
         }
+    }
+}
+
+/// The first attempt's outcome, published once; every later call is nothing.
+fn settle_launch(launched: &mut bool, phase: Phase) {
+    if !*launched {
+        *launched = true;
+        CHANNEL.launch_tx.send_modify(|launch| launch.phase = phase);
     }
 }
 
@@ -342,71 +494,4 @@ async fn backoff_or_shutdown(backoff: &mut Duration, shutdown_rx: &mut Receiver<
     };
     *backoff = (*backoff * 2).min(MAX_BACKOFF);
     stop
-}
-
-/// Drop-in replacement for `connect_async` that dials IPv4 first.
-///
-/// `connect_async` resolves the hostname itself and tries the addresses
-/// SEQUENTIALLY in resolver order. On a router that advertises IPv6 but
-/// silently blackholes it (packets vanish, no error ever comes back — common
-/// on home and hotel wifi), the resolver sorts the v6 address first, that one
-/// dead attempt eats the caller's entire connect budget, and the working v4
-/// address never gets a turn — every connect times out on an otherwise fine
-/// network. Browsers survive exactly this with happy-eyeballs (RFC 8305)
-/// fallback; this is the sequential flavor: every IPv4 address first under a
-/// short per-attempt deadline, then IPv6, then TLS + the websocket handshake
-/// over the first TCP stream that answered.
-async fn connect_v4_first(
-    url: &str,
-) -> tokio_tungstenite::tungstenite::Result<(
-    WebSocketStream<MaybeTlsStream<TcpStream>>,
-    tokio_tungstenite::tungstenite::handshake::client::Response,
-)> {
-    use tokio_tungstenite::tungstenite::{Error, client::IntoClientRequest, error::UrlError};
-
-    let request = url.into_client_request()?;
-    let uri = request.uri();
-    let host = uri
-        .host()
-        .ok_or(Error::Url(UrlError::NoHostName))?
-        .to_string();
-    let port = uri.port_u16().unwrap_or(match uri.scheme_str() {
-        Some("wss") => 443,
-        _ => 80,
-    });
-
-    let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), port))
-        .await
-        .map_err(Error::Io)?
-        .collect();
-
-    const PER_ATTEMPT: Duration = Duration::from_secs(3);
-    let mut tcp = None;
-    let mut last_err = Error::Io(std::io::Error::new(
-        std::io::ErrorKind::NotFound,
-        "no addresses resolved",
-    ));
-    let ordered = addrs
-        .iter()
-        .filter(|a| a.is_ipv4())
-        .chain(addrs.iter().filter(|a| a.is_ipv6()));
-    for addr in ordered {
-        match timeout(PER_ATTEMPT, TcpStream::connect(addr)).await {
-            Ok(Ok(stream)) => {
-                tcp = Some(stream);
-                break;
-            }
-            Ok(Err(e)) => last_err = Error::Io(e),
-            Err(_) => {
-                last_err = Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    format!("TCP connect to {addr} timed out"),
-                ))
-            }
-        }
-    }
-    match tcp {
-        Some(stream) => client_async_tls(request, stream).await,
-        None => Err(last_err),
-    }
 }

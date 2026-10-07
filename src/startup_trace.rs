@@ -24,6 +24,9 @@ mod imp {
     pub fn watch_libraries() {}
 
     #[inline(always)]
+    pub fn watch_data() {}
+
+    #[inline(always)]
     pub fn first_frame() {}
 
     #[inline(always)]
@@ -75,6 +78,8 @@ mod imp {
                 "\n  wall ms  thread  its cpu ms  its disk faults  process disk faults  process MB read  stage\n",
             );
             let _ = std::fs::write(&file, head);
+            // The core stamps the socket's connect stages through this.
+            let _ = dannesk_core::ws::TRACE.set(stamp);
 
             Trace { started, seen: Mutex::new(Vec::new()), file }
         })
@@ -101,6 +106,39 @@ mod imp {
                 thread.cpu_ms, thread.disk_faults, process.disk_faults, process.read_mb,
             ),
         );
+    }
+
+    /// Stamps the data the balance screen waits for: the proxy's link report,
+    /// the first price, both chains priced, each wallet known. Polls the core's
+    /// channels every 5 ms on a thread of its own, for 30 s at most. The
+    /// connect itself is stamped by the core (`ws::TRACE`).
+    pub fn watch_data() {
+        use crate::channel::CHANNEL;
+        use crate::utils::price;
+        let _ = std::thread::Builder::new().name("startup-trace-data".into()).spawn(|| {
+            let give_up = Instant::now() + Duration::from_secs(30);
+            let mut left: Vec<(&'static str, fn() -> bool)> = vec![
+                ("proxy reports rates up", || *CHANNEL.rates_ws_status_rx.borrow()),
+                ("first price in the app", || !CHANNEL.rates_rx.borrow().is_empty()),
+                ("XRP and BTC priced", || price::usd("XRP") > 0.0 && price::usd("BTC") > 0.0),
+                ("XRP wallet known", || CHANNEL.wallet_balance_rx.borrow().1.is_some()),
+                ("BTC wallet known", || CHANNEL.bitcoin_wallet_rx.borrow().1.is_some()),
+                ("wallet files read", || CHANNEL.loaded_rx.borrow().wallets),
+                ("XRP balance in", || CHANNEL.loaded_rx.borrow().xrp),
+                ("BTC balance in", || CHANNEL.loaded_rx.borrow().btc),
+            ];
+            while !left.is_empty() && Instant::now() < give_up {
+                left.retain(|&(stage, reached)| {
+                    if reached() {
+                        stamp(stage);
+                        false
+                    } else {
+                        true
+                    }
+                });
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
     }
 
     /// The first frame went out: the last stage, and the end of the library watch.

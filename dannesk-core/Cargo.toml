@@ -9,6 +9,7 @@ publish = false  # GPL and ours: it travels with the apps, never through crates.
 
 [dependencies]
 xrpl_codec = { workspace = true }
+dannesk-noise-protocol = { workspace = true, features = ["tokio"] }  # the socket to the proxy: the handshake and the framing
 chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -47,6 +47,17 @@ pub fn rates_send(cmd: RatesCommand) {
     }
 }
 
+/// The app's start-up trace, registered only by a `startup-trace` build of the
+/// desktop app; everywhere else it stays unset and [`trace`] does nothing.
+pub static TRACE: OnceLock<fn(&'static str)> = OnceLock::new();
+
+/// Records one stage of the connect in the app's start-up trace, if one runs.
+pub(crate) fn trace(stage: &'static str) {
+    if let Some(stamp) = TRACE.get() {
+        stamp(stage);
+    }
+}
+
 /// Parse a `{"type":"node_stats"}` frame into the shared BTC node channel.
 ///
 /// Absent and `null` are the SAME statement here — "indexd could not measure

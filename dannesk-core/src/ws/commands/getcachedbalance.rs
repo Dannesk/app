@@ -100,6 +100,9 @@ pub async fn process_response(message: Message, _current_wallet: &str) -> Result
             // carries no rows.
             CHANNEL.transactions_tx.send_modify(|state| state.apply_reply(transactions_data, &data, None));
 
+            // The balance, the account and the tokens are all in.
+            CHANNEL.loaded_tx.send_if_modified(|l| !std::mem::replace(&mut l.xrp, true));
+
             Ok(())
         }
         _ => Err("Non-text message received".to_string()),

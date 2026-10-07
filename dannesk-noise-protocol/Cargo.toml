@@ -1,0 +1,30 @@
+[package]
+name = "dannesk-noise-protocol"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "The encrypted socket between a Dannesk app and the proxy: the Noise NK handshake over X25519, AES-256-GCM and SHA-256, and the framing that carries the app's streams inside it."
+repository = "https://github.com/Dannesk/app"
+publish = false  # GPL and ours: it travels with the apps and the proxy, never through crates.io
+
+[dependencies]
+# X25519 from the dalek-cryptography maintainers, pure Rust. `static_secrets`
+# is the key type the proxy keeps and the handshake's ephemerals are made of;
+# `getrandom` draws them from the operating system.
+x25519-dalek = { version = "3.0.0", features = ["static_secrets", "getrandom"] }
+# The AEAD and the hash the core already encrypts wallet files with.
+aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
+sha2 = "0.11.0"
+hmac = "0.13.0"
+zeroize = "1.9"
+tokio = { version = "1.53", features = ["io-util"], optional = true }
+
+[features]
+# The framed socket over a tokio byte stream (`stream`). Without it the crate
+# is the handshake and the transport ciphers alone, with no I/O.
+tokio = ["dep:tokio"]
+
+[dev-dependencies]
+hex = "0.4.3"
+serde_json = "1.0"
+tokio = { version = "1.53", features = ["io-util", "rt", "macros"] }

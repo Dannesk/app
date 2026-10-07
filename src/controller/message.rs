@@ -260,6 +260,8 @@ pub enum Message {
     ImportFailed,
     ActivityChanged(Option<ActivityLogState>),
     ActivityTick(std::time::Instant),
+    /// A redraw while Balance shows its placeholder; nothing to update.
+    FetchTick,
     ActivityDismiss,
     /// The watchdog gave up on the operation whose `activity_gen` this is.
     ActivityTimeout(u64, ActivityVerdict),

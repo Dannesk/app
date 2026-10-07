@@ -206,14 +206,18 @@ fn pane_content<'a>(
 /// Everything the account holds: the fiat total of XRP plus issued tokens as
 /// the hero, one raw row per holding under it, then `available` and
 /// `reserved` — in XRP, under a rule, because they qualify the XRP line, not
-/// the total. Balance is the chain you are on: no scope toggle.
+/// the total. Balance is the chain you are on: no scope toggle. The hero
+/// reads `—` until XRP and every held token have a rate, rather than claiming
+/// `0.00` or a total that left a holding out — the rule of BTC's hero and of
+/// Balance.
 fn balance_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     let (xrp_amount, _, _, _) = CHANNEL.wallet_balance_rx.borrow().clone();
     let hide = state.hide_balance;
     let ccy = state.base_currency.code();
     let mask = |s: String| if hide { "\u{2022}".repeat(4) } else { s };
 
-    let mut total = xrp_amount * price::cross("XRP", ccy);
+    let xrp_rate = price::cross("XRP", ccy);
+    let mut total = (xrp_rate > 0.0).then(|| xrp_amount * xrp_rate);
     let mut rows: Vec<Element<'a, Message>> = vec![drow(
         "xrp",
         vec![(mask(format!("{xrp_amount:.6}")), cp.text)],
@@ -230,7 +234,12 @@ fn balance_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
         if !has {
             continue;
         }
-        total += bal * price::cross(t.rate_key, ccy);
+        // A line at zero needs no rate; a held amount without one leaves no
+        // total.
+        if bal > 0.0 {
+            let rate = price::cross(t.rate_key, ccy);
+            total = total.filter(|_| rate > 0.0).map(|sum| sum + bal * rate);
+        }
         rows.push(drow(
             &t.display.to_lowercase(),
             // Six places, not two: a tail under a cent is still a balance,
@@ -242,7 +251,7 @@ fn balance_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
         ));
     }
 
-    let hero_value = if hide { "\u{2022}".repeat(6) } else { money(total) };
+    let hero_value = if hide { "\u{2022}".repeat(6) } else { total.map_or_else(|| NA.to_string(), money) };
     let hero = row![
         text(hero_value).font(LIGHT).size(HERO * scale).color(cp.text),
         Space::new().width(8.0 * scale),

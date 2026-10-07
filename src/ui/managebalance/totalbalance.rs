@@ -125,6 +125,36 @@ const FOOT: f32 = 9.5;
 const MASK: &str = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}";
 const NA: &str = "\u{2014}";
 
+/// The placeholder while a figure is on its way at launch: a bar where the
+/// number will land, breathing between two inks on the bloom's clock. Sized
+/// to the digits' cap height and a typical sum's width — a skeleton, not a
+/// measurement — inside the hero's own box, so the figure replaces it
+/// without the stage moving.
+const PLACEHOLDER_W: f32 = 320.0;
+const PLACEHOLDER_H: f32 = 62.0;
+const PLACEHOLDER_RADIUS: f32 = 10.0;
+/// One breath of the pulse.
+const PULSE_SECS: f32 = 1.2;
+
+/// Whether a figure this screen sums is still on its way at launch — the
+/// placeholder's condition (`channel::Launch::fetching`), read by the view
+/// and by the redraw pump (`controller/subscription.rs`). Prices from rates,
+/// each held wallet's balance from its relay; with no wallet nothing is on
+/// its way, and after the launch's limit nothing is either.
+pub fn fetching() -> bool {
+    let xrp_wallet = CHANNEL.wallet_balance_rx.borrow().1.is_some();
+    let btc_wallet = CHANNEL.bitcoin_wallet_rx.borrow().1.is_some();
+    if !xrp_wallet && !btc_wallet {
+        return false;
+    }
+    let launch = *CHANNEL.launch_rx.borrow();
+    let loaded = *CHANNEL.loaded_rx.borrow();
+    let priced = !CHANNEL.rates_rx.borrow().is_empty();
+    launch.fetching(*CHANNEL.rates_ws_status_rx.borrow(), priced)
+        || (xrp_wallet && launch.fetching(*CHANNEL.relay_ws_status_rx.borrow(), loaded.xrp))
+        || (btc_wallet && launch.fetching(*CHANNEL.btc_ws_status_rx.borrow(), loaded.btc))
+}
+
 // ── View ────────────────────────────────────────────────────────────────────
 
 pub fn view(state: &AppState) -> Element<'_, Message> {
@@ -159,7 +189,16 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         let r = price::cross(t.code, ccy);
         (r > 0.0).then(|| acc + bal * r)
     });
-    let total: Option<f64> = if no_wallet {
+    // The same lie in time: the prices land with the connect, a relay round
+    // trip ahead of the balances, so a sum taken before every wallet's first
+    // balance is in reads 0.00, or part of the total. The dash until then.
+    let loaded = *CHANNEL.loaded_rx.borrow();
+    let balances_in = loaded.wallets
+        && (xrp_wallet.is_none() || loaded.xrp)
+        && (btc_wallet.is_none() || loaded.btc);
+    let total: Option<f64> = if !balances_in {
+        None
+    } else if no_wallet {
         Some(0.0)
     } else {
         match (xrp_fiat, btc_fiat, tokens_fiat) {
@@ -167,6 +206,22 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
             _ => None,
         }
     };
+    // Still on its way, or cannot be had. A figure missing at launch reads as
+    // the placeholder while its service is up and the first attempt has not
+    // failed, for ten seconds at most (`channel::Launch`); the dash is the
+    // other case, as it always was. Both only with a wallet.
+    let fetching = !no_wallet && total.is_none() && fetching();
+    // A no-op outside a `startup-trace` build: when the balance first drew
+    // the placeholder, the dash, and a total.
+    if !no_wallet {
+        crate::startup_trace::stamp(if total.is_some() {
+            "balance shows a total"
+        } else if fetching {
+            "balance shows the placeholder"
+        } else {
+            "balance shows the dash"
+        });
+    }
 
     // The day's change: what is held NOW at each of the last 24 hours'
     // prices (`total_series`) — price-driven, nothing stored. Only with a
@@ -178,7 +233,9 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         sparkline::change_pct(&sparkline::total_series(&holdings, ccy, &state.rate_history_long))
     });
 
-    let no_rate = total.is_none();
+    // The no-rate window — the lighter seal and the foot line — is for a
+    // figure that cannot be had, not for one on its way.
+    let no_rate = total.is_none() && !fetching;
     let alpha = seal_alpha(&state.theme, no_rate);
 
     // The seal, centred on the hero: the stage is centred in the middle and
@@ -197,7 +254,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     .padding(Padding::new(0.0).bottom(2.0 * lift))
     .clip(true);
 
-    let stage_layer = container(stage(total, pct, hide, ccy, p, scale))
+    let stage_layer = container(stage(total, pct, hide, fetching, ccy, p, scale))
         .width(Length::Fill)
         .height(Length::Fill)
         .align_x(Alignment::Center)
@@ -234,11 +291,13 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 // ── Stage ───────────────────────────────────────────────────────────────────
 
 /// The hero and, under it, the delta — or `rate unavailable` with no rate, or
-/// the reserved space while hidden or before there is a day.
+/// the reserved space while hidden, before there is a day, or while the
+/// figure is still on its way (the placeholder stands in for the hero then).
 fn stage<'a>(
     total: Option<f64>,
     pct:   Option<f32>,
     hide:  bool,
+    fetching: bool,
     ccy:   &'static str,
     p:     &'static CompactPalette,
     scale: f32,
@@ -251,6 +310,16 @@ fn stage<'a>(
     };
 
     let hero: Element<'a, Message> = match (total, hide) {
+        // On its way: the bar where the number will land, in the hero's own
+        // box, so nothing moves when it does.
+        (None, _) if fetching => container(
+            Canvas::new(Placeholder { from: p.faint, to: p.dim })
+                .width(Length::Fixed(PLACEHOLDER_W * scale))
+                .height(Length::Fixed(PLACEHOLDER_H * scale)),
+        )
+        .height(Length::Fixed(HERO * scale))
+        .align_y(Alignment::Center)
+        .boxed(),
         (None, _) => row![
             text(NA).font(LIGHT).size(HERO_NA * scale).line_height(1.0).color(p.faint),
             unit(HERO_NA_UNIT_GAP),
@@ -278,6 +347,7 @@ fn stage<'a>(
     };
 
     let under: Element<'a, Message> = match (total, pct) {
+        (None, _) if fetching => Space::new().boxed(),
         (None, _) => text("rate unavailable").font(MONO).size(DELTA * scale).color(p.muted).boxed(),
         (Some(_), Some(pct)) => row![
             text(format!("{pct:+.2}%")).font(MONO).size(DELTA * scale).color(p.text),
@@ -374,6 +444,48 @@ impl canvas::Program<Message> for Seal {
             );
         });
         vec![geometry]
+    }
+}
+
+// ── The placeholder ─────────────────────────────────────────────────────────
+
+/// The bar that stands where the number will land while it is on its way.
+/// Its ink breathes between `from` and `to` on the bloom's clock, the one
+/// timebase every moving thing in the app reads; the redraw pump
+/// (`controller/subscription.rs`) runs only while this is on screen, and the
+/// launch's own limit bounds that.
+struct Placeholder {
+    from: Color,
+    to: Color,
+}
+
+impl canvas::Program<Message> for Placeholder {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &(),
+        renderer: &iced::Renderer,
+        _theme: &iced::Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<Geometry<iced::Renderer>> {
+        let mut frame = canvas::Frame::new(renderer, bounds.size());
+        // 0 → 1 → 0 over one breath, eased by the cosine; the ink stays
+        // between a quarter and three quarters of the way, never either end.
+        let breath = 0.5 - 0.5 * (bloom::clock_secs() / PULSE_SECS * std::f32::consts::TAU).cos();
+        let k = 0.25 + 0.5 * breath;
+        let mix = |a: f32, b: f32| a + (b - a) * k;
+        let ink = Color {
+            r: mix(self.from.r, self.to.r),
+            g: mix(self.from.g, self.to.g),
+            b: mix(self.from.b, self.to.b),
+            a: mix(self.from.a, self.to.a),
+        };
+        let radius = PLACEHOLDER_RADIUS * bounds.height / PLACEHOLDER_H;
+        let bar = canvas::Path::rounded_rectangle(Point::ORIGIN, bounds.size(), radius.into());
+        frame.fill(&bar, ink);
+        vec![frame.into_geometry()]
     }
 }
 

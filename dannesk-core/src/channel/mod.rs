@@ -10,6 +10,7 @@ pub use xrp::*;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
 pub type RateHistoryMap = HashMap<String, Vec<(u64, f32)>>;
@@ -229,6 +230,75 @@ impl KeyMode {
     }
 }
 
+/// What has arrived since launch: the local wallet records, and each chain's
+/// first balance from its relay. Each flag goes up once and stays up. A total
+/// waits for them: the prices land with the connect, a relay round trip ahead
+/// of the balances, and a sum taken before then reads 0.00, or part of the
+/// total.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Loaded {
+    /// `wallet::load_wallets` has read the local records: each chain's
+    /// identity is in its channel by now, or there is none.
+    pub wallets: bool,
+    /// The XRP relay's cached-balance reply has been applied: the balance,
+    /// the account and the tokens together.
+    pub xrp: bool,
+    /// The Bitcoin wallet's coins have arrived, so its balance is the
+    /// chain's figure.
+    pub btc: bool,
+}
+
+/// How the launch went: the first connect's outcome, from the socket task,
+/// and when the app started, for the limit. A screen reads it to tell a
+/// figure that is still on its way from one that cannot be had — at launch
+/// only. After [`FETCH_LIMIT`] the launch is over, whatever happened, and the
+/// link bools alone say what can be had, as they did before 2026-10-07.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Launch {
+    pub phase: Phase,
+    pub since: Instant,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    /// The first attempt is still running: TCP, then the handshake, then the
+    /// proxy's first link report.
+    Connecting,
+    /// The first attempt reached the proxy and its link report is in; what
+    /// each figure waits for now is its own service's answer.
+    Connected,
+    /// The first attempt failed. The socket keeps trying on its backoff, but
+    /// the screens read the dash until something arrives.
+    Failed,
+}
+
+/// The longest a figure reads as "on its way" after launch. The socket gives
+/// one attempt ten seconds each for the connect and the handshake; a figure
+/// still missing after this cannot be had, until it arrives.
+pub const FETCH_LIMIT: Duration = Duration::from_secs(10);
+
+impl Launch {
+    fn new() -> Self {
+        Launch { phase: Phase::Connecting, since: Instant::now() }
+    }
+
+    /// Whether a figure is still on its way: at launch, until the first
+    /// attempt resolves; then, connected, while its service is up and its
+    /// data has not arrived; never past the limit, never after a failed
+    /// first attempt. `link_up` is the figure's transport bool, `arrived`
+    /// whether its data is in.
+    pub fn fetching(&self, link_up: bool, arrived: bool) -> bool {
+        if arrived || self.since.elapsed() >= FETCH_LIMIT {
+            return false;
+        }
+        match self.phase {
+            Phase::Connecting => true,
+            Phase::Connected => link_up,
+            Phase::Failed => false,
+        }
+    }
+}
+
 pub static CHANNEL: LazyLock<Channel> = LazyLock::new(Channel::new);
 
 pub struct Channel {
@@ -262,6 +332,13 @@ pub struct Channel {
     /// it — not our network.
     pub proxy_ws_status_tx: watch::Sender<bool>,
     pub proxy_ws_status_rx: watch::Receiver<bool>,
+    /// See [`Loaded`]. Set through `send_if_modified`, so its readers wake
+    /// once per flag, not on every balance push.
+    pub loaded_tx: watch::Sender<Loaded>,
+    pub loaded_rx: watch::Receiver<Loaded>,
+    /// See [`Launch`]. Written by the socket task once, on its first attempt.
+    pub launch_tx: watch::Sender<Launch>,
+    pub launch_rx: watch::Receiver<Launch>,
     pub book_ws_status_rx: watch::Receiver<bool>,
 
     // Upstream health for both servers, merged into one map. See [`ServiceHealth`].
@@ -338,6 +415,8 @@ impl Channel {
         let (btc_ws_status_tx, btc_ws_status_rx) = watch::channel(false);
         let (book_ws_status_tx, book_ws_status_rx) = watch::channel(false);
         let (proxy_ws_status_tx, proxy_ws_status_rx) = watch::channel(false);
+        let (loaded_tx, loaded_rx) = watch::channel(Loaded::default());
+        let (launch_tx, launch_rx) = watch::channel(Launch::new());
         let (service_health_tx, service_health_rx) = watch::channel(ServiceHealth::default());
        
         //token balances (single map, keyed by token code)
@@ -386,6 +465,10 @@ impl Channel {
             book_ws_status_tx,
             proxy_ws_status_tx,
             proxy_ws_status_rx,
+            loaded_tx,
+            loaded_rx,
+            launch_tx,
+            launch_rx,
             book_ws_status_rx,
             service_health_tx,
             service_health_rx,

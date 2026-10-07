@@ -70,11 +70,14 @@ pub fn held<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
     let mut list: Column<Element<'_, Message>> = column![].width(Length::Fill);
     for t in held {
         let balance = CHANNEL.token(t.code).0;
-        let fiat = balance * price::cross(t.rate_key, ccy);
+        let rate = price::cross(t.rate_key, ccy);
         let (bal_str, fiat_str) = if hide {
             (MASK.to_string(), MASK.to_string())
+        } else if rate > 0.0 {
+            (format_token_amount(balance, 6), format!("\u{2248} {} {}", money(balance * rate), ccy.to_lowercase()))
         } else {
-            (format_token_amount(balance, 6), format!("\u{2248} {} {}", money(fiat), ccy.to_lowercase()))
+            // `—` with no rate, never `≈ 0.00`.
+            (format_token_amount(balance, 6), NA.to_string())
         };
         let figures = column![
             text(bal_str).font(MONO).size(VAL * scale).color(cp.text),

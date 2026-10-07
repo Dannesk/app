@@ -179,4 +179,7 @@ pub fn load_wallets(commands_tx: mpsc::Sender<WSCommand>) {
                     }
                 }
     }
+
+    // Both files read: whatever wallet exists is in its channel now.
+    CHANNEL.loaded_tx.send_if_modified(|l| !std::mem::replace(&mut l.wallets, true));
 }
