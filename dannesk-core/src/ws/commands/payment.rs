@@ -1,7 +1,7 @@
 // ws/commands/payment.rs
 // This module handles the blob creation for XRP, RLUSD, EURO, and SGD payments
 use crate::channel::WSCommand;
-use xrpl_codec::{Amount, Field, TransactionType};
+use dannesk_xrpl_codec::{Amount, Field, TransactionType};
 use crate::ws::commands::transaction_builder;
 use crate::ws::commands::wallet_auth::Bip44Wallet; // Adjust path if needed
 
@@ -147,19 +147,19 @@ fn payment_fields(
     destination_tag: Option<u32>,
 ) -> Result<Vec<Field>, String> {
     let mut fields = vec![
-        xrpl_codec::transaction_type(TransactionType::Payment),
-        xrpl_codec::account(account)?,
-        xrpl_codec::fee(fee)?,
-        xrpl_codec::sequence(sequence),
-        xrpl_codec::flags(0),
-        xrpl_codec::amount(amount),
-        xrpl_codec::destination(destination)?,
+        dannesk_xrpl_codec::transaction_type(TransactionType::Payment),
+        dannesk_xrpl_codec::account(account)?,
+        dannesk_xrpl_codec::fee(fee)?,
+        dannesk_xrpl_codec::sequence(sequence),
+        dannesk_xrpl_codec::flags(0),
+        dannesk_xrpl_codec::amount(amount),
+        dannesk_xrpl_codec::destination(destination)?,
     ];
     if let Some(lls) = last_ledger_sequence {
-        fields.push(xrpl_codec::last_ledger_sequence(lls));
+        fields.push(dannesk_xrpl_codec::last_ledger_sequence(lls));
     }
     if let Some(tag) = destination_tag {
-        fields.push(xrpl_codec::destination_tag(tag));
+        fields.push(dannesk_xrpl_codec::destination_tag(tag));
     }
     Ok(fields)
 }
@@ -178,7 +178,7 @@ pub async fn construct_blob(
     // Resolve the recipient once: an X-address decodes to a classic r-address
     // plus a baked-in destination tag (which overrides any manual tag); a plain
     // r-address keeps the manually-entered tag from the command.
-    let resolved = xrpl_codec::xaddress::resolve(recipient)
+    let resolved = dannesk_xrpl_codec::xaddress::resolve(recipient)
         .ok_or("Invalid recipient address")?;
     let destination = resolved.classic;
     let destination_tag = if resolved.from_xaddress {
@@ -228,7 +228,7 @@ mod tests {
             destination_tag,
         )
         .expect("payment fields");
-        hex::encode_upper(xrpl_codec::encode(&fields).expect("encode"))
+        hex::encode_upper(dannesk_xrpl_codec::encode(&fields).expect("encode"))
     }
 
     #[test]
@@ -273,7 +273,7 @@ mod tests {
         )
         .unwrap();
         // Amount 6/1 is field id 0x61, followed by the token's 48 bytes.
-        let hex = hex::encode_upper(xrpl_codec::encode(&fields).unwrap());
+        let hex = hex::encode_upper(dannesk_xrpl_codec::encode(&fields).unwrap());
         assert!(hex.contains("61D4838D7EA4C68000524C555344"), "RLUSD 1 not encoded: {hex}");
     }
 

@@ -14,7 +14,7 @@
 #           advisories are reported as a warning and never fail it
 #
 # Each job covers the whole workspace: the app and the crates kept beside it
-# (xrpl_codec).
+# (dannesk-xrpl-codec).
 #
 # Actions are pinned to a commit rather than a tag or branch, which their
 # owners can move. Updating one is a deliberate edit.

@@ -1,6 +1,6 @@
 // ws/commands/trustset.rs
 use crate::channel::WSCommand;
-use xrpl_codec::{Amount, TransactionType};
+use dannesk_xrpl_codec::{Amount, TransactionType};
 use crate::ws::commands::transaction_builder;
 use crate::ws::commands::wallet_auth::Bip44Wallet; // Import our custom wallet
 
@@ -37,13 +37,13 @@ pub async fn construct_blob(
     // The unsigned TrustSet; `transaction_builder::sign` adds the key and the
     // signature, and the codec puts the fields in order.
     let fields = vec![
-        xrpl_codec::transaction_type(TransactionType::TrustSet),
-        xrpl_codec::account(&wallet_obj.address)?,
-        xrpl_codec::fee(fee)?,
-        xrpl_codec::sequence(sequence),
-        xrpl_codec::last_ledger_sequence(last_ledger_sequence),
-        xrpl_codec::flags(TF_SET_NO_RIPPLE),
-        xrpl_codec::limit_amount(limit),
+        dannesk_xrpl_codec::transaction_type(TransactionType::TrustSet),
+        dannesk_xrpl_codec::account(&wallet_obj.address)?,
+        dannesk_xrpl_codec::fee(fee)?,
+        dannesk_xrpl_codec::sequence(sequence),
+        dannesk_xrpl_codec::last_ledger_sequence(last_ledger_sequence),
+        dannesk_xrpl_codec::flags(TF_SET_NO_RIPPLE),
+        dannesk_xrpl_codec::limit_amount(limit),
     ];
 
     transaction_builder::sign(wallet_obj, fields)

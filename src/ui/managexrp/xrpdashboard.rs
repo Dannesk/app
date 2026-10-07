@@ -352,7 +352,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
 
         // ── The facts, resolved once ──────────────────────────────────────
         let addr = state.send_recipient.trim();
-        let resolved = xrpl_codec::xaddress::resolve(addr);
+        let resolved = dannesk_xrpl_codec::xaddress::resolve(addr);
         let from_x = resolved.as_ref().is_some_and(|r| r.from_xaddress);
         let baked_tag = resolved.as_ref().and_then(|r| if r.from_xaddress { r.tag } else { None });
         let is_self = resolved

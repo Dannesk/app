@@ -12,6 +12,7 @@ dependencies = [
  "bitcoin",
  "chrono",
  "dannesk-core",
+ "dannesk-xrpl-codec",
  "dirs",
  "iced",
  "image",
@@ -23,7 +24,6 @@ dependencies = [
  "sha2 0.11.0",
  "tokio",
  "winres",
- "xrpl_codec",
  "zeroize",
 ]
 
@@ -975,6 +975,7 @@ dependencies = [
  "bs58",
  "chrono",
  "dannesk-noise-protocol",
+ "dannesk-xrpl-codec",
  "futures-util",
  "hex",
  "libc",
@@ -989,7 +990,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "uuid",
- "xrpl_codec",
  "zeroize",
  "zstd",
 ]
@@ -1006,6 +1006,15 @@ dependencies = [
  "tokio",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "dannesk-xrpl-codec"
+version = "0.1.0"
+dependencies = [
+ "bs58",
+ "hex",
+ "sha2 0.11.0",
 ]
 
 [[package]]
@@ -5046,15 +5055,6 @@ name = "xmlwriter"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
-
-[[package]]
-name = "xrpl_codec"
-version = "0.1.0"
-dependencies = [
- "bs58",
- "hex",
- "sha2 0.11.0",
-]
 
 [[package]]
 name = "yazi"

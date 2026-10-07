@@ -1,5 +1,5 @@
 use crate::channel::WSCommand;
-use xrpl_codec::Field;
+use dannesk_xrpl_codec::Field;
 use crate::ws::commands::{offer_cancel, offer_create, payment, trustset};
 use crate::ws::commands::wallet_auth::Bip44Wallet;
 use bitcoin::secp256k1::{Message, Secp256k1};
@@ -29,20 +29,20 @@ pub async fn construct_blob(
 /// an XRPL transaction is signed.
 pub fn sign(wallet_obj: &Bip44Wallet, mut fields: Vec<Field>) -> Result<String, String> {
     // The compressed 33-byte public key is part of what gets signed.
-    fields.push(xrpl_codec::signing_pub_key(&wallet_obj.public_key.serialize()));
-    let digest = xrpl_codec::signing_hash(&fields)?;
+    fields.push(dannesk_xrpl_codec::signing_pub_key(&wallet_obj.public_key.serialize()));
+    let digest = dannesk_xrpl_codec::signing_hash(&fields)?;
 
     // sign_ecdsa gives the low-S (canonical) signature the ledger requires.
     let sig = Secp256k1::new().sign_ecdsa(&Message::from_digest(digest), &wallet_obj.secret_key);
-    fields.push(xrpl_codec::txn_signature(&sig.serialize_der()));
+    fields.push(dannesk_xrpl_codec::txn_signature(&sig.serialize_der()));
 
-    Ok(hex::encode_upper(xrpl_codec::encode(&fields)?))
+    Ok(hex::encode_upper(dannesk_xrpl_codec::encode(&fields)?))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xrpl_codec::TransactionType;
+    use dannesk_xrpl_codec::TransactionType;
     use bitcoin::secp256k1::{ecdsa::Signature, PublicKey, SecretKey};
 
     #[test]
@@ -56,11 +56,11 @@ mod tests {
         };
         let fields = || {
             vec![
-                xrpl_codec::transaction_type(TransactionType::OfferCancel),
-                xrpl_codec::account(&wallet.address).unwrap(),
-                xrpl_codec::fee(12).unwrap(),
-                xrpl_codec::sequence(1),
-                xrpl_codec::offer_sequence(7),
+                dannesk_xrpl_codec::transaction_type(TransactionType::OfferCancel),
+                dannesk_xrpl_codec::account(&wallet.address).unwrap(),
+                dannesk_xrpl_codec::fee(12).unwrap(),
+                dannesk_xrpl_codec::sequence(1),
+                dannesk_xrpl_codec::offer_sequence(7),
             ]
         };
         let blob = hex::decode(sign(&wallet, fields()).unwrap()).unwrap();
@@ -80,15 +80,15 @@ mod tests {
         // It verifies over the signing hash of the fields with the key in them,
         // and it is already low-S.
         let mut with_key = fields();
-        with_key.push(xrpl_codec::signing_pub_key(&key));
-        let digest = xrpl_codec::signing_hash(&with_key).unwrap();
+        with_key.push(dannesk_xrpl_codec::signing_pub_key(&key));
+        let digest = dannesk_xrpl_codec::signing_hash(&with_key).unwrap();
         assert!(secp.verify_ecdsa(&Message::from_digest(digest), &sig, &wallet.public_key).is_ok());
         let mut low_s = sig;
         low_s.normalize_s();
         assert_eq!(low_s, sig);
 
         // And the blob is exactly those fields plus that signature.
-        with_key.push(xrpl_codec::txn_signature(&sig.serialize_der()));
-        assert_eq!(xrpl_codec::encode(&with_key).unwrap(), blob);
+        with_key.push(dannesk_xrpl_codec::txn_signature(&sig.serialize_der()));
+        assert_eq!(dannesk_xrpl_codec::encode(&with_key).unwrap(), blob);
     }
 }

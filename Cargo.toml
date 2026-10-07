@@ -7,11 +7,11 @@ description = "DeFi Wallet for XRPL and Bitcoin."
 
 
 [workspace]
-members = ["dannesk-core", "xrpl_codec", "dannesk-noise-protocol"]
+members = ["dannesk-core", "dannesk-xrpl-codec", "dannesk-noise-protocol"]
 
 [workspace.dependencies]
 dannesk-core = { path = "dannesk-core" }
-xrpl_codec = { path = "xrpl_codec" }
+dannesk-xrpl-codec = { path = "dannesk-xrpl-codec" }
 dannesk-noise-protocol = { path = "dannesk-noise-protocol" }
 chrono = "0.4.45"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -43,7 +43,7 @@ arboard = { version = "3.6", default-features = false, features = ["wayland-data
 
 [dependencies]
 dannesk-core = { workspace = true }  # our rust core
-xrpl_codec = { workspace = true }  # our XRPL transaction and address codec, under MIT
+dannesk-xrpl-codec = { workspace = true }  # our XRPL transaction and address codec, under MIT
 iced = { git = "https://github.com/iced-rs/iced", rev = "56be3ede2b21f4880d1a1d7154bf8fcb84a729da", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }
 chrono = { workspace = true }
 serde = { workspace = true }

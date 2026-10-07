@@ -80,8 +80,8 @@ cargo run --release
 
 Dannesk is licensed under the GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE).
 
-The `xrpl_codec` crate in [xrpl_codec/](xrpl_codec/) is licensed under the MIT License. See [xrpl_codec/LICENSE](xrpl_codec/LICENSE).
+The `dannesk-xrpl-codec` crate in [dannesk-xrpl-codec/](dannesk-xrpl-codec/) is licensed under the MIT License. See [dannesk-xrpl-codec/LICENSE](dannesk-xrpl-codec/LICENSE).
 
 The `dannesk-core` crate in [dannesk-core/](dannesk-core/) is the rust core licensed under GPL-3.0.
 
-The `dannesk-noise-protocol` crate in [dannesk-noise-protocol/](dannesk-noise-protocol/) is licensed under MIT.
+The `dannesk-noise-protocol` crate in [dannesk-noise-protocol/](dannesk-noise-protocol/) is licensed under the MIT License. See [dannesk-noise-protocol/LICENSE](dannesk-noise-protocol/LICENSE)

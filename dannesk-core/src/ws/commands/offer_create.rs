@@ -1,6 +1,6 @@
 // ws/commands/offer_create.rs
 use crate::channel::WSCommand;
-use xrpl_codec::{Amount, TransactionType};
+use dannesk_xrpl_codec::{Amount, TransactionType};
 use crate::ws::commands::transaction_builder;
 use crate::ws::commands::wallet_auth::Bip44Wallet;
 
@@ -181,14 +181,14 @@ pub async fn construct_blob(
     // the signature, and the codec puts the fields in order. `Flags` is
     // always present (0 when none).
     let fields = vec![
-        xrpl_codec::transaction_type(TransactionType::OfferCreate),
-        xrpl_codec::account(&wallet_obj.address)?,
-        xrpl_codec::fee(fee)?,
-        xrpl_codec::sequence(sequence),
-        xrpl_codec::last_ledger_sequence(last_ledger_sequence),
-        xrpl_codec::flags(offer_flags(cmd.flags.as_ref())),
-        xrpl_codec::taker_gets(taker_gets_amount),
-        xrpl_codec::taker_pays(taker_pays_amount),
+        dannesk_xrpl_codec::transaction_type(TransactionType::OfferCreate),
+        dannesk_xrpl_codec::account(&wallet_obj.address)?,
+        dannesk_xrpl_codec::fee(fee)?,
+        dannesk_xrpl_codec::sequence(sequence),
+        dannesk_xrpl_codec::last_ledger_sequence(last_ledger_sequence),
+        dannesk_xrpl_codec::flags(offer_flags(cmd.flags.as_ref())),
+        dannesk_xrpl_codec::taker_gets(taker_gets_amount),
+        dannesk_xrpl_codec::taker_pays(taker_pays_amount),
     ];
 
     transaction_builder::sign(wallet_obj, fields)
@@ -219,16 +219,16 @@ mod tests {
         assert_eq!(gets, Amount::xrp(25_000_000).unwrap());
         assert_eq!(pays, Amount::issued("10.5", token.currency_hex, token.issuer).unwrap());
         let fields = vec![
-            xrpl_codec::transaction_type(TransactionType::OfferCreate),
-            xrpl_codec::account("rLSn6Z3T8uCxbcd1oxwfGQN1Fdn5CyGujK").unwrap(),
-            xrpl_codec::fee(12).unwrap(),
-            xrpl_codec::sequence(1),
-            xrpl_codec::last_ledger_sequence(99),
-            xrpl_codec::flags(TF_SELL),
-            xrpl_codec::taker_gets(gets),
-            xrpl_codec::taker_pays(pays),
+            dannesk_xrpl_codec::transaction_type(TransactionType::OfferCreate),
+            dannesk_xrpl_codec::account("rLSn6Z3T8uCxbcd1oxwfGQN1Fdn5CyGujK").unwrap(),
+            dannesk_xrpl_codec::fee(12).unwrap(),
+            dannesk_xrpl_codec::sequence(1),
+            dannesk_xrpl_codec::last_ledger_sequence(99),
+            dannesk_xrpl_codec::flags(TF_SELL),
+            dannesk_xrpl_codec::taker_gets(gets),
+            dannesk_xrpl_codec::taker_pays(pays),
         ];
-        let hex = hex::encode_upper(xrpl_codec::encode(&fields).unwrap());
+        let hex = hex::encode_upper(dannesk_xrpl_codec::encode(&fields).unwrap());
         // Flags is UInt32 field id 0x22; 0x00080000 = tfSell.
         assert!(hex.contains("2200080000"), "tfSell not encoded: {hex}");
     }

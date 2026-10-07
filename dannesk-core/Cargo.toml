@@ -8,7 +8,7 @@ repository = "https://github.com/Dannesk/app"
 publish = false 
 
 [dependencies]
-xrpl_codec = { workspace = true }
+dannesk-xrpl-codec = { workspace = true }
 dannesk-noise-protocol = { workspace = true, features = ["tokio"] }  
 chrono = { workspace = true }
 serde = { workspace = true }
