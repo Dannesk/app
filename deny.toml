@@ -71,11 +71,15 @@ unknown-git = "deny"
 # A git dependency must name the exact commit it builds.
 required-git-spec = "rev"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# iced is pinned to one commit of its master branch (Cargo.toml). The other
-# three are iced's own pinned dependencies.
+# iced is pinned to one commit of its master branch (Cargo.toml). The next
+# three are iced's own pinned dependencies. The last two are our own crates,
+# each in its own repository and pinned to a commit until they are on
+# crates.io.
 allow-git = [
     "https://github.com/iced-rs/iced",
     "https://github.com/iced-rs/winit.git",
     "https://github.com/iced-rs/cryoglyph.git",
     "https://github.com/hecrj/cosmic-text.git",
+    "https://github.com/Dannesk/dannesk-xrpl-codec",
+    "https://github.com/Dannesk/dannesk-noise-protocol",
 ]

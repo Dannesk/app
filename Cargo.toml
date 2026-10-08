@@ -7,12 +7,14 @@ description = "DeFi Wallet for XRPL and Bitcoin."
 
 
 [workspace]
-members = ["dannesk-core", "dannesk-xrpl-codec", "dannesk-noise-protocol"]
+members = ["dannesk-core"]
 
 [workspace.dependencies]
 dannesk-core = { path = "dannesk-core" }
-dannesk-xrpl-codec = { path = "dannesk-xrpl-codec" }
-dannesk-noise-protocol = { path = "dannesk-noise-protocol" }
+# Our MIT crates, each in its own repository, pinned to a commit until they
+# are on crates.io.
+dannesk-xrpl-codec = { git = "https://github.com/Dannesk/dannesk-xrpl-codec", rev = "7a9243bce1905fedcac38b986e0e321c52db4c1f" }
+dannesk-noise-protocol = { git = "https://github.com/Dannesk/dannesk-noise-protocol", rev = "6d7671a7e45b3e7d07c0716c1fcf6bf03dbab220" }
 chrono = "0.4.45"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

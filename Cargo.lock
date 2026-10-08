@@ -997,11 +997,10 @@ dependencies = [
 [[package]]
 name = "dannesk-noise-protocol"
 version = "0.1.0"
+source = "git+https://github.com/Dannesk/dannesk-noise-protocol?rev=6d7671a7e45b3e7d07c0716c1fcf6bf03dbab220#6d7671a7e45b3e7d07c0716c1fcf6bf03dbab220"
 dependencies = [
  "aes-gcm",
- "hex",
  "hmac",
- "serde_json",
  "sha2 0.11.0",
  "tokio",
  "x25519-dalek",
@@ -1011,6 +1010,7 @@ dependencies = [
 [[package]]
 name = "dannesk-xrpl-codec"
 version = "0.1.0"
+source = "git+https://github.com/Dannesk/dannesk-xrpl-codec?rev=7a9243bce1905fedcac38b986e0e321c52db4c1f#7a9243bce1905fedcac38b986e0e321c52db4c1f"
 dependencies = [
  "bs58",
  "hex",

@@ -13,8 +13,9 @@
 #   deny    sources, bans and licences fail the run (deny.toml); RustSec
 #           advisories are reported as a warning and never fail it
 #
-# Each job covers the whole workspace: the app and the crates kept beside it
-# (dannesk-xrpl-codec).
+# Each job covers the whole workspace: the app and dannesk-core beside it.
+# dannesk-xrpl-codec and dannesk-noise-protocol are tested in their own
+# repositories.
 #
 # Actions are pinned to a commit rather than a tag or branch, which their
 # owners can move. Updating one is a deliberate edit.
