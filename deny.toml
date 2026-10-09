@@ -14,20 +14,17 @@ targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
 # RustSec. Unmaintained and unsound crates are reported anywhere in the graph,
 # not only among our direct dependencies. An advisory can land on a crate long
 # after it entered the lock, so CI reports these without failing (ci.yml).
-# The two known ones below are listed so that a warning on a pull request
-# always means something new; every run still names them in its log.
+# The known one below is listed so that a warning on a pull request always
+# means something new; every run still names it in its log.
 unmaintained = "all"
 unsound = "all"
 yanked = "deny"
 ignore = [
-    # ttf-parser parses fonts for iced's text stack (fontdb, via cosmic-text)
-    # and for winit's Wayland title bar (ab_glyph). Only those crates can
-    # replace it; RustSec names skrifa as the successor.
-    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained; it reaches us only through iced and winit" },
-    # lru 0.16, in cryoglyph (iced's glyph cache). Triggering it takes a key
-    # whose Drop panics inside catch_unwind; release builds abort on panic.
-    # Fixed in lru 0.18.2, which cryoglyph has yet to adopt.
-    { id = "RUSTSEC-2026-0253", reason = "lru 0.16 is unsound under unwinding; it reaches us only through cryoglyph" },
+    # ttf-parser parses fonts for winit's Wayland title bar (sctk-adwaita, via
+    # ab_glyph). Only those crates can replace it; RustSec suggests skrifa as
+    # an alternative. fontdb, in iced's text stack, inlines a subset of
+    # ttf-parser 0.25.1, which no advisory check can see.
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained; the crate reaches us only through winit's Wayland title bar" },
 ]
 
 [licenses]

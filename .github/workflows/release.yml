@@ -15,9 +15,15 @@
 # workflow_dispatch builds both packages without releasing, to test the
 # pipeline on any branch.
 #
-# Actions are pinned to a commit rather than a tag or branch, which their
-# owners can move: the package these jobs build is the one that gets signed.
-# Updating one is a deliberate edit.
+# Actions are pinned to a commit, and the build container to an image digest,
+# rather than to a tag or branch, which their owners can move: the package
+# these jobs build is the one that gets signed. Updating one is a deliberate
+# edit.
+#
+# No build cache, for the same reason. A tag run can restore cache entries
+# saved on main, and any code that runs in a main-branch job can save one, a
+# dependency's build script included; GitHub neither signs nor verifies them.
+# Every release build therefore compiles from scratch.
 
 name: release
 
@@ -44,19 +50,21 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    container: ubuntu:22.04
+    # ubuntu:22.04's multi-arch index; each runner pulls its own architecture.
+    container: ubuntu@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401 # 22.04
     steps:
-      # build-essential: C toolchain for secp256k1, zstd and aws-lc, and the
-      # objdump build-deb.sh reads the glibc floor with. cmake: aws-lc-sys,
-      # rustls' crypto provider. git: so checkout clones rather than fetching
-      # a tarball. dpkg-deb ships with the image.
+      # build-essential: C toolchain for secp256k1 and zstd, and the objdump
+      # build-deb.sh reads the glibc floor with. git: so checkout clones rather
+      # than fetching a tarball. dpkg-deb ships with the image.
       - name: Build dependencies
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            build-essential cmake pkg-config curl ca-certificates git
+            build-essential pkg-config curl ca-certificates git
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Tag matches Cargo.toml
         if: startsWith(github.ref, 'refs/tags/v')
@@ -67,8 +75,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:
           toolchain: stable
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Build package
         run: sh packaging/build-deb.sh

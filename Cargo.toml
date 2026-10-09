@@ -10,7 +10,7 @@ description = "DeFi Wallet for XRPL and Bitcoin."
 
 dannesk-core = { git = "https://github.com/Dannesk/dannesk-core", rev = "b158a24999ad9047088e94ef2bf6352db6eeafe5" }  # our rust core
 dannesk-xrpl-codec = { git = "https://github.com/Dannesk/dannesk-xrpl-codec", rev = "7a9243bce1905fedcac38b986e0e321c52db4c1f" }  # our XRPL transaction and address codec, under MIT
-iced = { git = "https://github.com/iced-rs/iced", rev = "56be3ede2b21f4880d1a1d7154bf8fcb84a729da", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }
+iced = { git = "https://github.com/iced-rs/iced", rev = "a8231fd9ddf3570f95affba2d45a9be092007f71", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }
 chrono = "0.4.45"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

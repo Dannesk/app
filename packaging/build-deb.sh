@@ -9,18 +9,23 @@ ROOT=$(dirname -- "$HERE")
 VERSION=$(grep -m1 '^version' "$ROOT/Cargo.toml" | cut -d'"' -f2)
 ARCH=$(dpkg --print-architecture)
 
+# Both cargo calls that resolve the graph take --locked: the package is built
+# from Cargo.lock exactly as committed, and a lock out of step with Cargo.toml
+# stops the build instead of being filled in from whatever crates.io serves
+# at that moment.
+#
 # iced's debug tooling never ships: the beacon debugger client (a TCP client
 # whose address comes from an environment variable), devtools, the tester and
 # hot reload. They only enter the build through iced's `debug`, `hot` or
-# `tester` features. Checked on the resolved graph, not Cargo.lock, which a
-# build may still rewrite; captured first so a failing `cargo tree` aborts.
-GRAPH=$(cargo tree --manifest-path "$ROOT/Cargo.toml" -e normal --prefix none -f '{p}')
+# `tester` features. Checked on the resolved graph, captured first so a
+# failing `cargo tree` aborts.
+GRAPH=$(cargo tree --locked --manifest-path "$ROOT/Cargo.toml" -e normal --prefix none -f '{p}')
 if printf '%s\n' "$GRAPH" | grep -qE '^(iced_beacon|iced_devtools|iced_tester|cargo-hot-protocol) '; then
     echo "iced debug tooling is in the dependency graph; refusing to build a release" >&2
     exit 1
 fi
 
-cargo build --release --manifest-path "$ROOT/Cargo.toml"
+cargo build --locked --release --manifest-path "$ROOT/Cargo.toml"
 
 TARGET_DIR=$(cargo metadata --format-version 1 --no-deps --manifest-path "$ROOT/Cargo.toml" \
     | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')
