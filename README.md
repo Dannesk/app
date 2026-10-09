@@ -9,6 +9,7 @@
 <p align="center">
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-2024_edition-000000?logo=rust&logoColor=white" alt="Rust"></a>
   <a href="https://iced.rs"><img src="https://iced.rs/badge.svg" alt="Made with iced"></a>
+  <a href="https://github.com/Dannesk/app/actions/workflows/ci.yml"><img src="https://github.com/Dannesk/app/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-3B3F43" alt="License: GPL-3.0"></a></p>
 
 ## Features
@@ -82,6 +83,6 @@ Dannesk is licensed under the GNU General Public License v3.0 (GPL-3.0). See [LI
 
 The `dannesk-xrpl-codec` crate, in its own repository at [Dannesk/dannesk-xrpl-codec](https://github.com/Dannesk/dannesk-xrpl-codec), is licensed under the MIT License.
 
-The `dannesk-core` crate in [dannesk-core/](dannesk-core/) is the rust core licensed under GPL-3.0.
+The `dannesk-core` crate, in its own repository at [Dannesk/dannesk-core](https://github.com/Dannesk/dannesk-core), is the Rust core, licensed under GPL-3.0.
 
 The `dannesk-noise-protocol` crate, in its own repository at [Dannesk/dannesk-noise-protocol](https://github.com/Dannesk/dannesk-noise-protocol), is licensed under the MIT License.

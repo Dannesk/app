@@ -9,11 +9,10 @@ use crate::ui::components::wallet_gate::Mark;
 use crate::controller::message::{Message, SecureField};
 use crate::ui::components::wallet_setup::{self, SetupFlow, SetupScreenParams};
 
-/// The path the deriver walks — a display copy of the literal in
-/// `bridge/xrp_import_logic.rs` (and its create/auth twins). Derivation is frozen and
-/// those literals hold real funds, so they are not hoisted into a shared
-/// constant; `path_is_the_derivers` pins this copy to them instead.
-const PATH: &str = "m/44'/144'/0'/0/0";
+/// The path the derivers walk — the core's display copy, `bridge::XRP_PATH`.
+/// Derivation is frozen and those literals hold real funds, so they are not
+/// hoisted into a shared constant; a test in the core pins its copy to them.
+const PATH: &str = crate::bridge::XRP_PATH;
 
 pub fn import(state: &AppState) -> Element<'_, Message> {
     wallet_setup::setup_screen(
@@ -83,18 +82,4 @@ pub fn create(state: &AppState) -> Element<'_, Message> {
             submit_label: "Create wallet",
         },
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::PATH;
-
-    /// The eyebrow must state the path the deriver actually walks. The literal
-    /// lives in the (frozen) bridge file; this reads it back rather than
-    /// trusting anyone to keep two strings in step by hand.
-    #[test]
-    fn path_is_the_derivers() {
-        let deriver = include_str!("../../../dannesk-core/src/bridge/xrp_import_logic.rs");
-        assert!(deriver.contains(&format!("\"{PATH}\"")), "PATH is not the XRP deriver's path");
-    }
 }

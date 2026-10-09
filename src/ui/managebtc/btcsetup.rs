@@ -114,14 +114,4 @@ mod tests {
         assert_eq!(create_type(BtcScriptType::Legacy), BtcScriptType::NativeSegwit);
         assert_eq!(create_type(BtcScriptType::NestedSegwit), BtcScriptType::NativeSegwit);
     }
-
-    /// The eyebrow must state the path the deriver actually walks. The literal
-    /// lives in the (frozen) bridge file; this reads it back rather than
-    /// trusting anyone to keep two strings in step by hand.
-    #[test]
-    fn path_is_the_derivers() {
-        let deriver = include_str!("../../../dannesk-core/src/bridge/btc_import_logic.rs");
-        let path = BtcScriptType::NativeSegwit.path();
-        assert!(deriver.contains(&format!("\"{path}\"")), "native path is not the BTC deriver's path");
-    }
 }
