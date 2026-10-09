@@ -70,6 +70,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = run_websocket(commands_rx, outgoing_rx, rates_cmd_rx, ws_shutdown_rx).await;
     });
     join_handles.push(ws_handle);
+    // The activity log's watchdog, a core task since 2026-10-09: it fails a
+    // hung step in the channel itself. Not joined at quit: it waits on the
+    // channel for the life of the process, and dropping the runtime ends it.
+    let _ = handle.spawn(dannesk_core::channel::activity_watchdog());
 
     let wallet_handle = handle.spawn_blocking(move || {
         wallet::load_wallets(tx_for_wallet);

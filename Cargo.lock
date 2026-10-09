@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Dannesk"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "arboard",
  "base64 0.23.1",
@@ -934,7 +934,7 @@ dependencies = [
 [[package]]
 name = "dannesk-core"
 version = "0.1.0"
-source = "git+https://github.com/Dannesk/dannesk-core?rev=6d7d749fca360cc2e1b8936d64be0497cfcd97e5#6d7d749fca360cc2e1b8936d64be0497cfcd97e5"
+source = "git+https://github.com/Dannesk/dannesk-core?rev=b158a24999ad9047088e94ef2bf6352db6eeafe5#b158a24999ad9047088e94ef2bf6352db6eeafe5"
 dependencies = [
  "aes-gcm",
  "argon2",

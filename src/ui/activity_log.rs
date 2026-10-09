@@ -200,7 +200,9 @@ pub fn render_activity_log<'a>(
                 cp.text,
                 cp.muted,
             ),
-            ActivityStepState::Error { .. } => (
+            // A stalled step (the watchdog stopped waiting) reads exactly as
+            // a failed one; the difference is what a late answer may do to it.
+            ActivityStepState::Error { .. } | ActivityStepState::Stalled { .. } => (
                 text("\u{2715}").font(MONO).size(STEP_GLYPH * scale).color(cp.red).boxed(),
                 cp.red,
                 cp.red,
@@ -279,7 +281,9 @@ pub fn render_activity_log<'a>(
     // is the only place a short fill is ever stated. No marker and no colour — it reads
     // as a sentence, not as a fifth step, and a partial fill must not borrow red.
     let failure_message = log.steps.iter().find_map(|s| match &s.state {
-        ActivityStepState::Error { message } => Some(message.as_str()),
+        ActivityStepState::Error { message } | ActivityStepState::Stalled { message } => {
+            Some(message.as_str())
+        }
         _ => None,
     });
 

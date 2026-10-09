@@ -1,6 +1,6 @@
 [package]
 name = "Dannesk"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 license = "GPL-3.0-or-later"
 description = "DeFi Wallet for XRPL and Bitcoin."
@@ -8,7 +8,7 @@ description = "DeFi Wallet for XRPL and Bitcoin."
 
 [dependencies]
 
-dannesk-core = { git = "https://github.com/Dannesk/dannesk-core", rev = "6d7d749fca360cc2e1b8936d64be0497cfcd97e5" }  # our rust core
+dannesk-core = { git = "https://github.com/Dannesk/dannesk-core", rev = "b158a24999ad9047088e94ef2bf6352db6eeafe5" }  # our rust core
 dannesk-xrpl-codec = { git = "https://github.com/Dannesk/dannesk-xrpl-codec", rev = "7a9243bce1905fedcac38b986e0e321c52db4c1f" }  # our XRPL transaction and address codec, under MIT
 iced = { git = "https://github.com/iced-rs/iced", rev = "56be3ede2b21f4880d1a1d7154bf8fcb84a729da", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }
 chrono = "0.4.45"

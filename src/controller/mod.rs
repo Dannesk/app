@@ -8,7 +8,7 @@ pub mod panes;
 use iced::Task;
 use std::time::Duration;
 use crate::channel::{CHANNEL, HistoryList};
-use crate::controller::message::{ActivityVerdict, Message};
+use crate::controller::message::Message;
 use crate::controller::app_state::XrpView;
 use crate::controller::app_state::{AppState, Tab};
 
@@ -113,65 +113,6 @@ fn wipe_wallet_data() {
     let _ = CHANNEL.bitcoin_wallet_tx.send((0.0, None, false, crate::channel::KeyMode::Standard));
     let _ = CHANNEL.btc_transactions_tx.send(BtcTransactionState::default());
     let _ = CHANNEL.activity_tx.send(None);
-}
-
-/// Link-up silence an operation may accumulate before the watchdog gives up.
-/// No step here takes long — a Bitcoin import lands in 2–3s, an XRPL
-/// transaction validates in 5–10s — so connected silence past this is a relay
-/// or node that is not answering. Rarer than it was: the relay now forwards an
-/// immediate rejection instead of leaving the client to wait for a validation
-/// that cannot come.
-const ACTIVITY_BUDGET: Duration = Duration::from_secs(15);
-/// How long the link may stay down under a live log before the user is let
-/// go. Down time does not count against the budget — the log shows it (the
-/// amber line), and an answer to something submitted still arrives on a quick
-/// reconnect, because the relay keys replies by wallet. But Done is disabled
-/// while a log is live, so an outage must not hold the user hostage.
-const LINK_DOWN_CAP: Duration = Duration::from_secs(20);
-
-/// Wait out an operation's budget, counting only the time its link is up.
-///
-/// `rx` is the transport bool for the link the flow's answer must arrive over.
-/// Up: the budget runs. Down: the budget pauses and the cap runs instead, reset
-/// by every rise (a reconnect re-syncs, and with it an answer gets its chance).
-/// Whichever expires first is the verdict. A step landing never reaches here —
-/// it retires the whole task through `activity_gen`.
-async fn activity_watchdog(mut rx: tokio::sync::watch::Receiver<bool>) -> ActivityVerdict {
-    let mut spent = Duration::ZERO;
-    let mut down_since: Option<std::time::Instant> = None;
-    loop {
-        // `borrow_and_update` marks the current value seen, so `changed` below
-        // waits for the NEXT notification rather than returning at once on this one.
-        //
-        // A notification is not a transition: a watch `send` wakes receivers
-        // even when the value is unchanged, and the socket task re-publishes
-        // the transport bools on every reconnect attempt and every proxy link
-        // frame. So neither clock may restart on a wake-up — the budget
-        // accumulates across them, and the cap runs from the moment the link
-        // was first seen down, clearing only when it is seen up again.
-        let up = *rx.borrow_and_update();
-        let (limit, verdict) = if up {
-            down_since = None;
-            (ACTIVITY_BUDGET.saturating_sub(spent), ActivityVerdict::Silent)
-        } else {
-            let since = *down_since.get_or_insert_with(std::time::Instant::now);
-            (LINK_DOWN_CAP.saturating_sub(since.elapsed()), ActivityVerdict::LinkDown)
-        };
-        let started = std::time::Instant::now();
-        tokio::select! {
-            _ = tokio::time::sleep(limit) => return verdict,
-            changed = rx.changed() => {
-                if up {
-                    spent += started.elapsed();
-                }
-                // The sender lives in the global CHANNEL and never drops; this
-                // is unreachable, and the verdict is the harmless way out.
-                if changed.is_err() {
-                    return verdict;
-                }
-            }
-        }
-    }
 }
 
 /// How long a history page may go unanswered before its end row reads
@@ -566,49 +507,11 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             state.settings_open = false;
         }
         Message::ActivityChanged(val) => {
-            // A new operation is a log where there was none, where the last one had
-            // finished, or under a different title. Everything else is a step landing
-            // inside the operation already being watched.
-            let fresh = match (&state.activity_log, &val) {
-                (_, None) => false,
-                (None, Some(_)) => true,
-                (Some(prev), Some(next)) => prev.is_terminal() || prev.title != next.title,
-            };
+            // The core's watchdog (`channel::activity_watchdog`) fails a hung
+            // step in the channel itself, so what arrives here is the log to
+            // show. A finished log holds the screen until the user clicks Done
+            // (the action row in ui/activity_log.rs).
             state.activity_log = val;
-
-            // `activity_gen` is what stops a watchdog armed for one operation from firing
-            // into the next — import, dismiss, re-import inside the window used to let the
-            // first import's timer mark the *re-import's* live step as timed out. It bumps
-            // when an operation starts or ends, so any timer still in flight is retired by
-            // whatever happened since. It does NOT bump on a step landing: that is what
-            // lets one watchdog measure a whole operation. Keep both if you touch this.
-            match &state.activity_log {
-                // Finished. No auto-dismiss: it holds the screen until the user clicks Done
-                // (see the action row in ui/activity_log.rs). The bump retires the watchdog.
-                Some(log) if log.is_terminal() => {
-                    state.activity_gen += 1;
-                }
-                Some(log) if fresh => {
-                    // Armed ONCE per operation, and it does not measure wall-clock time:
-                    // `activity_watchdog` counts link-up silence against ACTIVITY_BUDGET
-                    // and link-down time against LINK_DOWN_CAP, separately.
-                    //
-                    // It used to be 30s of silence re-armed on every step, which is what
-                    // made a dropped connection cost half a minute of nothing. Before that,
-                    // 15s per operation with no view of the link, which failed slow-but-
-                    // progressing imports. Watching the link is what lets it be short again.
-                    state.activity_gen += 1;
-                    let timeout_gen = state.activity_gen;
-                    let rx = crate::channel::CHANNEL.link_rx(log.health_key);
-                    return Task::perform(activity_watchdog(rx), move |verdict| {
-                        Message::ActivityTimeout(timeout_gen, verdict)
-                    });
-                }
-                Some(_) => {}
-                None => {
-                    state.activity_gen += 1;
-                }
-            }
         }
         Message::ActivityTick(now) => {
             state.activity_tick = now;
@@ -638,38 +541,6 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         Message::ActivityDismiss => {
             state.activity_log = None;
             let _ = crate::channel::CHANNEL.activity_tx.send(None);
-        }
-        Message::ActivityTimeout(timeout_gen, verdict) => {
-            if timeout_gen != state.activity_gen { return Task::none(); }
-            // Never dismisses anything — it turns a hung step into an ordinary error row,
-            // which the user then reads at their own pace and closes by hand.
-            if let Some(ref mut log) = state.activity_log {
-                if !log.is_terminal() {
-                    // Deliberately not "Failed". We stopped waiting; that is not the same as
-                    // the work not happening. A submitted transaction can still land after
-                    // this fires, and telling someone their send failed when it may be in a
-                    // ledger is the worse of the two wrong answers. What CAN be said is why
-                    // we stopped and what to do about it: the ledger is public, the history
-                    // pane reads it, and nothing here ever re-sends a blob — a signature is
-                    // the user's to give again.
-                    //
-                    // A flow that named a link is a signing flow (`ActivityLogState::begin`);
-                    // one that did not is an import or the like, where "sign again" would
-                    // be the wrong instruction.
-                    let signing = log.health_key.is_some();
-                    let message = match (verdict, signing) {
-                        (ActivityVerdict::Silent, true) => {
-                            "No answer from the network — it may still complete. Check the history before signing again."
-                        }
-                        (ActivityVerdict::Silent, false) => "No answer from the network — try again.",
-                        (ActivityVerdict::LinkDown, true) => {
-                            "Connection lost before the answer arrived — check the history before signing again."
-                        }
-                        (ActivityVerdict::LinkDown, false) => "Connection lost — try again.",
-                    };
-                    log.fail_active(message.to_string());
-                }
-            }
         }
         Message::ThemeSet(custom) => {
             use crate::bridge::json_storage;

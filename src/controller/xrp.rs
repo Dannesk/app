@@ -1973,12 +1973,12 @@ pub fn trade_expiry_check() {
     let _ = CHANNEL.pending_trade_tx.send(None);
 
     // The MESSAGE goes only into the order's own log, and this check is not
-    // decorative. The watchdog fails the step long before the ~80s
+    // decorative. The watchdog stalls the step long before the ~80s
     // `LastLedgerSequence` horizon, the user reads it and clicks Done (there is
     // no auto-dismiss), and the slot was still armed. Without the title gate the
     // next flow to open a log — a payment, a trustline, an import — would have
     // its `init` step rewritten to "The order expired", because
-    // `restate_failure` targets the first Active or Error step and on a fresh
+    // `restate_failure` targets the first Active or Stalled step and on a fresh
     // flow that is the first one. Telling someone their payment expired because
     // an unrelated order did is the worst sentence this surface could produce.
     let mut log = CHANNEL.activity_rx.borrow().clone();
@@ -1994,7 +1994,7 @@ pub fn trade_expiry_check() {
         );
         // Published rather than written straight into `state`, so the channel
         // stays the single copy: the update comes back as `ActivityChanged`,
-        // which is also what retires the watchdog generation.
+        // and a terminal log is what retires the core's watchdog.
         let _ = CHANNEL.activity_tx.send(log);
     }
 }

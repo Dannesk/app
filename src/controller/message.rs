@@ -174,16 +174,6 @@ impl PlainField {
     }
 }
 
-/// Why the activity watchdog stopped waiting. Two different facts, so two
-/// different sentences on the log (`controller::mod`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActivityVerdict {
-    /// The link was up for `ACTIVITY_BUDGET` in total and nothing landed.
-    Silent,
-    /// The link has been down for `LINK_DOWN_CAP` without coming back.
-    LinkDown,
-}
-
 #[derive(Debug, Clone)]
 pub enum Message {
     Sync,
@@ -263,8 +253,6 @@ pub enum Message {
     /// A redraw while Balance shows its placeholder; nothing to update.
     FetchTick,
     ActivityDismiss,
-    /// The watchdog gave up on the operation whose `activity_gen` this is.
-    ActivityTimeout(u64, ActivityVerdict),
     BackClicked,
     DeleteXrpKey,
     RemoveXrpWallet,
