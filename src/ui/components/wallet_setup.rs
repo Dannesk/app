@@ -55,7 +55,7 @@ use crate::utils::theme;
 /// say "invalid checksum" next to the field instead of letting a typo travel
 /// to step 2 and fail there.
 pub fn mnemonic_checksum_ok(phrase: &str) -> bool {
-    bip39::Mnemonic::parse_in(bip39::Language::English, phrase.trim()).is_ok()
+    dannesk_btc_codec::bip39::Mnemonic::parse(phrase).is_ok()
 }
 
 // ── Strength vocabulary ─────────────────────────────────────────────────────
@@ -819,8 +819,7 @@ mod tests {
     /// letter past it, so a wider list would make the box refuse real words.
     #[test]
     fn the_cell_width_is_the_longest_bip39_word() {
-        let longest = bip39::Language::English
-            .word_list()
+        let longest = dannesk_btc_codec::bip39::WORDS
             .iter()
             .map(|w| w.chars().count())
             .max()

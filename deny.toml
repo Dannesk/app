@@ -38,7 +38,6 @@ allow = [
     "CC0-1.0",
     "ISC",
     "MIT",
-    "MITNFA",  # hex_lit, via bitcoin: MIT plus a clause against false attribution
     "MPL-2.0",
     "Unicode-3.0",
     "Zlib",
@@ -68,9 +67,9 @@ unknown-git = "deny"
 required-git-spec = "rev"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # iced is pinned to one commit of its master branch (Cargo.toml). The next
-# three are iced's own pinned dependencies. The last three are our own crates,
+# three are iced's own pinned dependencies. The last four are our own crates,
 # each in its own repository and pinned to a commit: the core, which never
-# goes to crates.io, and the codec and the Noise crate until they are on it.
+# goes to crates.io, and the codecs and the Noise crate until they are on it.
 allow-git = [
     "https://github.com/iced-rs/iced",
     "https://github.com/iced-rs/winit.git",
@@ -78,5 +77,6 @@ allow-git = [
     "https://github.com/hecrj/cosmic-text.git",
     "https://github.com/Dannesk/dannesk-core",
     "https://github.com/Dannesk/dannesk-xrpl-codec",
+    "https://github.com/Dannesk/dannesk-btc-codec",
     "https://github.com/Dannesk/dannesk-noise-protocol",
 ]

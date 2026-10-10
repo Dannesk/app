@@ -8,7 +8,8 @@ description = "DeFi Wallet for XRPL and Bitcoin."
 
 [dependencies]
 
-dannesk-core = { git = "https://github.com/Dannesk/dannesk-core", rev = "b158a24999ad9047088e94ef2bf6352db6eeafe5" }  # our rust core
+dannesk-core = { git = "https://github.com/Dannesk/dannesk-core", rev = "a0e59c905a10d48d641ce4cfda44a2c03c74e7a6" }  # our rust core
+dannesk-btc-codec = { git = "https://github.com/Dannesk/dannesk-btc-codec", rev = "5c4fe7bc359288cb61180cd1566ebbee7a9b32c0" }  # our Bitcoin keys, addresses and transactions, under MIT
 dannesk-xrpl-codec = { git = "https://github.com/Dannesk/dannesk-xrpl-codec", rev = "7a9243bce1905fedcac38b986e0e321c52db4c1f" }  # our XRPL transaction and address codec, under MIT
 iced = { git = "https://github.com/iced-rs/iced", rev = "a8231fd9ddf3570f95affba2d45a9be092007f71", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }
 chrono = "0.4.45"
@@ -16,19 +17,17 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 tokio = { version = "1.53.2", features = ["full"] }
 zeroize = { version = "1.9", features = ["derive", "serde"] }
-bitcoin = "0.32.102"
-bip39 = "3.0.0"
 rand = "0.10.3"
 base64 = "0.23.1"
 dirs = "7.0.0"
-qrcode = "0.14.1"
-image = { version = "0.25.10", default-features = false, features = ["png"] }
+qrcode = { version = "0.14.1", default-features = false }  # the receive pane draws the modules itself as SVG (utils/qr.rs); its image and svg renderers are never used
+png = "0.18.1"  # decodes the X11 window icon (src/icon.rs); already in the graph through iced's tiny-skia
 sha2 = "0.11.0"
-libc = "0.2.190"  # the start-up trace (src/startup_trace.rs); the process hardening is the core's
+libc = { version = "0.2.190", optional = true }  # only the start-up trace (src/startup_trace.rs); the process hardening is the core's
 arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }  # already in iced, but used directly to mark a copied phrase secret (utils/clipboard.rs)
 
 [features]
-startup-trace = []
+startup-trace = ["dep:libc"]
 
 [profile.release]
 strip = true         
@@ -36,6 +35,7 @@ lto = true
 codegen-units = 1     
 panic = "abort"       
 opt-level = "z"       
+# packaging/build-deb.sh adds RUSTFLAGS="-C force-unwind-tables=no" (RELEASE.md ▸ Building the .deb)
 
 
 [target.'cfg(windows)'.build-dependencies]

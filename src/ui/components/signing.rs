@@ -37,7 +37,7 @@
 //! no picker: offering "key / mnemonic" would invite someone to try the wrong
 //! one and read the failure as a wrong key.
 
-use bip39::{Language, Mnemonic};
+use dannesk_btc_codec::bip39::Mnemonic;
 
 use crate::controller::app_state::EnableInputMode;
 use crate::controller::message::{Message, SecureField};
@@ -113,7 +113,7 @@ impl SignFields<'_> {
 /// The parsed value is dropped on the spot; nothing here derives from it.
 fn phrase_checksum(phrase: &str) -> Option<bool> {
     (phrase.split_whitespace().count() == PHRASE_WORDS)
-        .then(|| Mnemonic::parse_in(Language::English, phrase).is_ok())
+        .then(|| Mnemonic::parse(phrase).is_ok())
 }
 
 #[cfg(test)]

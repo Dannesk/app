@@ -25,7 +25,11 @@ if printf '%s\n' "$GRAPH" | grep -qE '^(iced_beacon|iced_devtools|iced_tester|ca
     exit 1
 fi
 
-cargo build --locked --release --manifest-path "$ROOT/Cargo.toml"
+# No unwind tables: the release profile aborts on panic and the core makes the
+# process neither dumpable nor traceable (dannesk-core secure.rs), so nothing can
+# ever read them; they were 1.35 MB of the 12.8 MB binary (RELEASE.md).
+RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C force-unwind-tables=no" \
+    cargo build --locked --release --manifest-path "$ROOT/Cargo.toml"
 
 TARGET_DIR=$(cargo metadata --format-version 1 --no-deps --manifest-path "$ROOT/Cargo.toml" \
     | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')

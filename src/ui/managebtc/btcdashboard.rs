@@ -170,7 +170,7 @@ fn pane_content<'a>(
             PaneKind::Send => (strip("send"), None, send_pane(state, cp, scale)),
             PaneKind::Wallet => (strip(panes_ui::wallet::title(state)), None, panes_ui::wallet::view(state, cp, scale)),
             // A pane wearing a face says so in its strip, as send's do.
-            PaneKind::Receive if state.btc_pool_face => (strip("addresses"), None, pool_face(state, cp, scale)),
+            PaneKind::Receive if state.btc_pool_face => (strip("rotational addresses"), None, pool_face(state, cp, scale)),
             PaneKind::Receive => {
                 // Whichever pool address the user picked, defaulting to the
                 // most recently generated; #0 for a wallet that predates the
@@ -180,11 +180,11 @@ fn pane_content<'a>(
                     .clone()
                     .or_else(|| CHANNEL.bitcoin_wallet_rx.borrow().1.clone())
                     .unwrap_or_else(|| "No Address".to_string());
-                // The door to the pool, in the slot XRP's tag line has.
-                let link = (
-                    format!("addresses \u{b7} {}", state.btc_receive_pool.len().max(1)),
-                    Message::BtcTogglePoolFace,
-                );
+                // The door to the pool, in the slot XRP's tag line has. Named,
+                // not counted: a count floored at one read the same for the
+                // master alone and for the master plus one, and the face
+                // behind the door lists them anyway.
+                let link = ("rotational addresses".to_string(), Message::BtcTogglePoolFace);
                 (
                     strip("receive"),
                     None,

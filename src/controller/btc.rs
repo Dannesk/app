@@ -1,4 +1,4 @@
-use bip39::{Language, Mnemonic};
+use dannesk_btc_codec::bip39::Mnemonic;
 use iced::Task;
 use rand::Rng;
 use crate::controller::message::{Message, PlainField, SecureField};
@@ -30,7 +30,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             if state.create_mnemonic.as_str().split_whitespace().count() == 0 {
                 let mut entropy = [0u8; 32];
                 rand::rng().fill_bytes(&mut entropy);
-                let mnemonic = Mnemonic::from_entropy_in(Language::English, &entropy).unwrap();
+                let mnemonic = Mnemonic::from_entropy(&entropy).unwrap();
                 state.create_mnemonic = SecureString::new(mnemonic.to_string());
             }
         }

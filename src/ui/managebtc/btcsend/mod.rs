@@ -86,10 +86,7 @@ pub fn fits(amount: f64, fee: u64) -> bool {
 /// the address is valid, so the fallback only ever prices the empty-form
 /// state.
 fn recipient_spk_len(state: &AppState) -> usize {
-    use std::str::FromStr;
-    bitcoin::Address::from_str(state.btc_send_recipient.trim())
-        .ok()
-        .and_then(|a| a.require_network(bitcoin::Network::Bitcoin).ok())
+    dannesk_btc_codec::address::Address::parse(state.btc_send_recipient.trim())
         .map(|a| a.script_pubkey().len())
         .unwrap_or(22)
 }
@@ -275,7 +272,7 @@ pub fn committed_fee(state: &AppState) -> u64 {
 /// Bech32 is where hand-rolling goes wrong. Witness v0 (`bc1q…`) is checksummed
 /// under BIP-173 bech32, and **taproot (`bc1p…`) under BIP-350 bech32m, a
 /// different constant** — a validator that knows only bech32 silently rejects
-/// every taproot address in existence. `bitcoin::Address` knows both, along
+/// every taproot address in existence. The codec's `Address` knows both, along
 /// with the witness-program length rules and the network prefix, and it is
 /// already what `recipient_spk_len` and `bitcoin_payment` parse with. The gate
 /// was the last place still guessing.
@@ -283,14 +280,10 @@ pub fn committed_fee(state: &AppState) -> u64 {
 /// Witness versions 2–16 parse and are accepted. None are in use yet; refusing
 /// them helps nobody today and would become a false rejection later.
 ///
-/// `require_network` is what rejects testnet/signet/regtest — `from_str` alone
-/// is happy to parse a `tb1…`, and paying one from mainnet coins is a loss.
+/// The codec is mainnet-only: a `tb1…` (testnet, signet, regtest) is refused
+/// rather than parsed, and paying one from mainnet coins is a loss.
 pub fn is_valid(addr: &str) -> bool {
-    use std::str::FromStr;
-    bitcoin::Address::from_str(addr)
-        .ok()
-        .and_then(|a| a.require_network(bitcoin::Network::Bitcoin).ok())
-        .is_some()
+    dannesk_btc_codec::address::Address::parse(addr).is_ok()
 }
 
 /// The shortest each form can be. Only [`recipient_fault`] uses these, and only
