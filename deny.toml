@@ -1,0 +1,51 @@
+[graph]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+
+[advisories]
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained; the crate reaches us only through winit's Wayland title bar" },
+]
+
+[licenses]
+allow = [
+    "GPL-3.0-or-later",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[bans]
+multiple-versions = "allow"
+deny = [
+    { crate = "iced_beacon", reason = "iced's debug tooling never ships" },
+    { crate = "iced_devtools", reason = "iced's debug tooling never ships" },
+    { crate = "iced_tester", reason = "iced's debug tooling never ships" },
+    { crate = "cargo-hot-protocol", reason = "iced's debug tooling never ships" },
+    { crate = "sentry-core", reason = "no telemetry or crash reporting in the wallet" },
+    { crate = "opentelemetry", reason = "no telemetry or crash reporting in the wallet" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+required-git-spec = "rev"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = [
+    "https://github.com/iced-rs/iced",
+    "https://github.com/iced-rs/winit.git",
+    "https://github.com/iced-rs/cryoglyph.git",
+    "https://github.com/hecrj/cosmic-text.git",
+    "https://github.com/Dannesk/dannesk-core",
+    "https://github.com/Dannesk/dannesk-xrpl-codec",
+    "https://github.com/Dannesk/dannesk-btc-codec",
+    "https://github.com/Dannesk/dannesk-noise-protocol",
+]

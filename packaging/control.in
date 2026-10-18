@@ -1,0 +1,12 @@
+Package: dannesk
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Dannesk <support@dannesk.com>
+Installed-Size: @SIZE@
+Depends: libc6 (>= @GLIBC@), libgcc-s1, libxkbcommon0, libwayland-client0 | libx11-6
+Recommends: libvulkan1, mesa-vulkan-drivers
+Section: utils
+Priority: optional
+Homepage: https://dannesk.com
+Description: DeFi wallet for XRPL and Bitcoin
+ Self-custodial desktop wallet for the XRP Ledger and Bitcoin.

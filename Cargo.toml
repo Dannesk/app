@@ -1,0 +1,42 @@
+[package]
+name = "Dannesk"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "DeFi Wallet for XRPL and Bitcoin."
+
+
+[dependencies]
+
+dannesk-core = { git = "https://github.com/Dannesk/dannesk-core", rev = "ddb7232057a61fc5f31f8d1cc74404d3e9b6a883" }  # our rust core
+dannesk-btc-codec = { git = "https://github.com/Dannesk/dannesk-btc-codec", rev = "aabe0e6cf03eea2130c6feaaaa5b8abca6499890" }  # our Bitcoin keys, addresses and transactions, under MIT
+dannesk-xrpl-codec = { git = "https://github.com/Dannesk/dannesk-xrpl-codec", rev = "9145a24b8b7705664ea224410815e1f6540ff63f" }  # our XRPL transaction and address codec, under MIT
+iced = { git = "https://github.com/iced-rs/iced", rev = "a8231fd9ddf3570f95affba2d45a9be092007f71", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }
+chrono = "0.4.45"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.3", features = ["full"] }
+zeroize = { version = "1.9", features = ["derive", "serde"] }
+rand = "0.10.3"
+base64 = "0.23.1"
+dirs = "7.0.0"
+qrcode = { version = "0.14.1", default-features = false }  
+png = "0.18.1"  # decodes the X11 window icon (src/icon.rs)
+sha2 = "0.11.0"
+libc = { version = "0.2.190", optional = true } 
+arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }  
+
+[features]
+startup-trace = ["dep:libc"]
+
+[profile.release]
+strip = true         
+lto = true           
+codegen-units = 1     
+panic = "abort"       
+opt-level = "z"       
+# packaging/build-deb.sh adds RUSTFLAGS="-C force-unwind-tables=no"
+
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1.12"

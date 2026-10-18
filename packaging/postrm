@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    remove|purge)
+        rm -f /etc/apt/sources.list.d/dannesk.sources
+        ;;
+esac
+
+exit 0

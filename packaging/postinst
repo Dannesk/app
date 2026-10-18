@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+KEYRING=/usr/share/keyrings/dannesk-archive-keyring.gpg
+SOURCES=/etc/apt/sources.list.d/dannesk.sources
+
+case "$1" in
+    configure)
+        if [ -f "$KEYRING" ] && [ ! -e "$SOURCES" ]; then
+            cat > "$SOURCES" <<EOF
+Types: deb
+URIs: https://apt.dannesk.com
+Suites: stable
+Components: main
+Architectures: amd64 arm64
+Signed-By: $KEYRING
+EOF
+        fi
+        ;;
+esac
+
+exit 0
