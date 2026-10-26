@@ -619,24 +619,6 @@ mod tests {
     }
 
     
-    #[test]
-    fn sign_with_matches_the_dashboard_wallet_panes() {
-        use crate::ui::components::grid::KEY_PLACEHOLDER;
-        for pane in [
-            include_str!("../managexrp/panes/wallet.rs"),
-            include_str!("../managebtc/panes/wallet.rs"),
-        ] {
-            assert!(
-                pane.contains(&format!("const STANDARD_SIGN: &str = \"{KEY_PLACEHOLDER}\";")),
-                "a wallet pane promises a key the signing box does not ask for",
-            );
-            assert!(
-                pane.contains(&format!("const COLD_SIGN: &str = \"{COLD_SIGN}\";")),
-                "a wallet pane's COLD_SIGN has drifted from import's cold row",
-            );
-        }
-    }
-
   
     #[test]
     fn the_type_cards_fit_the_band_below_the_phrase_box() {

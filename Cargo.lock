@@ -818,7 +818,7 @@ dependencies = [
 [[package]]
 name = "dannesk-btc-codec"
 version = "0.1.0"
-source = "git+https://github.com/Dannesk/dannesk-btc-codec?rev=aabe0e6cf03eea2130c6feaaaa5b8abca6499890#aabe0e6cf03eea2130c6feaaaa5b8abca6499890"
+source = "git+https://github.com/Dannesk/dannesk-btc-codec?rev=f206fd8c19c10fb49b9629f100a7a1888dd1ad2e#f206fd8c19c10fb49b9629f100a7a1888dd1ad2e"
 dependencies = [
  "bs58",
  "hex",
@@ -833,7 +833,7 @@ dependencies = [
 [[package]]
 name = "dannesk-core"
 version = "0.1.0"
-source = "git+https://github.com/Dannesk/dannesk-core?rev=ddb7232057a61fc5f31f8d1cc74404d3e9b6a883#ddb7232057a61fc5f31f8d1cc74404d3e9b6a883"
+source = "git+https://github.com/Dannesk/dannesk-core?rev=7731fe3595f1be9a853840e16e73ad5e69c5de33#7731fe3595f1be9a853840e16e73ad5e69c5de33"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -861,7 +861,7 @@ dependencies = [
 [[package]]
 name = "dannesk-noise-protocol"
 version = "0.1.0"
-source = "git+https://github.com/Dannesk/dannesk-noise-protocol?rev=4605f77aa4455d40d7abc3c576f2f6246b71585d#4605f77aa4455d40d7abc3c576f2f6246b71585d"
+source = "git+https://github.com/Dannesk/dannesk-noise-protocol?rev=99984ac5b5db50834d0c1f2154546c219015bfba#99984ac5b5db50834d0c1f2154546c219015bfba"
 dependencies = [
  "aes-gcm",
  "hmac",
@@ -874,7 +874,7 @@ dependencies = [
 [[package]]
 name = "dannesk-xrpl-codec"
 version = "0.1.0"
-source = "git+https://github.com/Dannesk/dannesk-xrpl-codec?rev=9145a24b8b7705664ea224410815e1f6540ff63f#9145a24b8b7705664ea224410815e1f6540ff63f"
+source = "git+https://github.com/Dannesk/dannesk-xrpl-codec?rev=4aa3822b8355f27cd45f793871a3af946329c60f#4aa3822b8355f27cd45f793871a3af946329c60f"
 dependencies = [
  "bs58",
  "hex",

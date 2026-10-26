@@ -21,9 +21,7 @@ const STANDARD: &str = "On-device";
 const COLD: &str = "Cold storage";
 const STANDARD_SEED: &str = "encrypted on this device";
 const STANDARD_CIPHER: &str = "AES-256 \u{b7} Argon2id";
-const STANDARD_SIGN: &str = "encryption key";
 const COLD_SEED: &str = "not on this device";
-const COLD_SIGN: &str = "24 word mnemonic";
 
 pub fn title(state: &AppState) -> &'static str {
     if state.key_mgmt_restoring { "restore key" } else { "wallet" }
@@ -47,7 +45,6 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         rows = rows.push(drow("cipher", vec![(STANDARD_CIPHER.to_string(), cp.dim)], 3.0, cp, scale));
     }
     rows = rows
-        .push(drow("sign with", vec![((if cold { COLD_SIGN } else { STANDARD_SIGN }).to_string(), cp.dim)], 3.0, cp, scale))
         .push(
             container(
                 row![

@@ -531,11 +531,9 @@ fn tag_row<'a>(
     column![Space::new().height(6.0 * scale), line].width(Length::Fill).boxed()
 }
 
-const FEE_BANDS: [(f64, &str); 3] = [
-    (1.0 + f64::EPSILON, "quiet"),
-    (10.0,               "busy"),
-    (f64::INFINITY,      "congested"),
-];
+const FEE_WORDS: [&str; 3] = ["quiet", "busy", "congested"];
+const QUIET_TENTHS: u64 = 12; // quiet up to 1.2× the base fee
+const CONGESTED_MULTIPLE: u64 = 5;
 
 fn band_color(band: usize, p: &'static CompactPalette) -> Color {
     match band {
@@ -561,9 +559,14 @@ impl NodeFrameView for NodeFrame {
         if base == 0 {
             return None;
         }
-        let ratio = open as f64 / base as f64;
-        let band = FEE_BANDS.iter().position(|(hi, _)| ratio < *hi).unwrap_or(FEE_BANDS.len() - 1);
-        Some((FEE_BANDS[band].1, band_color(band, p)))
+        let band = if open * 10 <= base * QUIET_TENTHS {
+            0
+        } else if open <= base * CONGESTED_MULTIPLE {
+            1
+        } else {
+            2
+        };
+        Some((FEE_WORDS[band], band_color(band, p)))
     }
 
     fn status(&self, p: &'static CompactPalette) -> (String, Color) {
@@ -683,7 +686,7 @@ mod tests {
     #[test]
     fn the_verdict_word_matches_its_band() {
         let p = &theme::COMPACT_OBSIDIAN;
-        for (open, want) in [(10, "quiet"), (11, "busy"), (99, "busy"), (100, "congested"), (5000, "congested")] {
+        for (open, want) in [(10, "quiet"), (12, "quiet"), (13, "busy"), (50, "busy"), (51, "congested"), (5000, "congested")] {
             assert_eq!(at(open, 10).verdict(p).unwrap().0, want, "wrong word at {open}");
         }
     }
