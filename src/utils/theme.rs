@@ -41,6 +41,10 @@ pub struct CompactPalette {
     pub green: Color,
     pub amber: Color,
     pub red: Color,
+    pub mint: Color,
+    pub mint_line: Color,
+    pub mint_ink: Color,
+    pub mint_glyph: Color,
 }
 
 pub const COMPACT_PAPER: CompactPalette = CompactPalette {
@@ -62,6 +66,10 @@ pub const COMPACT_PAPER: CompactPalette = CompactPalette {
     green: cp(0x1F8A4C),
     amber: cp(0x9A6A14),
     red: cp(0xC93A3A),
+    mint: cp(0xEAF8ED),
+    mint_line: cp(0xD3E7D8),
+    mint_ink: cp(0x1C2128),
+    mint_glyph: cp(0x59636E),
 };
 
 pub const COMPACT_CHALK: CompactPalette = CompactPalette {
@@ -83,6 +91,10 @@ pub const COMPACT_CHALK: CompactPalette = CompactPalette {
     green: cp(0x3E8E63),
     amber: cp(0xA97A2F),
     red: cp(0xBF4F4A),
+    mint: cp(0xEAF8ED),
+    mint_line: cp(0xD3E7D8),
+    mint_ink: cp(0x22262C),
+    mint_glyph: cp(0x8A8F98),
 };
 
 pub const COMPACT_OBSIDIAN: CompactPalette = CompactPalette {
@@ -104,6 +116,10 @@ pub const COMPACT_OBSIDIAN: CompactPalette = CompactPalette {
     green: cp(0x5FC08A),
     amber: cp(0xD9A35E),
     red: cp(0xE0696B),
+    mint: cp(0xEAF8ED),
+    mint_line: cp(0xD3E7D8),
+    mint_ink: cp(0x1B1E24),
+    mint_glyph: cp(0x1B1E24),
 };
 
 pub const COMPACT_GRAPHITE: CompactPalette = CompactPalette {
@@ -125,6 +141,10 @@ pub const COMPACT_GRAPHITE: CompactPalette = CompactPalette {
     green: cp(0x5FC08A),
     amber: cp(0xD9A35E),
     red: cp(0xE0696B),
+    mint: cp(0xEAF8ED),
+    mint_line: cp(0xD3E7D8),
+    mint_ink: cp(0x1E2227),
+    mint_glyph: cp(0x1E2227),
 };
 
 impl CompactPalette {
