@@ -7,7 +7,7 @@ pub mod panes;
 
 use iced::Task;
 use std::time::Duration;
-use crate::channel::{CHANNEL, HistoryList};
+use crate::channel::CHANNEL;
 use crate::controller::message::Message;
 use crate::controller::app_state::XrpView;
 use crate::controller::app_state::{AppState, Tab};
@@ -70,55 +70,6 @@ fn wipe_wallet_data() {
     let _ = CHANNEL.btc_utxos_tx.send((None, Vec::new()));
     let _ = CHANNEL.pending_trade_tx.send(None);
     let _ = CHANNEL.activity_tx.send(None);
-}
-
-const HISTORY_PAGE_TIMEOUT: Duration = Duration::from_secs(10);
-
-fn history_load_more(list: HistoryList) -> Task<Message> {
-    use crate::channel::{PageStatus, WSCommand};
-    let Some(ws_tx) = crate::ws::CRYPTO_COMMANDS_TX.get() else { return Task::none() };
-    let (wallet, command, offset, seq) = match list {
-        HistoryList::BtcTransactions => {
-            let wallet = CHANNEL.bitcoin_wallet_rx.borrow().1.clone();
-            let mut seq = None;
-            let mut offset = 0;
-            CHANNEL.btc_transactions_tx.send_if_modified(|s| {
-                if s.page.status == PageStatus::Fetching {
-                    return false;
-                }
-                offset = s.held();
-                seq = Some(s.page.start());
-                true
-            });
-            (wallet, "get_bitcoin_history", offset, seq)
-        }
-        HistoryList::XrpTransactions | HistoryList::XrpOrders => {
-            let wallet = CHANNEL.wallet_balance_rx.borrow().1.clone();
-            let mut seq = None;
-            let mut offset = 0;
-            CHANNEL.transactions_tx.send_if_modified(|s| {
-                if s.page(list).status == PageStatus::Fetching {
-                    return false;
-                }
-                offset = s.held(list);
-                seq = Some(s.page_mut(list).start());
-                true
-            });
-            (wallet, "get_history", offset, seq)
-        }
-    };
-    let (Some(wallet), Some(seq)) = (wallet, seq) else { return Task::none() };
-    let _ = ws_tx.try_send(WSCommand {
-        command: command.to_string(),
-        wallet: Some(wallet),
-        history_kind: Some(list.kind()),
-        history_offset: Some(offset),
-        ..Default::default()
-    });
-    Task::perform(
-        async { tokio::time::sleep(HISTORY_PAGE_TIMEOUT).await },
-        move |_| Message::HistoryTimedOut(list, seq),
-    )
 }
 
 fn gate_fail(state: &mut AppState, message: String) {
@@ -370,11 +321,7 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         Message::ActivityTick(now) => {
             state.activity_tick = now;
         }
-        Message::HistoryLoadMore(list) => return history_load_more(list),
-        Message::HistoryTimedOut(list, seq) => match list {
-            HistoryList::BtcTransactions => CHANNEL.btc_transactions_tx.send_modify(|s| s.page.fail(seq)),
-            _ => CHANNEL.transactions_tx.send_modify(|s| s.page_mut(list).fail(seq)),
-        },
+        Message::HistoryLoadMore(list) => return Task::future(crate::bridge::history_logic::load_more(list)).discard(),
         Message::SystemFontsIndexed => {}
         Message::FetchTick => {}
         Message::FirstFrame => {

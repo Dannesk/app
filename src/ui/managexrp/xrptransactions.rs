@@ -271,7 +271,7 @@ pub(crate) fn detail_lines(tx: &Tx, p: &'static CompactPalette) -> Vec<Line> {
     rows.push((
         "fee",
         if tx.kind == Kind::Payment && tx.incoming {
-            vec![Seg::word("incoming — the sender paid it", p.muted)]
+            vec![Seg::word("paid by the sender", p.muted)]
         } else {
             match tx.fee_drops {
                 Some(d) => vec![
@@ -435,6 +435,7 @@ mod tests {
         TransactionData {
             tx_id: "A3F9000000000000000000000000000000000000000000000000000000C21D".to_string(),
             status,
+            result: None,
             execution_price: "0".to_string(),
             order_type: kind.to_string(),
             timestamp: "2026-07-30T09:32:02Z".to_string(),
@@ -554,7 +555,7 @@ mod tests {
     fn an_incoming_payment_does_not_bill_the_fee() {
         let inc = Tx::from(&tx("payment", TransactionStatus::Success, THEM, OWN, "1", "XRP"), OWN);
         let d = flat(&detail_lines(&inc, P));
-        assert!(d.contains("incoming — the sender paid it"), "{d}");
+        assert!(d.contains("paid by the sender"), "{d}");
         assert!(d.contains("from") && d.contains("to"), "{d}");
         assert!(!d.contains("wallet"), "{d}");
 

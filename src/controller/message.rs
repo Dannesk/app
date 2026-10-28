@@ -192,7 +192,6 @@ pub enum Message {
     CopyTxHash(String),
     CopyTxHashFeedback,
     HistoryLoadMore(crate::channel::HistoryList),
-    HistoryTimedOut(crate::channel::HistoryList, u32),
     CreateSubmitClicked,
     CreateCompleted,
     ThemeSet(crate::controller::app_state::Theme),
