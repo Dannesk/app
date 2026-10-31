@@ -91,8 +91,6 @@ const PHRASE_BOX_H: f32 = 154.0;
 const GRID_PLACEHOLDER: &str = "\u{b7}\u{b7}\u{b7}\u{b7}\u{b7}";
 
 
-const NEVER_SENT: &str = "generated on this device \u{2014} never sent anywhere";
-const NOT_YET: &str = "nothing generated yet";
 
 
 const TYPE_CARD_H: f32 = 52.0;
@@ -411,15 +409,6 @@ fn create_pane<'a>(
             ..Default::default()
         });
 
-    let provenance: Element<'a, Message> = if generated {
-        text(format!("\u{2713} {NEVER_SENT}"))
-            .size(compact::ROW * scale)
-            .color(cp.green)
-            .boxed()
-    } else {
-        text(NOT_YET).size(compact::ROW * scale).color(cp.muted).boxed()
-    };
-
     let action: Element<'a, Message> = if !generated {
         compact::upper_link(
             "Generate",
@@ -438,7 +427,7 @@ fn create_pane<'a>(
         )
     };
 
-    let status = row![provenance, Space::new().width(Length::Fill), action]
+    let status = row![Space::new().width(Length::Fill), action]
         .align_y(Alignment::Center);
 
     column![

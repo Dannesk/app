@@ -304,14 +304,10 @@ pub(crate) fn detail_lines(tx: &Tx, c: &Ctx) -> Vec<Line> {
 
 
 pub(crate) fn tail(tx: &Tx, p: &'static CompactPalette) -> Option<Tail> {
-    if tx.confirmed || tx.dropped || tx.replaced {
+    if tx.confirmed || tx.dropped || tx.replaced || tx.incoming {
         return None;
     }
-    if tx.incoming {
-        Some(Tail::Prose { s: "incoming — the sender sets the fee", color: p.muted })
-    } else {
-        Some(Tail::Link { label: "modify fee", color: p.dim, msg: Message::BtcBumpClicked(tx.txid.clone()) })
-    }
+    Some(Tail::Link { label: "modify fee", color: p.dim, msg: Message::BtcBumpClicked(tx.txid.clone()) })
 }
 
 
@@ -646,7 +642,7 @@ mod tests {
         let out = Tx::from(&tx("c", "0.001", "300", 100, &[OWN], &[THEM], None), &ours());
         assert!(matches!(tail(&out, P), Some(Tail::Link { label: "modify fee", msg: Message::BtcBumpClicked(_), .. })));
         let inc = Tx::from(&tx("d", "0.001", "0", 100, &[THEM], &[], None), &ours());
-        assert!(matches!(tail(&inc, P), Some(Tail::Prose { .. })));
+        assert!(tail(&inc, P).is_none());
         let won = Tx::from(&tx("a", "0.021", "210", 100, &[OWN], &[THEM], Some((1, 2))), &ours());
         assert!(tail(&won, P).is_none());
     }

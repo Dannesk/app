@@ -5,7 +5,7 @@ use crate::controller::message::{Message, PlainField, SecureField};
 use crate::controller::app_state::{
     AppState, BtcFeeTier, BtcView, EnableInputMode, ImportMode, SendAnchor,
 };
-use crate::ui::managebtc::btcsend::{available_btc, fits, floor_sats, resolved_fee};
+use crate::ui::managebtc::btcsend::{available_btc, fits, floor_sats, resolved_fee, PICK_FEE};
 use crate::secure::SecureString;
 use crate::channel::CHANNEL;
 use crate::bridge::btc_import_logic::BTCImportLogic;
@@ -192,10 +192,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             forget_wallet(state);
         }
         Message::BtcCopyAddress => {
-            let addr = state
-                .btc_receive_address
-                .clone()
-                .or_else(|| CHANNEL.bitcoin_wallet_rx.borrow().1.clone());
+            let addr = CHANNEL.bitcoin_wallet_rx.borrow().1.clone();
             if let Some(address) = addr {
                 state.btc_copy_feedback = true;
                 return Task::batch([
@@ -210,49 +207,9 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
         Message::BtcCopyAddressFeedback => {
             state.btc_copy_feedback = false;
         }
-        Message::BtcSelectReceiveAddress(address) => {
-            state.btc_receive_address = Some(address);
-            state.btc_drop_confirm = false;
-        }
-        Message::BtcDropAsked => {
-            if state.btc_receive_pool.len() > 1 {
-                state.btc_drop_confirm = true;
-            }
-        }
-        Message::BtcDropDismissed => {
-            state.btc_drop_confirm = false;
-        }
         Message::BtcBalanceUnitToggled => {
-            state.btc_balance_sats = !state.btc_balance_sats;
-            let sats = state.btc_balance_sats;
-            let _ = crate::bridge::json_storage::update_json::<serde_json::Value>("settings.json", |json| {
-                if let Some(obj) = json.as_object_mut() {
-                    obj.insert("btc_sats".to_string(), serde_json::json!(sats));
-                }
-            });
-        }
-        Message::BtcGenerateReceiveAddress => {
-            match crate::bridge::btc_receive_rotation::generate_receive_address() {
-                Ok(address) => {
-                    state.btc_receive_pool = crate::bridge::btc_receive_rotation::receive_pool();
-                    state.btc_receive_address = Some(address);
-                    state.btc_pool_refusal = None;
-                    state.btc_drop_confirm = false;
-                }
-                Err(why) => state.btc_pool_refusal = Some(why),
-            }
-        }
-        Message::BtcRemoveReceiveAddress(address) => {
-            let at = state.btc_receive_pool.iter().position(|p| p == &address);
-            crate::bridge::btc_receive_rotation::remove_receive_address(&address);
-            state.btc_receive_pool = crate::bridge::btc_receive_rotation::receive_pool();
-            if state.btc_receive_address.as_deref() == Some(address.as_str()) {
-                let i = at.map_or(0, |i| i.saturating_sub(1));
-                state.btc_receive_address =
-                    state.btc_receive_pool.get(i).or_else(|| state.btc_receive_pool.last()).cloned();
-            }
-            state.btc_pool_refusal = None;
-            state.btc_drop_confirm = false;
+            let sats = !state.btc_balance_sats;
+            set_balance_sats(state, sats);
         }
         Message::BtcCopyMasterAddress => {
             let addr = CHANNEL.bitcoin_wallet_rx.borrow().1.clone();
@@ -271,7 +228,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             state.btc_master_copy_feedback = false;
         }
         Message::BtcSendFeeTierSelected(tier) => {
-            state.btc_send_fee_tier = tier;
+            state.btc_send_fee_tier = Some(tier);
             state.btc_send_error = None;
         }
         Message::BtcSendContinueClicked => {
@@ -305,7 +262,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                         }
                     };
                     let Some(fee) = resolved_fee(state) else {
-                        state.btc_send_error = Some("pick a fee, or set one yourself".to_string());
+                        state.btc_send_error = Some(PICK_FEE.to_string());
                         return Task::none();
                     };
                     let floor = floor_sats(state);
@@ -498,41 +455,16 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
     Task::none()
 }
 
-pub fn refresh_receive_address(state: &mut AppState, force: bool) {
-    let fp = utxo_fingerprint();
-    let moved = fp != state.btc_utxo_fingerprint;
-    if !force && !moved {
-        return;
-    }
-    state.btc_utxo_fingerprint = fp;
-    state.btc_receive_pool = crate::bridge::btc_receive_rotation::receive_pool();
-    let held = state
-        .btc_receive_address
-        .as_ref()
-        .filter(|a| state.btc_receive_pool.iter().any(|p| p == *a))
-        .cloned();
-    state.btc_receive_address = held.or_else(|| state.btc_receive_pool.last().cloned());
-    if moved {
-        crate::bridge::btc_receive_rotation::send_live_list();
-    }
-}
-
-fn utxo_fingerprint() -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    let set = CHANNEL.btc_utxos_rx.borrow();
-    set.0.hash(&mut h);
-    for u in &set.1 {
-        u.txid.hash(&mut h);
-        u.vout.hash(&mut h);
-        u.height.hash(&mut h);
-    }
-    h.finish()
+pub(crate) fn set_balance_sats(state: &mut AppState, sats: bool) {
+    state.btc_balance_sats = sats;
+    let _ = crate::bridge::json_storage::update_json::<serde_json::Value>("settings.json", |json| {
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("btc_sats".to_string(), serde_json::json!(sats));
+        }
+    });
 }
 
 pub(crate) fn clear_btc_receive_line(state: &mut AppState) {
-    state.btc_drop_confirm = false;
-    state.btc_pool_refusal = None;
     state.btc_copy_feedback = false;
 }
 
@@ -596,7 +528,7 @@ pub fn after_plain_edit(state: &mut AppState, field: PlainField) {
             state.btc_send_anchor = SendAnchor::Fiat;
             sync_amount_from_fiat(state);
         }
-        PlainField::BtcSendFee => state.btc_send_fee_tier = BtcFeeTier::Custom,
+        PlainField::BtcSendFee => state.btc_send_fee_tier = Some(BtcFeeTier::Custom),
         PlainField::BtcBumpFee => state.btc_bump_fee_tier = BtcFeeTier::Custom,
         PlainField::BtcSendRecipient => {}
         _ => {}
@@ -648,7 +580,7 @@ pub(crate) fn clear_btc_send_form(state: &mut AppState) {
     state.btc_send_fiat_amount = String::new();
     state.btc_send_anchor = SendAnchor::Amount;
     state.btc_send_fee = String::new();
-    state.btc_send_fee_tier = BtcFeeTier::default();
+    state.btc_send_fee_tier = None;
     state.btc_send_error = None;
     state.btc_send_passphrase.clear();
     state.btc_send_passphrase_reveal = false;
@@ -661,8 +593,6 @@ pub(crate) fn clear_btc_send_form(state: &mut AppState) {
 pub(crate) fn forget_wallet(state: &mut AppState) {
     state.btc_view = BtcView::Menu;
     state.btc_key_purge_requested = false;
-    state.btc_receive_address = None;
-    state.btc_receive_pool.clear();
     clear_btc_receive_line(state);
     clear_btc_send_form(state);
     clear_btc_bump_form(state);

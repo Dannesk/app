@@ -39,7 +39,7 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
     }
 
     
-    let ours: Vec<String> = crate::wallet::btc_address_records().into_iter().map(|r| r.address).collect();
+    let ours: Vec<String> = crate::wallet::btc_address().into_iter().collect();
     let (pending, settled) = tx::split(&ours);
     if pending.is_empty() && settled.is_empty() {
         return empty("No transactions to show", cp, scale);

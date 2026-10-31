@@ -819,8 +819,9 @@ pub fn handle(state: &mut AppState, chain: Chain, msg: GridMsg) -> Task<Message>
                 for kind in form_kinds(chain) {
                     clear_pane_form(state, chain, *kind);
                 }
-                if chain == Chain::Xrp {
-                    crate::controller::xrp::clear_trade_pair(state);
+                match chain {
+                    Chain::Xrp => crate::controller::xrp::clear_trade_pair(state),
+                    Chain::Btc => crate::controller::btc::set_balance_sats(state, false),
                 }
             }
         }
@@ -922,6 +923,17 @@ mod tests {
     }
 
     #[test]
+    fn reset_returns_the_btc_balance_to_btc() {
+        let mut state = AppState::default();
+        state.selected_tab = Tab::Btc;
+        state.btc_view = BtcView::Menu;
+        state.activity_log = None;
+        state.btc_balance_sats = true;
+        let _ = handle(&mut state, Chain::Btc, GridMsg::Reset);
+        assert!(!state.btc_balance_sats);
+    }
+
+    #[test]
     fn reset_sweeps_exactly_the_kinds_close_can_clear() {
         for chain in [Chain::Xrp, Chain::Btc] {
             for kind in form_kinds(chain) {
@@ -937,17 +949,9 @@ mod tests {
                     continue;
                 }
                 if (chain, *kind) == (Chain::Btc, PaneKind::Receive) {
-                    state.btc_receive_pool = vec!["a".to_string(), "b".to_string()];
-                    state.btc_receive_address = Some("b".to_string());
-                    state.btc_drop_confirm = true;
-                    state.btc_pool_refusal = Some(crate::bridge::btc_receive_rotation::PoolRefusal::Full);
                     state.btc_copy_feedback = true;
                     clear_pane_form(&mut state, chain, *kind);
-                    assert!(!state.btc_drop_confirm);
-                    assert!(state.btc_pool_refusal.is_none());
                     assert!(!state.btc_copy_feedback);
-                    assert_eq!(state.btc_receive_pool.len(), 2);
-                    assert_eq!(state.btc_receive_address.as_deref(), Some("b"));
                     continue;
                 }
                 let field = match (chain, kind) {

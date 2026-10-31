@@ -28,22 +28,21 @@ fn quote(state: &AppState) -> Option<BtcRbfInfo> {
 
 struct Pricing {
     info: BtcRbfInfo,
-    ours: Vec<String>,
+    own: String,
     spare: Option<Utxo>,
 }
 
 fn pricing(state: &AppState) -> Option<Pricing> {
-    let (_, wallet, _, _) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
-    let ours: Vec<String> = crate::wallet::btc_address_records().into_iter().map(|r| r.address).collect();
+    let own = CHANNEL.bitcoin_wallet_rx.borrow().1.clone()?;
     let info = quote(state)?;
-    let spare = wallet.as_deref().and_then(|w| bitcoin_payment::spare_coin(w, &info));
-    Some(Pricing { info, ours, spare })
+    let spare = bitcoin_payment::spare_coin(&own, &info);
+    Some(Pricing { info, own, spare })
 }
 
 
 fn tier_plans(p: &Pricing) -> Option<[Result<ReplacementPlan, String>; 4]> {
     let tiers = CHANNEL.btc_node_rx.borrow().tiers?;
-    Some(tiers.map(|rate| bitcoin_payment::quote_replacement(&p.info, &p.ours, p.spare.as_ref(), rate)))
+    Some(tiers.map(|rate| bitcoin_payment::quote_replacement(&p.info, &p.own, p.spare.as_ref(), rate)))
 }
 
 fn effective_tier(state: &AppState, plans: &Option<[Result<ReplacementPlan, String>; 4]>) -> BtcFeeTier {
@@ -66,7 +65,7 @@ fn resolved_plan(
                 .trim()
                 .parse()
                 .map_err(|_| String::new())?;
-            bitcoin_payment::plan_replacement(&p.info, &p.ours, p.spare.as_ref(), fee)
+            bitcoin_payment::plan_replacement(&p.info, &p.own, p.spare.as_ref(), fee)
         }
         named => {
             let i = named.index().ok_or_else(String::new)?;

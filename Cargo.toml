@@ -8,7 +8,7 @@ description = "DeFi Wallet for XRPL and Bitcoin."
 
 [dependencies]
 
-dannesk-core = { git = "https://github.com/Dannesk/dannesk-core", rev = "a4ea28689a13f52a365e445178aa11549455b41a" }  # our rust core
+dannesk-core = { git = "https://github.com/Dannesk/dannesk-core", rev = "d448e29bf56857848f4dade46eac5e65dbdf776a" }  # our rust core
 dannesk-btc-codec = { git = "https://github.com/Dannesk/dannesk-btc-codec", rev = "f206fd8c19c10fb49b9629f100a7a1888dd1ad2e" }  # our Bitcoin keys, addresses and transactions, under MIT
 dannesk-xrpl-codec = { git = "https://github.com/Dannesk/dannesk-xrpl-codec", rev = "4aa3822b8355f27cd45f793871a3af946329c60f" }  # our XRPL transaction and address codec, under MIT
 iced = { git = "https://github.com/iced-rs/iced", rev = "a8231fd9ddf3570f95affba2d45a9be092007f71", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }

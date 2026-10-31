@@ -111,13 +111,8 @@ fn pane_content<'a>(
             PaneKind::Send => (strip("send"), None, send_pane(state, cp, scale)),
             PaneKind::Wallet => (strip(panes_ui::wallet::title(state)), None, panes_ui::wallet::view(state, cp, scale)),
             PaneKind::Receive => {
-             
-                let address = state
-                    .btc_receive_address
-                    .clone()
-                    .or_else(|| CHANNEL.bitcoin_wallet_rx.borrow().1.clone())
-                    .unwrap_or_else(|| "No Address".to_string());
-                let drop = (state.btc_receive_pool.len() > 1).then_some(Message::BtcDropAsked);
+                let address = CHANNEL.bitcoin_wallet_rx.borrow().1.clone().unwrap_or_else(|| "No Address".to_string());
+                let line_address = address.clone();
                 (
                     strip("receive"),
                     None,
@@ -127,8 +122,8 @@ fn pane_content<'a>(
                         ADDR_TAIL,
                         state.btc_copy_feedback,
                         Message::BtcCopyAddress,
-                        drop,
-                        move || receive_line(state, cp, scale),
+                        None,
+                        move || receive_line(&line_address, cp, scale),
                         cp,
                         scale,
                     ),
@@ -479,7 +474,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
 
         let mut chips: Row<Element<'_, Message>> = row![].spacing(CHIP_GAP * scale).width(Length::Fill);
         for t in BtcFeeTier::ALL {
-            chips = chips.push(chip(t.label(), t == tier, Message::BtcSendFeeTierSelected(t), cp, scale));
+            chips = chips.push(chip(t.label(), Some(t) == tier, Message::BtcSendFeeTierSelected(t), cp, scale));
         }
         let outlook: Option<&'static str> = match fee {
             Some(_) if below_floor => None,
@@ -487,7 +482,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
             Some(f) => Some(btcsend::fee_outlook(state, f)),
             None => None,
         };
-        let fee_line: Element<'a, Message> = if tier == BtcFeeTier::Custom {
+        let fee_line: Element<'a, Message> = if tier == Some(BtcFeeTier::Custom) {
          
             let note: Element<'a, Message> = match (fee, below_floor) {
                 (Some(f), false) => {
@@ -541,7 +536,10 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
                     }
                     compact::mono_runs(runs, HINT * scale)
                 }
-                None => compact::mono_runs(vec![(btcsend::NO_TIERS.to_string(), cp.muted)], HINT * scale),
+                None => {
+                    let note = if btcsend::tier_quotes(state).is_some() { btcsend::PICK_FEE } else { btcsend::NO_TIERS };
+                    compact::mono_runs(vec![(note.to_string(), cp.muted)], HINT * scale)
+                }
             }
         };
         let fee_sec = column![
@@ -576,7 +574,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
                 row![
                     text("network fee").size(ROW_KEY * scale).color(cp.dim),
                     Space::new().width(5.0 * scale),
-                    text(tier.label()).font(MONO).size(HINT * scale).color(cp.faint),
+                    text(tier.map_or("", BtcFeeTier::label)).font(MONO).size(HINT * scale).color(cp.faint),
                     Space::new().width(Length::Fill),
                     compact::mono_runs(
                         match display_fee {
@@ -693,104 +691,15 @@ fn chip<'a>(word: &str, selected: bool, msg: Message, cp: &'static CompactPalett
 
 const ADDR_TAIL: usize = 5;
 
-const SLOT_W: f32 = 18.0; 
-const SLOT_PAD_V: f32 = 3.0; 
-const SLOT_RADIUS: f32 = 5.5; 
-const SEP_H: f32 = 11.0; 
-const SEP_PAD_H: f32 = 4.5; 
-const LINE_GAP: f32 = 4.5; 
-
-
-fn receive_line<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    use crate::bridge::btc_receive_rotation::{PoolRefusal, MAX_RECEIVE_POOL};
-    let pool = &state.btc_receive_pool;
-    let gap = LINE_GAP * scale;
-
-    if state.btc_drop_confirm {
-        if let Some(selected) = state
-            .btc_receive_address
-            .clone()
-            .filter(|a| pool.iter().any(|p| p == a))
-        {
-            
-            return row![
-                text("Drop this address?").size(10.0 * scale).color(cp.dim),
-                grid::line_ok(Some(Message::BtcRemoveReceiveAddress(selected)), cp, scale),
-                grid::line_no(Message::BtcDropDismissed, cp, scale),
-            ]
-            .spacing(gap)
-            .align_y(Alignment::Center)
-            .boxed();
-        }
-    }
-
-    let note: Option<&'static str> = state.btc_pool_refusal.as_ref().map(|why| match why {
-        PoolRefusal::Full => "drop one to make room",
-        PoolRefusal::OutOfGap => "one of these has to be used first",
-        PoolRefusal::Unavailable => "unavailable",
-    });
-
-    let mut line = row![].spacing(gap).align_y(Alignment::Center);
-    if pool.len() <= 1 {
-        line = line.push(grid::pane_link("new address", Message::BtcGenerateReceiveAddress, cp, scale));
-    } else {
-        for (i, address) in pool.iter().enumerate() {
-            let selected = state.btc_receive_address.as_deref() == Some(address.as_str());
-            line = line.push(slot(i + 1, selected, Message::BtcSelectReceiveAddress(address.clone()), cp, scale));
-        }
-        line = line.push(
-            container(compact::vrule(cp.rule, SEP_H * scale))
-                .padding(Padding::new(0.0).left(SEP_PAD_H * scale).right(SEP_PAD_H * scale))
-                .boxed(),
-        );
-        if pool.len() < MAX_RECEIVE_POOL {
-            line = line.push(grid::pane_link("new", Message::BtcGenerateReceiveAddress, cp, scale));
-        } else {
-            line = line.push(
-                text(format!("{MAX_RECEIVE_POOL} OF {MAX_RECEIVE_POOL}"))
-                    .font(MONO)
-                    .size(STRIP * scale)
-                    .color(cp.faint)
-                    .boxed(),
-            );
-        }
-    }
-    if let Some(note) = note {
-        line = line.push(text(note).font(MONO).size(HINT * scale).color(cp.muted).boxed());
-    }
-    line.boxed()
-}
-
-fn slot<'a>(n: usize, selected: bool, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    button(
-        text(n.to_string())
+fn receive_line<'a>(address: &str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    match crate::btc_script_type::BtcScriptType::of_address(address) {
+        Some(kind) => text(format!("{} \u{b7} {}", kind.name(), kind.bip()))
             .font(MONO)
-            .size(STRIP * scale)
-            .width(Length::Fill)
-            .align_x(Alignment::Center)
-            .color(if selected { cp.text } else { cp.muted }),
-    )
-    .on_press(msg)
-    .width(Length::Fixed(SLOT_W * scale))
-    .padding(Padding::new(0.0).top(SLOT_PAD_V * scale).bottom(SLOT_PAD_V * scale))
-    .style(move |_, status| {
-        let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-        button::Style {
-            background: Some(if selected {
-                cp.pill
-            } else if hot {
-                cp.hover
-            } else {
-                Color::TRANSPARENT
-            }
-            .into()),
-            border: Border { color: Color::TRANSPARENT, width: 0.0, radius: (SLOT_RADIUS * scale).into() },
-            text_color: if selected || hot { cp.text } else { cp.muted },
-            shadow: Shadow::default(),
-            snap: false,
-        }
-    })
-    .boxed()
+            .size(HINT * scale)
+            .color(cp.muted)
+            .boxed(),
+        None => Space::new().boxed(),
+    }
 }
 
 

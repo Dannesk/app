@@ -335,13 +335,6 @@ pub struct AppState {
     pub btc_master_copy_feedback: bool,
     pub xrp_wallet_copy_feedback: bool,
 
-    pub btc_receive_address: Option<String>,
-  
-    pub btc_receive_pool: Vec<String>,
-   
-    pub btc_drop_confirm: bool,
-  
-    pub btc_pool_refusal: Option<crate::bridge::btc_receive_rotation::PoolRefusal>,
   
     pub settings_open: bool,
     pub prefs_erase_confirm: bool,
@@ -352,7 +345,7 @@ pub struct AppState {
     pub btc_send_anchor: SendAnchor,
   
     pub btc_send_fee: String,
-    pub btc_send_fee_tier: BtcFeeTier,
+    pub btc_send_fee_tier: Option<BtcFeeTier>,
     pub btc_send_error: Option<String>,
     pub btc_send_passphrase: SecureString,
     pub btc_send_passphrase_reveal: bool,
@@ -437,7 +430,6 @@ pub struct AppState {
     pub rate_history_long: HashMap<String, VecDeque<(u64, f32)>>,
     pub xrp_grid: crate::controller::panes::Grid,
     pub btc_grid: crate::controller::panes::Grid,
-    pub btc_utxo_fingerprint: u64,
     pub ledger_tape: VecDeque<crate::controller::panes::LedgerBar>,
 }
 
@@ -774,10 +766,6 @@ impl Default for AppState {
             btc_copy_feedback: false,
             btc_master_copy_feedback: false,
             xrp_wallet_copy_feedback: false,
-            btc_receive_address: None,
-            btc_receive_pool: Vec::new(),
-            btc_drop_confirm: false,
-            btc_pool_refusal: None,
             settings_open: false,
             prefs_erase_confirm: false,
             btc_send_step: 0,
@@ -786,7 +774,7 @@ impl Default for AppState {
             btc_send_fiat_amount: String::new(),
             btc_send_anchor: SendAnchor::Amount,
             btc_send_fee: String::new(),
-            btc_send_fee_tier: BtcFeeTier::default(),
+            btc_send_fee_tier: None,
             btc_send_error: None,
             btc_send_passphrase: SecureString::input(),
             btc_send_passphrase_reveal: false,
@@ -853,7 +841,6 @@ impl Default for AppState {
             xrp_grid: crate::controller::panes::Grid::load(crate::controller::panes::Chain::Xrp, crate::controller::panes::XRP_KEY).unwrap_or_default(),
             btc_grid: crate::controller::panes::Grid::load(crate::controller::panes::Chain::Btc, crate::controller::panes::BTC_KEY)
                 .unwrap_or_else(|| crate::controller::panes::Grid::new(crate::controller::panes::Chain::Btc)),
-            btc_utxo_fingerprint: 0,
             ledger_tape: VecDeque::new(),
             pin_wallet_identities: load_pin_wallet_identities(),
             gate_unlocked: !gate_enabled,
@@ -890,14 +877,7 @@ fn load_pin_wallet_identities() -> Vec<(String, String)> {
         }
     }
     if let Ok(json) = json_storage::read_json::<Value>("btc.json") {
-        let addr = json
-            .get("addresses")
-            .and_then(|a| a.as_array())
-            .and_then(|a| a.first())
-            .and_then(|r| r.get("address"))
-            .and_then(|v| v.as_str())
-            .or_else(|| json.get("address").and_then(|v| v.as_str()));
-        if let Some(addr) = addr.filter(|s| !s.is_empty()) {
+        if let Some(addr) = json.get("address").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
             ids.push(("BTC".to_string(), truncate(addr)));
         }
     }

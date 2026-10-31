@@ -10,7 +10,7 @@ use std::time::Duration;
 use crate::channel::CHANNEL;
 use crate::controller::message::Message;
 use crate::controller::app_state::XrpView;
-use crate::controller::app_state::{AppState, Tab};
+use crate::controller::app_state::AppState;
 
 const SHORT_HISTORY_CAP: usize = 120;           
 const SHORT_BUCKET_MS: u64 = 30 * 1000;           
@@ -246,9 +246,6 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             crate::controller::btc::resync_send_twin(state);
             state.xrp_grid.flush_if_settled(panes::XRP_KEY);
             state.btc_grid.flush_if_settled(panes::BTC_KEY);
-            if state.selected_tab == Tab::Btc && state.btc_grid.has(panes::PaneKind::Receive) {
-                crate::controller::btc::refresh_receive_address(state, false);
-            }
             if state.xrp_view == XrpView::Menu {
                 crate::controller::xrp::trade_grid_init(state);
                 if state.trade_step == 1 {
@@ -302,9 +299,6 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         Message::TabChanged(tab) => {
             state.selected_tab = tab;
             state.settings_open = false;
-            if state.selected_tab == Tab::Btc {
-                crate::controller::btc::refresh_receive_address(state, true);
-            }
             crate::controller::xrp::sync_trade_books(state);
         }
         Message::OpenSettings => {
@@ -401,11 +395,6 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::BtcRemoveWallet
         | Message::BtcWalletRemoved
         | Message::BtcCopyAddress
-        | Message::BtcGenerateReceiveAddress
-        | Message::BtcRemoveReceiveAddress(_)
-        | Message::BtcSelectReceiveAddress(_)
-        | Message::BtcDropAsked
-        | Message::BtcDropDismissed
         | Message::BtcBalanceUnitToggled
         | Message::BtcCopyMasterAddress
         | Message::BtcCopyMasterAddressFeedback

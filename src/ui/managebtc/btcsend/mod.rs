@@ -124,26 +124,17 @@ pub fn tiers_all_at_floor(state: &AppState) -> bool {
 }
 
 
-pub fn effective_tier(state: &AppState) -> BtcFeeTier {
-    let named = match state.btc_send_fee_tier {
-        BtcFeeTier::Custom => return BtcFeeTier::Custom,
-        named => named,
-    };
-    let Some(q) = tier_quotes(state) else { return BtcFeeTier::Custom };
-    let Some(i) = named.index() else { return BtcFeeTier::Custom };
-
-   
-    let price = q[i];
-    BtcFeeTier::ALL
-        .iter()
-        .find(|t| t.index().is_some_and(|j| q[j] == price))
-        .copied()
-        .unwrap_or(named)
+pub fn effective_tier(state: &AppState) -> Option<BtcFeeTier> {
+    match state.btc_send_fee_tier? {
+        BtcFeeTier::Custom => Some(BtcFeeTier::Custom),
+        named if tier_quotes(state).is_some() => Some(named),
+        _ => Some(BtcFeeTier::Custom),
+    }
 }
 
 
 pub fn resolved_fee(state: &AppState) -> Option<u64> {
-    match effective_tier(state) {
+    match effective_tier(state)? {
         BtcFeeTier::Custom => state.btc_send_fee.trim().parse::<u64>().ok(),
         named => {
             let i = named.index()?;
@@ -209,6 +200,7 @@ pub(crate) const PREFIX_ERROR: &str = "a bitcoin address starts with 1, 3 or bc1
 
 pub(crate) const CHECKSUM_ERROR: &str = "that address fails its checksum";
 pub(crate) const NO_TIERS: &str = "no fee rates from the node yet \u{2014} set one yourself";
+pub(crate) const PICK_FEE: &str = "pick a fee, or set one yourself";
 
 
 const UNPRICED: &str = "no estimate yet";
@@ -487,6 +479,33 @@ mod tests {
     }
 
   
+    #[test]
+    fn a_send_cannot_continue_until_a_fee_is_chosen() {
+        let mut state = AppState::default();
+        assert_eq!(effective_tier(&state), None);
+        assert_eq!(resolved_fee(&state), None);
+        state.btc_send_step = 1;
+        state.btc_send_recipient = REAL[0].to_string();
+        state.btc_send_amount = "0.001".to_string();
+        let _ = crate::controller::btc::handle(&mut state, crate::controller::message::Message::BtcSendContinueClicked);
+        assert_eq!(state.btc_send_step, 1);
+        assert_eq!(state.btc_send_error.as_deref(), Some(PICK_FEE));
+    }
+
+    #[test]
+    fn a_click_stays_on_its_tier_when_two_tiers_cost_the_same() {
+        CHANNEL.btc_node_tx.send_modify(|n| n.tiers = Some([0.1, 0.12, 0.12, 0.121]));
+        let mut state = AppState::default();
+        for t in BtcFeeTier::ALL {
+            state.btc_send_fee_tier = Some(t);
+            assert_eq!(effective_tier(&state), Some(t));
+        }
+        state.btc_send_fee_tier = Some(BtcFeeTier::Low);
+        let low = resolved_fee(&state);
+        state.btc_send_fee_tier = Some(BtcFeeTier::Med);
+        assert_eq!(resolved_fee(&state), low);
+    }
+
     #[test]
     fn collapsed_tiers_resolve_upward() {
         let q = [14u64, 14, 71, 71];
