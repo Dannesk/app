@@ -52,19 +52,8 @@ pub enum SetupFlow {
 }
 
 
-pub const WORD25_MIN: usize = 6;
-
-
 pub fn can_continue_word25(has_word: bool, bip39: &SecureString) -> bool {
-    !has_word || bip39.trimmed_char_len() >= WORD25_MIN
-}
-
-
-fn word25_placeholder(flow: SetupFlow) -> &'static str {
-    match flow {
-        SetupFlow::Import => super::grid::BIP39_PLACEHOLDER,
-        SetupFlow::Create => "optional 25th word - 6 minimum characters",
-    }
+    !has_word || bip39.trimmed_char_len() > 0
 }
 
 
@@ -467,7 +456,7 @@ fn keys_pane<'a>(
                 prm.w25_field,
                 prm.w25,
                 prm.w25_reveal,
-                word25_placeholder(prm.flow),
+                super::grid::BIP39_PLACEHOLDER,
                 field_w,
                 Some(prm.on_submit.clone()),
                 cp,
@@ -659,7 +648,7 @@ mod tests {
         );
         let swapped = SecureString::new(valid.as_str().replace("art", "zoo"));
         let empty = SecureString::new(String::new());
-        let word = SecureString::new("w".repeat(WORD25_MIN));
+        let word = SecureString::new("w".to_string());
         let key = SecureString::new("k".repeat(KEY_MIN));
         let short = SecureString::new("k".repeat(KEY_MIN - 1));
 
@@ -681,11 +670,10 @@ mod tests {
         assert!(can_continue_word25(false, &word("")));
         assert!(can_continue_word25(false, &word("x")));
         assert!(!can_continue_word25(true, &word("")));
-        assert!(!can_continue_word25(true, &word("1")));
-        assert!(!can_continue_word25(true, &word("12345")));
+        assert!(can_continue_word25(true, &word("1")));
         assert!(can_continue_word25(true, &word("123456")));
         assert!(!can_continue_word25(true, &word("      ")));
-        assert!(!can_continue_word25(true, &word("  12345  ")));
+        assert!(can_continue_word25(true, &word("  1  ")));
         assert!(can_continue_word25(true, &word("12 345")));
     }
 
