@@ -262,8 +262,12 @@ pub struct AppState {
     pub enable_error: Option<String>,
     
     pub show_enable: bool,
+    pub enable_fee: Option<u64>,
+    pub token_details: Option<&'static str>,
+    pub xrp_issuer_copied: bool,
 
     pub disable_token: Option<&'static str>,
+    pub disable_fee: Option<u64>,
     pub disable_passphrase: SecureString,
     pub disable_passphrase_reveal: bool,
     pub disable_bip39: SecureString,
@@ -298,6 +302,7 @@ pub struct AppState {
     pub xrp_bip39_reveal: bool,
     pub xrp_word25: bool,
     pub send_step: u8,
+    pub send_fee: Option<u64>,
     pub send_recipient: String,
  
     pub send_destination_tag: String,
@@ -392,6 +397,7 @@ pub struct AppState {
     pub trade_seed_text: SecureString,
     pub trade_seed_reveal: bool,
     pub cancel_offer_sequence: Option<u32>,
+    pub cancel_fee: Option<u64>,
     pub cancel_passphrase: SecureString,
     pub cancel_passphrase_reveal: bool,
     pub cancel_bip39: SecureString,
@@ -431,6 +437,7 @@ pub struct AppState {
     pub xrp_grid: crate::controller::panes::Grid,
     pub btc_grid: crate::controller::panes::Grid,
     pub ledger_tape: VecDeque<crate::controller::panes::LedgerBar>,
+    pub ledger_at: Option<std::time::Instant>,
 }
 
 impl AppState {
@@ -707,7 +714,11 @@ impl Default for AppState {
             enable_seed_reveal: false,
             enable_error: None,
             show_enable: false,
+            enable_fee: None,
+            token_details: None,
+            xrp_issuer_copied: false,
             disable_token: None,
+            disable_fee: None,
             disable_passphrase: SecureString::input(),
             disable_passphrase_reveal: false,
             disable_bip39: SecureString::input(),
@@ -735,6 +746,7 @@ impl Default for AppState {
             xrp_bip39_reveal: false,
             xrp_word25: false,
             send_step: 0,
+            send_fee: None,
             send_recipient: String::new(),
             send_destination_tag: String::new(),
             send_tag_editing: false,
@@ -813,6 +825,7 @@ impl Default for AppState {
             trade_seed_text: SecureString::input(),
             trade_seed_reveal: false,
             cancel_offer_sequence: None,
+            cancel_fee: None,
             cancel_passphrase: SecureString::input(),
             cancel_passphrase_reveal: false,
             cancel_bip39: SecureString::input(),
@@ -842,6 +855,7 @@ impl Default for AppState {
             btc_grid: crate::controller::panes::Grid::load(crate::controller::panes::Chain::Btc, crate::controller::panes::BTC_KEY)
                 .unwrap_or_else(|| crate::controller::panes::Grid::new(crate::controller::panes::Chain::Btc)),
             ledger_tape: VecDeque::new(),
+            ledger_at: None,
             pin_wallet_identities: load_pin_wallet_identities(),
             gate_unlocked: !gate_enabled,
             gate_exists: crate::gate::exists(),

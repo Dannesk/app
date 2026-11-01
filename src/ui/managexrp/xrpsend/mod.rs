@@ -19,6 +19,7 @@ pub(crate) const SELF_ERROR: &str = "you cannot send to yourself";
 pub(crate) const OVER_AVAILABLE: &str = "more than available";
 pub(crate) const NO_XRP_FOR_FEE: &str = "no xrp available for the network fee";
 pub(crate) const PREFIX_ERROR: &str = "an xrp address starts with r, or X for an x-address";
+pub(crate) const TAG_ERROR: &str = "a destination tag is a whole number up to 4294967295";
 pub(crate) const CHECKSUM_ERROR: &str = "that address fails its checksum";
 
 const CLASSIC_MIN: usize = 25;

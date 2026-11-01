@@ -249,6 +249,28 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             state.xrp_token_tab = XrpTokenTab::Token(code);
             state.show_enable = true;
             clear_enable_form(state);
+            state.enable_fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
+        }
+        Message::TokenDetailsClicked(code) => {
+            state.token_details = Some(code);
+        }
+        Message::TokenDetailsDismissed => {
+            state.token_details = None;
+        }
+        Message::CopyIssuerAddress(code) => {
+            if let Some(t) = crate::utils::tokens::by_code(code) {
+                state.xrp_issuer_copied = true;
+                return Task::batch([
+                    iced::clipboard::write(t.issuer.to_string()).discard(),
+                    Task::perform(
+                        async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
+                        |_| Message::CopyIssuerAddressFeedback,
+                    ),
+                ]);
+            }
+        }
+        Message::CopyIssuerAddressFeedback => {
+            state.xrp_issuer_copied = false;
         }
         Message::EnableDismissed => {
             state.show_enable = false;
@@ -276,6 +298,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             let passphrase = state.enable_passphrase.take_trimmed();
             let mnemonic = state.enable_seed_text.take();
             let bip39 = state.enable_bip39.take_trimmed();
+            let fee = state.enable_fee;
             clear_enable_form(state);
             state.show_enable = false;
             return Task::perform(
@@ -289,6 +312,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                         asset,
                         crate::bridge::enable_logic::ENABLE_LIMIT,
                         "Enable trustline",
+                        fee,
                         ws_tx,
                     )
                     .await
@@ -299,6 +323,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
         Message::DisableTokenClicked(code) => {
             state.disable_token = Some(code);
             clear_disable_form(state);
+            state.disable_fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
         }
         Message::DisableDismissed => {
             state.disable_token = None;
@@ -330,8 +355,10 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             let passphrase = state.disable_passphrase.take_trimmed();
             let mnemonic = state.disable_seed_text.take();
             let bip39 = state.disable_bip39.take_trimmed();
+            let fee = state.disable_fee;
             clear_disable_form(state);
             state.disable_token = None;
+            state.token_details = None;
             return Task::perform(
                 async move {
                     crate::bridge::enable_logic::TrustlineEnableLogic::process(
@@ -342,7 +369,8 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                         address,
                         asset,
                         crate::bridge::enable_logic::DISABLE_LIMIT,
-                        "Disable trustline",
+                        "Remove trustline",
+                        fee,
                         ws_tx,
                     )
                     .await
@@ -415,6 +443,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             let recipient  = state.send_recipient.clone();
             let amount     = state.send_amount.clone();
             let destination_tag = state.send_destination_tag.trim().parse::<u32>().ok();
+            let fee = state.send_fee;
             clear_send_form(state);
             return Task::perform(
                 async move {
@@ -429,6 +458,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                             destination_tag,
                             wallet_address: address,
                             asset,
+                            fee,
                             ws_tx,
                         },
                     ).await
@@ -444,12 +474,9 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
         }
         Message::SendFailed(e) => {
             state.send_error = Some(e);
-            state.send_step = 1;
+            state.send_step = 0;
         }
         Message::SendContinueClicked => {
-            if state.send_step != 1 {
-                return Task::none();
-            }
             let addr = state.send_recipient.trim().to_string();
             if addr.is_empty() {
                 state.send_error = Some("ERR: RECIPIENT_REQUIRED".to_string());
@@ -489,7 +516,31 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             state.send_recipient = addr;
             state.send_amount = crate::utils::format_token_amount(amount, 6);
             state.send_error = None;
+            state.send_fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
             state.send_step = 2;
+        }
+        Message::SendAnchorToggled => {
+            state.send_anchor = match state.send_anchor {
+                SendAnchor::Amount => SendAnchor::Fiat,
+                SendAnchor::Fiat => SendAnchor::Amount,
+            };
+        }
+        Message::SendRecipientCleared => {
+            state.send_recipient.clear();
+            state.send_destination_tag.clear();
+            state.send_tag_editing = false;
+            state.send_tag_draft.clear();
+            state.send_error = None;
+        }
+        Message::SendReviewCancelled => {
+            state.send_step = 0;
+            state.send_fee = None;
+            state.send_passphrase.clear();
+            state.send_passphrase_reveal = false;
+            state.send_bip39.clear();
+            state.send_bip39_reveal = false;
+            state.send_seed_text.clear();
+            state.send_seed_reveal = false;
         }
         Message::TradeSideSet(side) => {
             state.trade_side_chosen = true;
@@ -667,12 +718,13 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             if state.trade_anchor == TradeAnchor::Pay {
                 flags.push("tfSell".to_string());
             }
+            let fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
             return Task::perform(
                 async move {
                     TradeLogic::process(
                         mode, passphrase, mnemonic, bip39,
                         base_asset, quote_asset, pay_amount, receive_amount, flags,
-                        address, ws_tx, None,
+                        address, fee, ws_tx, None,
                     ).await
                 },
                 |_| Message::TradeCompleted,
@@ -686,6 +738,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
         Message::CancelOrderClicked(seq) => {
             clear_cancel_form(state);
             state.cancel_offer_sequence = Some(seq);
+            state.cancel_fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
         }
         Message::CancelDismissed => {
             clear_cancel_form(state);
@@ -712,12 +765,13 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             let passphrase = state.cancel_passphrase.take_trimmed();
             let mnemonic   = state.cancel_seed_text.take();
             let bip39      = state.cancel_bip39.take_trimmed();
+            let fee = state.cancel_fee;
             clear_cancel_form(state);
             return Task::perform(
                 async move {
                     CancelLogic::process(
                         mode, passphrase, mnemonic, bip39,
-                        offer_sequence, address, ws_tx,
+                        offer_sequence, address, fee, ws_tx,
                     ).await
                 },
                 |_| Message::CancelCompleted,
@@ -1411,10 +1465,14 @@ pub fn xrp_fee() -> f64 {
 }
 
 pub fn send_fits(state: &AppState, amount: f64) -> bool {
+    send_fits_at(state, amount, xrp_fee())
+}
+
+pub fn send_fits_at(state: &AppState, amount: f64, fee: f64) -> bool {
     let Some(available) = xrp_available() else { return false };
     match state.xrp_token_tab {
-        XrpTokenTab::Xrp => amount + xrp_fee() <= available,
-        XrpTokenTab::Token(code) => amount <= CHANNEL.token(code).0 && xrp_fee() <= available,
+        XrpTokenTab::Xrp => amount + fee <= available,
+        XrpTokenTab::Token(code) => amount <= CHANNEL.token(code).0 && fee <= available,
     }
 }
 
@@ -1536,6 +1594,7 @@ pub fn restore_receive_tag(state: &mut AppState) {
 
 pub(crate) fn clear_send_form(state: &mut AppState) {
     state.send_step = 0;
+    state.send_fee = None;
     state.send_recipient = String::new();
     state.send_destination_tag = String::new();
     state.send_tag_editing = false;
@@ -1555,6 +1614,7 @@ pub(crate) fn clear_send_form(state: &mut AppState) {
 
 pub(crate) fn clear_cancel_form(state: &mut AppState) {
     state.cancel_offer_sequence = None;
+    state.cancel_fee = None;
     state.cancel_passphrase.clear();
     state.cancel_passphrase_reveal = false;
     state.cancel_bip39.clear();
@@ -1607,6 +1667,7 @@ pub(crate) fn clear_reimport_form(state: &mut AppState) {
 pub use crate::utils::formatting::exact_amount;
 
 pub(crate) fn clear_enable_form(state: &mut AppState) {
+    state.enable_fee = None;
     state.enable_passphrase.clear();
     state.enable_passphrase_reveal = false;
     state.enable_bip39.clear();
@@ -1629,6 +1690,7 @@ pub(crate) fn forget_wallet(state: &mut AppState) {
 }
 
 pub(crate) fn clear_disable_form(state: &mut AppState) {
+    state.disable_fee = None;
     state.disable_passphrase.clear();
     state.disable_passphrase_reveal = false;
     state.disable_bip39.clear();

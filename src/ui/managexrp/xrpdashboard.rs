@@ -3,17 +3,19 @@ use iced::Widget as _;
 use iced::mouse;
 use iced::widget::canvas::{self, Canvas, Frame};
 use iced::widget::pane_grid::Pane;
-use iced::widget::{column, container, responsive, row, text, Space};
-use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Size};
+use iced::widget::{column, container, responsive, row, stack, text, Column, Space};
+use iced::{Alignment, Color, Element, Length, Padding, Point, Radians, Rectangle, Size};
 
 use crate::channel::{XrpNodeStats as NodeFrame, CHANNEL};
-use crate::controller::app_state::{AppState, ChartPeriod, EnableInputMode, XrpTokenTab};
+use crate::controller::app_state::{AppState, ChartPeriod, EnableInputMode, SendAnchor, XrpTokenTab};
 use crate::controller::message::{Message, PlainField, SecureField, TagPane};
 use crate::controller::panes::{Chain, GridMsg, LedgerBar, PaneKind};
-use crate::controller::xrp::{self, send_fits, xrp_fee, xrp_reserve};
-use crate::ui::components::grid::{self, big_line, HERO, HERO_UNIT, ROW_KEY, ROW_TOTAL, ADDR, HINT, AMT_GAP, EQ_W};
+use crate::controller::xrp::{self, send_fits, send_fits_at, xrp_fee, xrp_reserve};
+use crate::ui::components::grid::{self, big_line, HERO_UNIT, ROW_KEY, ROW_TOTAL, ADDR, HINT};
 use crate::ui::components::send_screen::{self as screen};
 use crate::ui::components::signing::SignFields;
+use crate::ui::components::tui::MONO_ADVANCE;
+use crate::utils::plain_field::plain_field_grid_ink;
 use crate::utils::{fiat_amount, money};
 use crate::ui::components::compact;
 use crate::ui::managexrp::panes as panes_ui;
@@ -24,7 +26,7 @@ use crate::utils::theme::{self, CompactPalette};
 use crate::utils::{add_commas, format_token_amount, price, tokens};
 
 pub(crate) use crate::ui::components::grid::{
-    drow, group_rule, label, pane_button, rule_label, BIP39_PLACEHOLDER, FIELD_VALUE, NA, ROW_VALUE, STRIP,
+    drow, group_rule, label, pane_button, BIP39_PLACEHOLDER, NA, ROW_VALUE, STRIP,
 };
 
 const TAPE_PITCH: f32 = 11.5;
@@ -140,9 +142,9 @@ fn pane_content<'a>(
             ),
             PaneKind::Transactions => (strip("transactions"), None, panes_ui::lists::transactions(state, cp, scale)),
             PaneKind::Orders => (strip(panes_ui::lists::orders_title(state)), None, panes_ui::lists::orders(state, cp, scale)),
-            PaneKind::Tokens => (strip(panes_ui::tokens::held_title(state)), None, panes_ui::tokens::held(state, cp, scale)),
+            PaneKind::Tokens => (strip(&panes_ui::tokens::held_title(state)), None, panes_ui::tokens::held(state, cp, scale)),
             PaneKind::AvailableTokens => (
-                strip(panes_ui::tokens::available_title(state)),
+                strip(&panes_ui::tokens::available_title(state)),
                 None,
                 panes_ui::tokens::available(state, cp, scale),
             ),
@@ -154,7 +156,39 @@ fn pane_content<'a>(
     grid::pane_frame(pane, kind, maximized, title, meta, body, Message::Grid, cp, scale)
 }
 
+const RING_MAX: f32 = 220.0;
+const RING_MIN: f32 = 150.0;
+const RING_PAD: f32 = 12.0;
+const RING_DASH: f32 = 2.0;
+const RING_PITCH: f32 = 8.0;
+const RING_LIT: f32 = 44.0 / 128.0;
+const RING_LIT_W: f32 = 1.7;
+const ORBIT_FIGURE: [f32; 4] = [28.0, 24.0, 20.0, 16.0];
+const BALANCE_MIN_H: f32 = 180.0;
+const LEDGER_PULSE: std::time::Duration = std::time::Duration::from_millis(1400);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrbitState {
+    Live,
+    Syncing,
+    Offline,
+}
+
+pub fn orbit_state(node_up: bool, synced: Option<bool>) -> OrbitState {
+    if !node_up {
+        OrbitState::Offline
+    } else if synced == Some(false) {
+        OrbitState::Syncing
+    } else {
+        OrbitState::Live
+    }
+}
+
 fn balance_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    grid::fill_or_scroll_by(BALANCE_MIN_H, move |size: Size| balance_body(state, size, cp, scale), cp, scale)
+}
+
+fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     let (xrp_amount, _, _, _) = CHANNEL.wallet_balance_rx.borrow().clone();
     let hide = state.hide_balance;
     let ccy = state.base_currency.code();
@@ -162,72 +196,130 @@ fn balance_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
 
     let xrp_rate = price::cross("XRP", ccy);
     let mut total = (xrp_rate > 0.0).then(|| xrp_amount * xrp_rate);
-    let mut rows: Vec<Element<'a, Message>> = vec![drow(
-        "xrp",
-        vec![(mask(format!("{xrp_amount:.6}")), cp.text)],
-        9.0,
-        cp,
-        scale,
-    )];
     for t in tokens::TOKENS {
         let (bal, has, _) = CHANNEL.token(t.code);
-        if !has {
-            continue;
-        }
-        if bal > 0.0 {
+        if has && bal > 0.0 {
             let rate = price::cross(t.rate_key, ccy);
             total = total.filter(|_| rate > 0.0).map(|sum| sum + bal * rate);
         }
-        rows.push(drow(
-            &t.display.to_lowercase(),
-            vec![(mask(format_token_amount(bal, 6)), cp.text)],
-            3.0,
-            cp,
-            scale,
-        ));
+    }
+    let fiat = if hide { Some("\u{2022}".repeat(6)) } else { total.map(money) };
+    let shown = fiat.clone().unwrap_or_else(|| NA.to_string());
+
+    let node = CHANNEL.xrp_node_rx.borrow().clone();
+    let orbit = orbit_state(CHANNEL.health(crate::channel::XRP_NODE).is_up(), node.synced);
+    let arc = match orbit {
+        OrbitState::Live => cp.green,
+        OrbitState::Syncing => cp.amber,
+        OrbitState::Offline => cp.red,
+    };
+    let (word, word_ink) = match orbit {
+        OrbitState::Live => ("Ledger", cp.muted),
+        OrbitState::Syncing => ("Syncing", cp.amber),
+        OrbitState::Offline => ("Offline", cp.muted),
+    };
+    let fresh = orbit == OrbitState::Live && state.ledger_at.is_some_and(|t| t.elapsed() < LEDGER_PULSE);
+    let mut ledger = row![text(word).size(ROW_KEY * scale).color(word_ink)]
+        .spacing(6.0 * scale)
+        .align_y(Alignment::End);
+    if let Some(i) = node.ledger_index {
+        ledger = ledger.push(
+            text(add_commas(i as i64))
+                .font(MONO)
+                .size(ROW_VALUE * scale)
+                .color(if fresh { cp.green } else { cp.dim })
+                .boxed(),
+        );
     }
 
-    let hero_value = if hide { "\u{2022}".repeat(6) } else { total.map_or_else(|| NA.to_string(), money) };
+    let ring_d = (size.width / scale - 2.0 * RING_PAD).min(RING_MAX).max(RING_MIN);
+    let unit_w = ccy.chars().count() as f32 * HERO_UNIT * MONO_ADVANCE;
+    let fsize = ORBIT_FIGURE
+        .into_iter()
+        .find(|s| shown.chars().count() as f32 * s * 0.58 + 7.0 + unit_w <= ring_d * 0.8)
+        .unwrap_or(ORBIT_FIGURE[3]);
     let hero = row![
-        text(hero_value).font(LIGHT).size(HERO * scale).color(cp.text),
-        Space::new().width(8.0 * scale),
+        text(shown).font(LIGHT).size(fsize * scale).color(if fiat.is_some() { cp.text } else { cp.faint }),
+        Space::new().width(7.0 * scale),
         container(text(ccy.to_uppercase()).font(MONO).size(HERO_UNIT * scale).color(cp.muted))
-            .padding(Padding::new(0.0).bottom(5.0 * scale)),
+            .padding(Padding::new(0.0).bottom((fsize * 0.17).round() * scale)),
     ]
     .align_y(Alignment::End);
+    let native = row![
+        text(mask(format!("{xrp_amount:.6}"))).font(MONO).size(ROW_VALUE * scale).color(cp.dim),
+        Space::new().width(5.0 * scale),
+        text("XRP").font(MONO).size(ROW_VALUE * scale).color(cp.muted),
+    ]
+    .align_y(Alignment::End);
+    let figures = column![hero, Space::new().height(8.0 * scale), native].align_x(Alignment::Center);
+    let d = Length::Fixed(ring_d * scale);
+    let ring = stack![
+        Canvas::new(Ring { track: Color { a: 0.32, ..cp.faint }, lit: Color { a: 0.85, ..arc }, scale })
+            .width(d)
+            .height(d),
+        container(figures).center(d),
+    ];
+    let orbit = column![ring, Space::new().height(8.0 * scale), ledger].align_x(Alignment::Center);
 
-    let mut col = column![hero, column(rows).width(Length::Fill), group_rule(cp, scale)].width(Length::Fill);
+    container(orbit)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(Alignment::Center)
+        .align_y(Alignment::Center)
+        .boxed()
+}
 
-    if CHANNEL.xrp_exists() {
-        match xrp_reserve() {
-            Some(r) => {
-                col = col
-                    .push(drow(
-                        "available",
-                        vec![(mask(format!("{:.6}", r.available)), cp.text), (" xrp".to_string(), cp.faint)],
-                        3.0,
-                        cp,
-                        scale,
-                    ))
-                    .push(drow(
-                        "reserved",
-                        vec![(format!("{:.6}", r.total), cp.dim), (" xrp".to_string(), cp.faint)],
-                        3.0,
-                        cp,
-                        scale,
-                    ));
-            }
-            None => {
-                col = col
-                    .push(drow("available", vec![(NA.to_string(), cp.muted)], 3.0, cp, scale))
-                    .push(drow("reserved", vec![(NA.to_string(), cp.muted)], 3.0, cp, scale));
-            }
+struct Ring {
+    track: Color,
+    lit: Color,
+    scale: f32,
+}
+
+impl<Message> canvas::Program<Message> for Ring {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &iced::Renderer,
+        _theme: &iced::Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let c = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let r = bounds.width.min(bounds.height) / 2.0 - RING_LIT_W * self.scale;
+        if r <= 0.0 {
+            return vec![frame.into_geometry()];
         }
-    } else {
-        col = col.push(drow("account", vec![("inactive".to_string(), cp.dim)], 3.0, cp, scale));
+        let circumference = std::f32::consts::TAU * r;
+        let pitch = circumference / (circumference / (RING_PITCH * self.scale)).round();
+        let dash = [RING_DASH * self.scale, pitch - RING_DASH * self.scale];
+        frame.stroke(
+            &canvas::Path::circle(c, r),
+            canvas::Stroke {
+                line_dash: canvas::LineDash { segments: &dash, offset: 0 },
+                line_cap: canvas::LineCap::Round,
+                ..canvas::Stroke::default().with_color(self.track).with_width(1.0)
+            },
+        );
+        let start = -std::f32::consts::FRAC_PI_2;
+        frame.stroke(
+            &canvas::Path::new(|b| {
+                b.arc(canvas::path::Arc {
+                    center: c,
+                    radius: r,
+                    start_angle: Radians(start),
+                    end_angle: Radians(start + RING_LIT),
+                })
+            }),
+            canvas::Stroke {
+                line_cap: canvas::LineCap::Round,
+                ..canvas::Stroke::default().with_color(self.lit).with_width((RING_LIT_W * self.scale).max(1.0))
+            },
+        );
+        vec![frame.into_geometry()]
     }
-
-    grid::scroller(col.boxed(), cp, scale)
 }
 
 fn chart_series(state: &AppState) -> Vec<(u64, f32)> {
@@ -239,165 +331,278 @@ fn chart_series(state: &AppState) -> Vec<(u64, f32)> {
 }
 
 fn send_title(state: &AppState) -> &'static str {
-    if state.send_asset_picker_open {
+    if state.send_step == 2 {
+        "review"
+    } else if state.send_asset_picker_open {
         "asset"
-    } else if state.send_tag_editing {
-        "destination tag"
     } else {
         "send"
     }
 }
 
 fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    if state.send_step == 2 {
+        return review_face(state, cp, scale);
+    }
     if state.send_asset_picker_open {
         return xrpsend::asset_face(&state.xrp_token_tab, state.base_currency.code(), cp, scale);
     }
-    if state.send_tag_editing {
-        return grid::tag_face(TagPane::Send, &state.send_tag_draft, xrp::tag_wrong(&state.send_tag_draft), cp, scale);
+    grid::fill_or_scroll_by(send_form_min_h(state), move |size: Size| send_form(state, size, cp, scale), cp, scale)
+}
+
+const FIGURE_SIZES: [f32; 3] = [24.0, 20.0, 16.0];
+const FIGURE_GAP: f32 = 6.0;
+const STAGE_MIN: f32 = 104.0;
+const STAGE_PAD: f32 = 12.0;
+
+fn recipient_hint(state: &AppState) -> Option<&'static str> {
+    let addr = state.send_recipient.trim();
+    let (_, own_xrp, _, _) = CHANNEL.wallet_balance_rx.borrow().clone();
+    let is_self = dannesk_xrpl_codec::xaddress::resolve(addr)
+        .is_some_and(|r| own_xrp.as_deref() == Some(r.classic.as_str()));
+    if is_self { Some(xrpsend::SELF_ERROR) } else { xrpsend::recipient_fault(addr) }
+}
+
+fn send_form_min_h(state: &AppState) -> f32 {
+    let hint = if recipient_hint(state).is_some() { 5.0 + HINT * 1.3 } else { 0.0 };
+    let to_block = STRIP * 1.3 + 4.0 + screen::box_h(ADDR) + hint + 6.0 + grid::RECEIVE_LINE_H;
+    to_block + 9.0 + STAGE_MIN + ROW_VALUE * 1.3 + 10.0 + grid::BUTTON_H + 2.0
+}
+
+fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let inner = (size.width / scale).max(1.0);
+    let is_xrp = matches!(state.xrp_token_tab, XrpTokenTab::Xrp);
+    let display = xrpsend::asset_display(&state.xrp_token_tab);
+    let unit = display.to_lowercase();
+    let ccy = state.base_currency.code();
+    let (_, own_xrp, _, _) = CHANNEL.wallet_balance_rx.borrow().clone();
+
+    let addr = state.send_recipient.trim();
+    let resolved = dannesk_xrpl_codec::xaddress::resolve(addr);
+    let from_x = resolved.as_ref().is_some_and(|r| r.from_xaddress);
+    let baked_tag = resolved.as_ref().and_then(|r| if r.from_xaddress { r.tag } else { None });
+    let is_self = resolved
+        .as_ref()
+        .is_some_and(|r| own_xrp.as_deref() == Some(r.classic.as_str()));
+    let addr_ok = !is_self && resolved.is_some();
+    let amount = state.send_amount.trim().parse::<f64>().ok().filter(|v| *v > 0.0);
+    let insufficient = amount.is_some_and(|a| !send_fits(state, a));
+    let valid = addr_ok && amount.is_some() && !insufficient && !(state.send_tag_editing && !from_x);
+    let has_choice = xrpsend::holdings().len() > 1;
+    let rate = xrp::send_rate(state);
+
+    let mut head = row![label("to", cp, scale)].align_y(Alignment::Center).width(Length::Fill);
+    if !addr.is_empty() {
+        head = head
+            .push(Space::new().width(Length::Fill).boxed())
+            .push(panes_ui::link("clear", cp.dim, Message::SendRecipientCleared, cp, scale));
     }
-    responsive(move |size: Size| {
-        let inner = (size.width / scale).max(1.0);
-        let is_xrp = matches!(state.xrp_token_tab, XrpTokenTab::Xrp);
-        let display = xrpsend::asset_display(&state.xrp_token_tab);
-        let unit = display.to_lowercase();
-        let ccy = state.base_currency.code();
-        let (_, own_xrp, key_deleted, key_mode) = CHANNEL.wallet_balance_rx.borrow().clone();
-
-        let addr = state.send_recipient.trim();
-        let resolved = dannesk_xrpl_codec::xaddress::resolve(addr);
-        let from_x = resolved.as_ref().is_some_and(|r| r.from_xaddress);
-        let baked_tag = resolved.as_ref().and_then(|r| if r.from_xaddress { r.tag } else { None });
-        let is_self = resolved
-            .as_ref()
-            .is_some_and(|r| own_xrp.as_deref() == Some(r.classic.as_str()));
-        let set_tag = xrp::tag_of(&state.send_destination_tag);
-        let addr_ok = !is_self && resolved.is_some();
-        let amount = state.send_amount.trim().parse::<f64>().ok().filter(|v| *v > 0.0);
-        let insufficient = amount.is_some_and(|a| !send_fits(state, a));
-        let valid = addr_ok && amount.is_some() && !insufficient;
-        let fee_drops = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
-        let fee = xrp_fee();
-        let rate = price::cross("XRP", ccy);
-        let has_choice = xrpsend::holdings().len() > 1;
-
-        let fault = xrpsend::recipient_fault(addr);
-        let hint: Option<Element<'a, Message>> = if is_self {
-            Some(compact::mono_runs(vec![(xrpsend::SELF_ERROR.to_string(), cp.red)], HINT * scale))
-        } else {
-            fault.map(|note| compact::mono_runs(vec![(note.to_string(), cp.red)], HINT * scale))
-        };
-        let mut recipient = column![
-            label("recipient", cp, scale),
-            screen::boxed_plain(
-                PlainField::XrpSendRecipient,
-                &state.send_recipient,
-                "r\u{2026}  \u{b7}  X\u{2026}",
-                inner,
-                ADDR,
-                true,
-                None,
-                0.0,
-                None,
-                0.0,
-                None,
-                cp,
-                scale,
-            ),
-        ]
-        .width(Length::Fill);
-        if let Some(hint) = hint {
-            recipient = recipient.push(Space::new().height(5.0 * scale).boxed()).push(hint);
-        }
-        recipient = recipient.push(tag_row(from_x, baked_tag, set_tag, cp, scale));
-
-        let chip: Element<'a, Message> = if has_choice {
-            screen::asset_chip(display, state.send_asset_picker_open, Message::SendAssetPickerToggled, cp, scale)
-        } else {
-            screen::unit(display, cp, scale)
-        };
-        let box_w = ((inner - 2.0 * AMT_GAP - EQ_W) / 2.0).max(60.0);
-        let crypto = screen::boxed_plain(
-            PlainField::XrpSendAmount,
-            &state.send_amount,
-            if is_xrp { "0.000000" } else { "0.00" },
-            box_w,
-            FIELD_VALUE,
-            false,
+    let mut to_block = column![
+        head,
+        screen::boxed_plain(
+            PlainField::XrpSendRecipient,
+            &state.send_recipient,
+            "r\u{2026}  \u{b7}  X\u{2026}",
+            inner,
+            ADDR,
+            true,
             None,
             0.0,
-            Some(chip),
-            screen::chip_reserve(display),
+            None,
+            0.0,
             None,
             cp,
             scale,
-        );
-        let amount_row = row![
-            crypto,
-            Space::new().width(AMT_GAP * scale),
-            text("=").font(MONO).size(ROW_VALUE * scale).color(cp.faint),
-            Space::new().width(AMT_GAP * scale),
-            screen::boxed_plain(
-                PlainField::XrpSendFiat,
-                &state.send_fiat_amount,
-                "0.00",
-                box_w,
-                FIELD_VALUE,
-                false,
-                None,
-                0.0,
-                Some(screen::unit(ccy, cp, scale)),
-                23.0,
-                None,
-                cp,
-                scale,
-            ),
-        ]
-        .align_y(Alignment::Center);
-        let can_max = match state.xrp_token_tab {
-            XrpTokenTab::Xrp => crate::controller::xrp::xrp_available().is_some_and(|a| a > xrp_fee()),
-            XrpTokenTab::Token(code) => CHANNEL.token(code).0 > 0.0,
-        };
-        let mut head = row![label("amount", cp, scale)].align_y(Alignment::Center).width(Length::Fill);
-        if can_max {
-            head = head
-                .push(Space::new().width(Length::Fill).boxed())
-                .push(panes_ui::link("max", cp.dim, Message::SendMaxClicked, cp, scale));
-        }
-        let mut amount_sec = column![head, amount_row].width(Length::Fill);
-        if insufficient {
-            let note: Vec<(String, Color)> = match state.xrp_token_tab {
-                XrpTokenTab::Xrp => vec![
-                    (xrpsend::OVER_AVAILABLE.to_string(), cp.red),
-                    (
-                        format!(
-                            "  \u{b7}  {} xrp available",
-                            crate::controller::xrp::xrp_available().map_or(NA.to_string(), |a| format_token_amount(a, 6))
-                        ),
-                        cp.muted,
-                    ),
-                ],
-                XrpTokenTab::Token(code) => {
-                    let bal = CHANNEL.token(code).0;
-                    if amount.is_some_and(|a| a <= bal) {
-                        vec![(xrpsend::NO_XRP_FOR_FEE.to_string(), cp.red)]
-                    } else {
-                        vec![
-                            (xrpsend::OVER_AVAILABLE.to_string(), cp.red),
-                            (format!("  \u{b7}  {} {} available", format_token_amount(bal, 6), unit), cp.muted),
-                        ]
-                    }
-                }
-            };
-            amount_sec = amount_sec.push(Space::new().height(5.0 * scale).boxed()).push(compact::mono_runs(note, HINT * scale));
-        }
+        ),
+    ]
+    .width(Length::Fill);
+    if let Some(note) = recipient_hint(state) {
+        to_block = to_block
+            .push(Space::new().height(5.0 * scale).boxed())
+            .push(compact::mono_runs(vec![(note.to_string(), cp.red)], HINT * scale));
+    }
+    to_block = to_block.push(tag_row(state, from_x, baked_tag, cp, scale));
 
-        let mut review = column![
-            rule_label("review", cp, scale),
+    let anchor_fiat = matches!(state.send_anchor, SendAnchor::Fiat);
+    let asset_placeholder = if is_xrp { "0.000000" } else { "0.00" };
+    let (field, typed, placeholder, figure_unit) = if anchor_fiat {
+        (PlainField::XrpSendFiat, state.send_fiat_amount.as_str(), "0.00", ccy.to_lowercase())
+    } else {
+        (PlainField::XrpSendAmount, state.send_amount.as_str(), asset_placeholder, unit.clone())
+    };
+    let chip: Element<'a, Message> = if has_choice {
+        screen::asset_chip(display, false, Message::SendAssetPickerToggled, cp, scale)
+    } else {
+        screen::unit(display, cp, scale)
+    };
+    let figure = figure_input(
+        field,
+        typed,
+        placeholder,
+        &figure_unit,
+        inner - 2.0 * STAGE_PAD,
+        insufficient,
+        valid.then_some(Message::SendContinueClicked),
+        cp,
+        scale,
+    );
+    let other = if anchor_fiat { state.send_amount.trim() } else { state.send_fiat_amount.trim() };
+    let twin_unit = if anchor_fiat { display.to_uppercase() } else { ccy.to_uppercase() };
+    let twin_placeholder = if anchor_fiat { asset_placeholder } else { "0.00" };
+    let (twin, twin_ink) = if typed.trim().is_empty() {
+        (format!("\u{2248} {twin_placeholder} {twin_unit}"), cp.faint)
+    } else if other.is_empty() {
+        (NA.to_string(), cp.faint)
+    } else {
+        (format!("\u{2248} {other} {twin_unit}"), cp.dim)
+    };
+    let can_swap = rate > 0.0;
+    let twin = if can_swap { format!("{twin}  \u{21c4}") } else { twin };
+    let mut stage = column![
+        chip,
+        Space::new().height(8.0 * scale),
+        figure,
+        Space::new().height(4.0 * scale),
+        panes_ui::link_word(twin, twin_ink, can_swap.then_some(Message::SendAnchorToggled), cp, scale),
+    ]
+    .align_x(Alignment::Center)
+    .width(Length::Fill);
+    if let XrpTokenTab::Token(code) = state.xrp_token_tab
+        && let Some(t) = tokens::by_code(code)
+    {
+        stage = stage.push(Space::new().height(4.0 * scale).boxed()).push(compact::mono_runs(
+            vec![
+                (t.issuer_name.to_string(), cp.dim),
+                (format!("  \u{b7}  {}", crate::ui::managexrp::tokens::short_issuer(t.issuer)), cp.muted),
+            ],
+            HINT * scale,
+        ));
+    }
+    let stage = container(stage)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_y(Alignment::Center)
+        .padding(Padding::new(STAGE_PAD * scale).left(0.0).right(0.0));
+
+    let available = crate::controller::xrp::xrp_available();
+    let (avail_label, avail_ink) = match state.xrp_token_tab {
+        _ if !insufficient => ("available", cp.muted),
+        XrpTokenTab::Xrp => (xrpsend::OVER_AVAILABLE, cp.red),
+        XrpTokenTab::Token(code) if amount.is_some_and(|a| a <= CHANNEL.token(code).0) => (xrpsend::NO_XRP_FOR_FEE, cp.red),
+        XrpTokenTab::Token(_) => (xrpsend::OVER_AVAILABLE, cp.red),
+    };
+    let avail_value: Vec<(String, Color)> = match state.xrp_token_tab {
+        XrpTokenTab::Xrp => match available {
+            Some(a) => vec![(format_token_amount(a, 6), cp.text), (format!(" {unit}"), cp.faint)],
+            None => vec![(NA.to_string(), cp.faint)],
+        },
+        XrpTokenTab::Token(code) => vec![(format_token_amount(CHANNEL.token(code).0, 6), cp.text), (format!(" {unit}"), cp.faint)],
+    };
+    let can_max = match state.xrp_token_tab {
+        XrpTokenTab::Xrp => available.is_some_and(|a| a > xrp_fee()),
+        XrpTokenTab::Token(code) => CHANNEL.token(code).0 > 0.0,
+    };
+    let mut avail_row = row![
+        text(avail_label.to_uppercase()).font(MONO).size(STRIP * scale).color(avail_ink),
+        Space::new().width(Length::Fill),
+        compact::mono_runs(avail_value, ROW_VALUE * scale),
+    ]
+    .align_y(Alignment::Center)
+    .width(Length::Fill);
+    if can_max {
+        avail_row = avail_row
+            .push(Space::new().width(6.0 * scale).boxed())
+            .push(panes_ui::link("max", cp.dim, Message::SendMaxClicked, cp, scale));
+    }
+
+    column![
+        to_block,
+        Space::new().height(8.0 * scale),
+        compact::hairline(cp.rule),
+        stage,
+        avail_row,
+        Space::new().height(10.0 * scale),
+        grid::primary("Review", valid, Message::SendContinueClicked, cp, scale),
+        Space::new().height(2.0 * scale),
+    ]
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .boxed()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn figure_input<'a>(
+    field: PlainField,
+    value: &'a str,
+    placeholder: &str,
+    unit: &str,
+    room: f32,
+    red: bool,
+    on_submit: Option<Message>,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
+    let shown = if value.is_empty() { placeholder } else { value };
+    let cols = shown.chars().count() + 1;
+    let unit_w = unit.chars().count() as f32 * screen::UNIT * MONO_ADVANCE;
+    let size = FIGURE_SIZES
+        .into_iter()
+        .find(|s| cols as f32 * s * MONO_ADVANCE + FIGURE_GAP + unit_w <= room)
+        .unwrap_or(FIGURE_SIZES[2]);
+    let s = size * scale;
+    let advance = s * MONO_ADVANCE;
+    let (input, _) = plain_field_grid_ink(
+        field,
+        value,
+        cols,
+        1,
+        placeholder,
+        on_submit,
+        advance,
+        s * 1.4,
+        s,
+        MONO,
+        if red { cp.red } else { cp.text },
+        cp.focus,
+        cp.faint,
+    );
+    row![
+        container(input).width(Length::Fixed(cols as f32 * advance)),
+        Space::new().width(FIGURE_GAP * scale),
+        container(text(unit.to_uppercase()).font(MONO).size(screen::UNIT * scale).color(cp.muted))
+            .padding(Padding::new(0.0).bottom((size * 0.17).round() * scale)),
+    ]
+    .align_y(Alignment::End)
+    .boxed()
+}
+
+fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    responsive(move |size: Size| {
+        let inner = (size.width / scale).max(1.0);
+        let is_xrp = matches!(state.xrp_token_tab, XrpTokenTab::Xrp);
+        let unit = xrpsend::asset_display(&state.xrp_token_tab).to_lowercase();
+        let ccy = state.base_currency.code();
+        let (_, _, key_deleted, key_mode) = CHANNEL.wallet_balance_rx.borrow().clone();
+        let addr = state.send_recipient.trim();
+        let resolved = dannesk_xrpl_codec::xaddress::resolve(addr);
+        let tag = match &resolved {
+            Some(r) if r.from_xaddress => r.tag,
+            _ => xrp::tag_of(&state.send_destination_tag),
+        };
+        let amount = state.send_amount.trim().parse::<f64>().ok().filter(|v| *v > 0.0);
+        let fee_drops = state.send_fee;
+        let fee = fee_drops.map_or(0.0, |d| d as f64 / 1e6);
+        let rate = price::cross("XRP", ccy);
+
+        let mut facts = column![
             screen::address_block((!addr.is_empty()).then_some(addr), TAIL, cp, scale),
             Space::new().height(7.0 * scale),
         ]
         .width(Length::Fill);
-        review = review.push(drow(
+        if let Some(t) = tag {
+            facts = facts.push(drow("destination tag", vec![(t.to_string(), cp.text)], 2.0, cp, scale));
+        }
+        facts = facts.push(drow(
             "amount",
             match amount {
                 Some(a) => vec![(format_token_amount(a, 6), cp.text), (format!(" {unit}"), cp.faint)],
@@ -407,9 +612,23 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
             cp,
             scale,
         ));
-        review = review.push(drow(
+        if let XrpTokenTab::Token(code) = state.xrp_token_tab
+            && let Some(t) = tokens::by_code(code)
+        {
+            facts = facts.push(drow(
+                "issuer",
+                vec![
+                    (t.issuer_name.to_string(), cp.text),
+                    (format!("  \u{b7}  {}", crate::ui::managexrp::tokens::short_issuer(t.issuer)), cp.muted),
+                ],
+                2.0,
+                cp,
+                scale,
+            ));
+        }
+        facts = facts.push(drow(
             "network fee",
-            vec![(fee_drops.map_or(NA.to_string(), |d| format!("{d} drops")), cp.dim)],
+            vec![(fee_drops.map_or(NA.to_string(), |d| format!("{d} drops")), panes_ui::fee_ink(fee_drops, cp))],
             2.0,
             cp,
             scale,
@@ -425,13 +644,14 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
                 }
                 None => vec![(NA.to_string(), cp.faint)],
             };
-            review = review.push(group_rule(cp, scale)).push(
+            facts = facts.push(group_rule(cp, scale)).push(
                 row![
                     text("total").size(ROW_KEY * scale).color(cp.dim),
                     Space::new().width(Length::Fill),
                     compact::mono_runs(total, ROW_TOTAL * scale),
                 ]
-                .align_y(Alignment::Center).boxed(),
+                .align_y(Alignment::Center)
+                .boxed(),
             );
         }
 
@@ -449,32 +669,25 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
             bip39_reveal: state.send_bip39_reveal,
             on_submit: sign_msg.clone(),
         };
-        let armed = valid && fields.can_submit();
+        let armed = resolved.is_some() && fee_drops.is_some() && amount.is_some_and(|a| send_fits_at(state, a, fee));
+        let buttons = grid::button_pair(
+            grid::quiet_button("Cancel", Message::SendReviewCancelled, cp, scale),
+            grid::primary("Send payment", armed && fields.can_submit(), sign_msg, cp, scale),
+            scale,
+        );
         let sign = grid::sign_block(
             &fields,
             &state.send_passphrase,
             &state.send_seed_text,
             &state.send_bip39,
-            valid,
-            grid::primary("Send payment", armed, sign_msg, cp, scale),
+            armed,
+            buttons,
             inner,
             cp,
             scale,
         );
 
-        grid::scroller(
-            column![
-                recipient,
-                Space::new().height(8.0 * scale),
-                amount_sec,
-                review,
-                sign,
-            ]
-            .width(Length::Fill)
-            .boxed(),
-            cp,
-            scale,
-        )
+        grid::scroller(column![facts, sign].width(Length::Fill).boxed(), cp, scale)
     })
     .boxed()
 }
@@ -489,7 +702,7 @@ fn receive_line<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
         let ok = !draft.is_empty() && draft.parse::<u32>().is_ok();
         return row![
             grid::line_label("tag", cp, scale),
-            grid::tag_field(&state.receive_tag_draft, cp, scale),
+            grid::tag_field(TagPane::Receive, &state.receive_tag_draft, cp, scale),
             grid::line_ok(ok.then_some(Message::TagSet(TagPane::Receive)), cp, scale),
             grid::line_no(Message::TagCancelled(TagPane::Receive), cp, scale),
         ]
@@ -513,20 +726,51 @@ fn receive_line<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
 }
 
 fn tag_row<'a>(
+    state: &'a AppState,
     from_x: bool,
     baked_tag: Option<u32>,
-    set_tag: Option<u32>,
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
+    let gap = 7.5 * scale;
     let line: Element<'a, Message> = if from_x {
         let val = baked_tag.map_or_else(|| "none".to_string(), |t| t.to_string());
         compact::mono_runs(
             vec![(format!("tag {val}"), cp.dim), ("  \u{b7}  from the x-address".to_string(), cp.muted)],
             HINT * scale,
         )
+    } else if state.send_tag_editing {
+        let draft = state.send_tag_draft.trim();
+        let ok = !draft.is_empty() && draft.parse::<u32>().is_ok();
+        let mut col = column![
+            row![
+                grid::line_label("tag", cp, scale),
+                grid::tag_field(TagPane::Send, &state.send_tag_draft, cp, scale),
+                grid::line_ok(ok.then_some(Message::TagSet(TagPane::Send)), cp, scale),
+                grid::line_no(Message::TagCancelled(TagPane::Send), cp, scale),
+            ]
+            .spacing(gap)
+            .align_y(Alignment::Center),
+        ]
+        .width(Length::Fill);
+        if xrp::tag_wrong(&state.send_tag_draft) {
+            col = col
+                .push(Space::new().height(5.0 * scale).boxed())
+                .push(compact::mono_runs(vec![(xrpsend::TAG_ERROR.to_string(), cp.red)], HINT * scale));
+        }
+        col.boxed()
     } else {
-        grid::tag_line(set_tag, TagPane::Send, cp, scale)
+        match xrp::tag_of(&state.send_destination_tag) {
+            None => grid::pane_link("set destination tag", Message::TagEdit(TagPane::Send), cp, scale),
+            Some(tag) => row![
+                grid::line_label("tag", cp, scale),
+                grid::line_value(tag.to_string(), Message::TagEdit(TagPane::Send), cp, scale),
+                grid::line_no(Message::TagCleared(TagPane::Send), cp, scale),
+            ]
+            .spacing(gap)
+            .align_y(Alignment::Center)
+            .boxed(),
+        }
     };
     column![Space::new().height(6.0 * scale), line].width(Length::Fill).boxed()
 }
@@ -581,7 +825,7 @@ impl NodeFrameView for NodeFrame {
     }
 }
 
-const NETWORK_MIN_H: f32 = 120.0;
+const NETWORK_MIN_H: f32 = 165.0;
 
 fn network_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     grid::fill_or_scroll(NETWORK_MIN_H, move || network_body(state, cp, scale), cp, scale)
@@ -603,7 +847,8 @@ fn network_body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
     .width(Length::Fill)
     .height(Length::Fill);
 
-    column![
+    let mask = |s: String| if state.hide_balance { "\u{2022}".repeat(4) } else { s };
+    let mut col: Column<Element<'a, Message>> = column![
         big_line(fee, "drops", verdict, cp, scale),
         container(tape)
             .width(Length::Fill)
@@ -620,8 +865,36 @@ fn network_body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
         drow("peers", vec![(node.peers.map_or(NA.to_string(), |n| n.to_string()), cp.dim)], 3.0, cp, scale),
     ]
     .width(Length::Fill)
-    .height(Length::Fill)
-    .boxed()
+    .height(Length::Fill);
+    if CHANNEL.xrp_exists() {
+        match xrp_reserve() {
+            Some(r) => {
+                col = col
+                    .push(drow(
+                        "reserved",
+                        vec![(format!("{:.6}", r.total), cp.dim), (" xrp".to_string(), cp.faint)],
+                        3.0,
+                        cp,
+                        scale,
+                    ))
+                    .push(drow(
+                        "available",
+                        vec![(mask(format!("{:.6}", r.available)), cp.text), (" xrp".to_string(), cp.faint)],
+                        3.0,
+                        cp,
+                        scale,
+                    ));
+            }
+            None => {
+                col = col
+                    .push(drow("reserved", vec![(NA.to_string(), cp.muted)], 3.0, cp, scale))
+                    .push(drow("available", vec![(NA.to_string(), cp.muted)], 3.0, cp, scale));
+            }
+        }
+    } else {
+        col = col.push(drow("account", vec![("inactive".to_string(), cp.dim)], 3.0, cp, scale));
+    }
+    col.boxed()
 }
 
 struct Tape {
@@ -681,6 +954,14 @@ mod tests {
 
     fn at(open: u64, base: u64) -> NodeFrame {
         NodeFrame { open_ledger_fee: Some(open), fee_base: Some(base), ..Default::default() }
+    }
+
+    #[test]
+    fn the_orbit_is_the_network_state() {
+        assert_eq!(orbit_state(false, Some(true)), OrbitState::Offline);
+        assert_eq!(orbit_state(true, Some(false)), OrbitState::Syncing);
+        assert_eq!(orbit_state(true, Some(true)), OrbitState::Live);
+        assert_eq!(orbit_state(true, None), OrbitState::Live);
     }
 
     #[test]

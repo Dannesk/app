@@ -18,7 +18,6 @@ use crate::controller::message::{Message, PlainField, SecureField, TagPane};
 use crate::controller::panes::{self, Chain, Grid, GridMsg, PaneKind};
 use crate::secure::SecureString;
 use crate::ui::components::compact;
-use crate::ui::components::send_screen::{self as screen};
 use crate::ui::components::tui::MONO_ADVANCE;
 use crate::ui::components::signing::SignFields;
 use crate::ui::components::wallet_setup::{self, PHRASE_PLACEHOLDER, TARGET_WORDS};
@@ -560,7 +559,6 @@ pub fn fill_or_scroll_by<'a>(
 const CHART_MIN_H: f32 = 110.0;
 const RECEIVE_MIN_H: f32 = 190.0;
 
-pub const TAG_W: f32 = 122.0;
 
 
 pub fn phrase_field<'a>(
@@ -1050,62 +1048,7 @@ pub fn pane_link<'a>(word: &str, msg: Message, cp: &'static CompactPalette, scal
 }
 
 
-pub fn tag_face<'a>(
-    pane: TagPane,
-    draft: &'a str,
-    wrong: bool,
-    cp: &'static CompactPalette,
-    scale: f32,
-) -> Element<'a, Message> {
-    let field = match pane {
-        TagPane::Send => PlainField::XrpSendTag,
-        TagPane::Receive => PlainField::XrpReceiveTag,
-    };
-    let body = move || -> Element<'a, Message> {
-        let set = Message::TagSet(pane);
-        let boxed = screen::boxed_plain(
-            field,
-            draft,
-            "destination tag",
-            TAG_W,
-            FIELD_VALUE,
-            false,
-            None,
-            0.0,
-            None,
-            0.0,
-            (!wrong).then_some(set.clone()),
-            cp,
-            scale,
-        );
-        let mut col = column![container(boxed).width(Length::Fill).align_x(Alignment::Center)].width(Length::Fill);
-        if wrong {
-            col = col.push(Space::new().height(5.0 * scale).boxed()).push(
-                text("a destination tag is a whole number up to 4294967295")
-                    .font(MONO)
-                    .size(HINT * scale)
-                    .color(cp.red)
-                    .width(Length::Fill)
-                    .align_x(Alignment::Center).boxed(),
-            );
-        }
-        col = col.push(Space::new().height(12.0 * scale).boxed()).push(button_pair(
-            quiet_button("Cancel", Message::TagCancelled(pane), cp, scale),
-            primary("Set tag", !wrong, set, cp, scale),
-            scale,
-        ));
-        container(col).width(Length::Fill).height(Length::Fill).align_y(Alignment::Center).boxed()
-    };
-    fill_or_scroll(tag_min_h(wrong), body, cp, scale)
-}
-
-
-fn tag_min_h(wrong: bool) -> f32 {
-    screen::box_h(FIELD_VALUE) + 12.0 + BUTTON_H + if wrong { 5.0 + HINT * 1.3 } else { 0.0 }
-}
-
-
-const RECEIVE_LINE_H: f32 = 21.0; 
+pub const RECEIVE_LINE_H: f32 = 21.0;
 const LINE_BTN: f32 = 10.0; 
 const TAG_FIELD_W: f32 = 100.0; 
 const TAG_FIELD_H: f32 = 20.0; 
@@ -1285,12 +1228,16 @@ pub fn line_value<'a>(word: String, msg: Message, cp: &'static CompactPalette, s
 }
 
 
-pub fn tag_field<'a>(draft: &'a str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+pub fn tag_field<'a>(pane: TagPane, draft: &'a str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let field = match pane {
+        TagPane::Send => PlainField::XrpSendTag,
+        TagPane::Receive => PlainField::XrpReceiveTag,
+    };
     let s = RECEIVE_ADDR * scale;
     let advance = s * MONO_ADVANCE;
     let cols = (((TAG_FIELD_W - 2.0 * TAG_FIELD_PAD_H) * scale) / advance).floor().max(1.0) as usize;
     let (input, _) = plain_field_grid_ink_focus(
-        PlainField::XrpReceiveTag,
+        field,
         draft,
         cols,
         1,

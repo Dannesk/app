@@ -299,7 +299,7 @@ impl PaneTree {
             ratio: 1.0 / 3.0,
             a: Box::new(PaneTree::Split {
                 axis: Axis::Horizontal,
-                ratio: 0.33,
+                ratio: 0.5,
                 a: leaf(PaneKind::Balance),
                 b: leaf(PaneKind::Chart),
             }),
@@ -308,7 +308,7 @@ impl PaneTree {
                 ratio: 0.5,
                 a: Box::new(PaneTree::Split {
                     axis: Axis::Horizontal,
-                    ratio: 0.68,
+                    ratio: 0.74,
                     a: leaf(PaneKind::Send),
                     b: leaf(PaneKind::Wallet),
                 }),
@@ -719,6 +719,7 @@ pub fn note_ledger(state: &mut AppState) {
     if state.ledger_tape.back().is_some_and(|b| b.index >= index) {
         return;
     }
+    state.ledger_at = Some(std::time::Instant::now());
     let escalated = matches!(
         (frame.open_ledger_fee, frame.fee_base),
         (Some(open), Some(base)) if base > 0 && open > base
@@ -831,14 +832,7 @@ pub fn handle(state: &mut AppState, chain: Chain, msg: GridMsg) -> Task<Message>
             g.touch();
         }
         GridMsg::SendSign => match chain {
-            Chain::Xrp => {
-                state.send_step = 1;
-                let checked = crate::controller::xrp::handle(state, Message::SendContinueClicked);
-                if state.send_step == 2 {
-                    return crate::controller::xrp::handle(state, Message::SendSubmitClicked);
-                }
-                return checked;
-            }
+            Chain::Xrp => return crate::controller::xrp::handle(state, Message::SendSubmitClicked),
             Chain::Btc => {
                 state.btc_send_step = 1;
                 let checked = crate::controller::btc::handle(state, Message::BtcSendContinueClicked);

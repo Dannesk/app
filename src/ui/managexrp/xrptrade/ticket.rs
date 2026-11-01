@@ -9,7 +9,7 @@ use crate::controller::message::{Message, PlainField};
 use crate::controller::xrp::{
     trade_available, trade_book_quote, trade_decimals, trade_effective_limit, trade_expected_price, trade_fits,
     trade_market_offered, trade_market_pair, trade_market_price, trade_market_verdict, trade_terms, trade_tif,
-    xrp_fee, MarketVerdict,
+    MarketVerdict,
 };
 use crate::channel::CHANNEL;
 use crate::ui::components::compact;
@@ -221,7 +221,8 @@ pub(crate) fn form<'a>(
         );
     }
 
-    let fee = format!("{} XRP", format_token_amount(xrp_fee(), 6));
+    let fee_drops = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
+    let fee = fee_drops.map_or(NA.to_string(), |d| format!("{d} drops"));
     let (book, book_ink) = match crate::utils::liquidity::healthy(base, quote) {
         Some(true) => (crate::utils::liquidity::label(base, quote), cp.green),
         Some(false) => (crate::utils::liquidity::label(base, quote), cp.amber),
@@ -273,7 +274,7 @@ pub(crate) fn form<'a>(
     if !manual {
         stat_list = stat_list.push(stat_row("Routed via", routed_via(state).to_string(), cp.text, cp, scale));
     }
-    stat_list = stat_list.push(stat_row("Fee", fee, cp.text, cp, scale));
+    stat_list = stat_list.push(stat_row("Fee", fee, panes::fee_ink(fee_drops, cp), cp, scale));
     stat_list = stat_list.push(stat_row("Book", book, book_ink, cp, scale));
     if let Some((k, v, ink)) = market_row {
         stat_list = stat_list.push(stat_row(k, v, ink, cp, scale));

@@ -300,13 +300,78 @@ pub fn fact<'a>(key: &str, runs: Vec<(String, Color)>, top: f32, cp: &'static Co
     xrpdashboard::drow(key, runs, top, cp, scale)
 }
 
-pub fn fee_row<'a>(top: f32, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    let fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
+pub fn pressable<'a>(content: Element<'a, Message>, msg: Option<Message>, cp: &'static CompactPalette) -> Element<'a, Message> {
+    let live = msg.is_some();
+    button(content)
+        .on_press_maybe(msg)
+        .padding(0)
+        .width(Length::Fill)
+        .style(move |_, status| {
+            let hot = live && matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: Some(if hot { cp.hover } else { Color::TRANSPARENT }.into()),
+                border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 0.0.into() },
+                text_color: cp.text,
+                shadow: Shadow::default(),
+                snap: false,
+            }
+        })
+        .boxed()
+}
+
+pub fn fee_row<'a>(fee: Option<u64>, top: f32, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     fact(
         "network fee",
-        vec![(fee.map_or(NA.to_string(), |d| format!("{d} drops")), cp.dim)],
+        vec![(fee.map_or(NA.to_string(), |d| format!("{d} drops")), fee_ink(fee, cp))],
         top,
         cp,
         scale,
     )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeeTone {
+    Plain,
+    High,
+    Extreme,
+}
+
+pub const HIGH_FEE_MULTIPLE: u64 = 10;
+pub const EXTREME_FEE_MULTIPLE: u64 = 100;
+
+pub fn fee_tone(drops: u64, base: Option<u64>) -> FeeTone {
+    match base {
+        Some(b) if b > 0 && drops > b.saturating_mul(EXTREME_FEE_MULTIPLE) => FeeTone::Extreme,
+        Some(b) if b > 0 && drops > b.saturating_mul(HIGH_FEE_MULTIPLE) => FeeTone::High,
+        _ => FeeTone::Plain,
+    }
+}
+
+pub fn fee_ink(drops: Option<u64>, cp: &'static CompactPalette) -> Color {
+    let base = CHANNEL.xrp_node_rx.borrow().fee_base;
+    match drops.map(|d| fee_tone(d, base)) {
+        Some(FeeTone::Extreme) => cp.red,
+        Some(FeeTone::High) => cp.amber,
+        _ => cp.dim,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_fee_turns_amber_past_ten_times_the_base_and_red_past_a_hundred() {
+        assert_eq!(fee_tone(10, Some(10)), FeeTone::Plain);
+        assert_eq!(fee_tone(100, Some(10)), FeeTone::Plain);
+        assert_eq!(fee_tone(101, Some(10)), FeeTone::High);
+        assert_eq!(fee_tone(1000, Some(10)), FeeTone::High);
+        assert_eq!(fee_tone(1001, Some(10)), FeeTone::Extreme);
+    }
+
+    #[test]
+    fn no_base_fee_means_no_tone() {
+        assert_eq!(fee_tone(5000, None), FeeTone::Plain);
+        assert_eq!(fee_tone(5000, Some(0)), FeeTone::Plain);
+    }
 }

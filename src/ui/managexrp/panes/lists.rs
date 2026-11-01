@@ -157,7 +157,7 @@ fn cancel<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> E
         let body = column![
             fact("offer", offer_runs, 0.0, cp, scale),
             drow("at", at_runs, 3.0, cp, scale),
-            fee_row(3.0, cp, scale),
+            fee_row(state.cancel_fee, 3.0, cp, scale),
             sign,
             Space::new().height(2.0 * scale),
         ]
