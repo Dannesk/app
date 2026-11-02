@@ -89,20 +89,11 @@ pub const NA: &str = "\u{2014}";
 #[derive(Clone, Copy)]
 pub struct Host<'a> {
     pub chain: Chain,
-   
+
     pub title: &'static str,
     pub grid: &'a Grid,
-  
+
     pub wrap: fn(GridMsg) -> Message,
-  
-    pub bar: Option<BarSlot<'a>>,
-}
-
-
-#[derive(Clone, Copy)]
-pub struct BarSlot<'a> {
-    pub control: fn(&'a AppState, &'static CompactPalette, f32) -> Element<'a, Message>,
-    pub layer: fn(&'a AppState, &'static CompactPalette, f32) -> Option<Element<'a, Message>>,
 }
 
 
@@ -126,17 +117,13 @@ pub fn screen<'a>(
     };
 
     let base = column![
-        top_bar(host, state, cp, scale),
+        top_bar(host, cp, scale),
         compact::hairline(cp.rule),
         container(body_el).width(Length::Fill).height(Length::Fill),
     ]
     .width(Length::Fill)
     .height(Length::Fill);
-    let bar_layer = host.bar.and_then(|b| (b.layer)(state, cp, scale));
     let mut layers = stack![base].width(Length::Fill).height(Length::Fill);
-    if let Some(l) = bar_layer {
-        layers = layers.push(l);
-    }
     if g.menu_open {
         layers = layers.push(menu_layer(host, cp, scale));
     }
@@ -144,14 +131,10 @@ pub fn screen<'a>(
 }
 
 
-fn top_bar<'a>(host: Host<'a>, state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    let mut bar = row![text(host.title).size(TITLE * scale).color(cp.text)]
+fn top_bar<'a>(host: Host<'a>, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let bar = row![text(host.title).size(TITLE * scale).color(cp.text)]
         .align_y(Alignment::Center)
-        .height(Length::Fill);
-    if let Some(b) = host.bar {
-        bar = bar.push(Space::new().width(9.0 * scale).boxed()).push((b.control)(state, cp, scale));
-    }
-    bar = bar
+        .height(Length::Fill)
         .push(Space::new().width(Length::Fill).boxed())
         .push(panels_button(host.grid.menu_open, host.wrap, cp, scale));
     container(bar)

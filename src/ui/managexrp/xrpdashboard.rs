@@ -37,13 +37,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let cp = theme::compact(&state.theme);
     let scale = state.scale();
     let g = &state.xrp_grid;
-    let host = grid::Host {
-        chain: Chain::Xrp,
-        title: "XRP",
-        grid: g,
-        wrap: Message::Grid,
-        bar: Some(grid::BarSlot { control: panes_ui::pair::control, layer: panes_ui::pair::layer }),
-    };
+    let host = grid::Host { chain: Chain::Xrp, title: "XRP", grid: g, wrap: Message::Grid };
     grid::screen(host, state, pane_content, cp, scale)
 }
 
@@ -60,17 +54,24 @@ fn pane_content<'a>(
     scale: f32,
 ) -> grid::PaneContent<'a> {
     let strip = |word: &str| grid::strip(word, cp, scale);
-    let pair_strip = |word: &str| -> Element<'a, Message> {
-        match panes_ui::pair::label(state) {
-            Some(pair) => row![
-                strip(word),
-                Space::new().width(panes_ui::pair::PANE_GAP * scale),
-                text(pair).font(MONO).size(panes_ui::pair::PANE_LINE * scale).color(cp.text),
-            ]
-            .align_y(Alignment::Center)
-            .boxed(),
-            None => strip(word),
-        }
+    let door_strip = |word: &str, door_kind: PaneKind| -> Element<'a, Message> {
+        row![
+            strip(word),
+            Space::new().width(8.0 * scale),
+            panes_ui::pair::door(state, door_kind, cp, scale),
+        ]
+        .align_y(Alignment::Center)
+        .boxed()
+    };
+    let list_open = |door_kind: PaneKind| state.trade_pair_list == Some(door_kind);
+    let list_meta = |door_kind: PaneKind| -> Option<Element<'a, Message>> {
+        list_open(door_kind).then(|| {
+            text(panes_ui::pair::count_meta(state))
+                .font(MONO)
+                .size(STRIP * scale)
+                .color(cp.faint)
+                .boxed()
+        })
     };
 
     let (title, meta, body): (Element<'a, Message>, Option<Element<'a, Message>>, Element<'a, Message>) =
@@ -133,12 +134,36 @@ fn pane_content<'a>(
             }
             PaneKind::Network => (strip("network"), None, network_pane(state, cp, scale)),
             PaneKind::Wallet => (strip(panes_ui::wallet::title(state)), None, panes_ui::wallet::view(state, cp, scale)),
-            PaneKind::Ticket => (pair_strip("ticket"), None, panes_ui::ticket::view(state, cp, scale)),
-            PaneKind::Book => (pair_strip("order book"), None, panes_ui::market::book(state, cp, scale)),
+            PaneKind::Ticket => (
+                strip("ticket"),
+                list_meta(PaneKind::Ticket),
+                panes_ui::ticket::view(state, cp, scale),
+            ),
+            PaneKind::Book => (
+                door_strip("order book", PaneKind::Book),
+                list_meta(PaneKind::Book),
+                if list_open(PaneKind::Book) {
+                    panes_ui::pair::face(state, cp, scale)
+                } else {
+                    panes_ui::market::book(state, cp, scale)
+                },
+            ),
             PaneKind::Depth => (
-                pair_strip("depth"),
-                Some(text(panes_ui::market::depth_meta(state)).font(MONO).size(STRIP * scale).color(cp.faint).boxed()),
-                panes_ui::market::depth(state, cp, scale),
+                door_strip("depth", PaneKind::Depth),
+                list_meta(PaneKind::Depth).or_else(|| {
+                    Some(
+                        text(panes_ui::market::depth_meta(state))
+                            .font(MONO)
+                            .size(STRIP * scale)
+                            .color(cp.faint)
+                            .boxed(),
+                    )
+                }),
+                if list_open(PaneKind::Depth) {
+                    panes_ui::pair::face(state, cp, scale)
+                } else {
+                    panes_ui::market::depth(state, cp, scale)
+                },
             ),
             PaneKind::Transactions => (strip("transactions"), None, panes_ui::lists::transactions(state, cp, scale)),
             PaneKind::Orders => (strip(panes_ui::lists::orders_title(state)), None, panes_ui::lists::orders(state, cp, scale)),

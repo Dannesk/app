@@ -24,8 +24,11 @@ const BROW_H: f32 = 17.5;
 const BROW_PAD_H: f32 = 6.0;
 const EYEBROW: f32 = 8.0;
 const MID: f32 = 11.0;
+const SPREAD: f32 = 10.0;
 const FOOT_VALUE: f32 = 10.0;
 const AXIS: f32 = 8.0;
+const GUTTER_W: f32 = 9.0;
+const GUTTER_GAP: f32 = 5.0;
 
 fn fmt_amount(a: f64) -> String {
     if a >= 1000.0 { add_commas(a.round() as i64) } else if a >= 100.0 { format!("{a:.0}") } else { format!("{a:.2}") }
@@ -49,26 +52,41 @@ pub fn book<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         let (book, _) = oriented(base, quote).unwrap_or_default();
         let asks = display_levels(&book.asks, true, SHOW);
         let bids = display_levels(&book.bids, false, SHOW);
-        let clickable = trade::manual(state);
+        let picking = trade::manual(state);
+        let reviewing = matches!(state.trade_view, crate::controller::app_state::TradeView::Review(_));
+        let clickable = picking && !reviewing;
+        let selected = match &state.trade_view {
+            crate::controller::app_state::TradeView::Review(q) => q.ticket.limit,
+            _ => state.trade_limit_price.trim().parse::<f64>().ok(),
+        }
+        .filter(|p| *p > 0.0 && picking)
+        .map(fmt_price);
         let max_amount = asks.iter().chain(bids.iter()).map(|&(_, a, _)| a).fold(0.0_f64, f64::max).max(f64::MIN_POSITIVE);
 
         let eyebrow = |s: String, ink: Color| text(s).font(MONO).size(EYEBROW * scale).color(ink);
 
+        let gutter = if picking { GUTTER_W + GUTTER_GAP } else { 0.0 };
         let header = container(
             row![
-                eyebrow(format!("price ({})", disp(quote)).to_uppercase(), cp.muted),
+                eyebrow(format!("price \u{b7} {}", disp(quote)).to_uppercase(), cp.muted),
                 Space::new().width(Length::Fill),
-                eyebrow(format!("amount ({})", disp(base)).to_uppercase(), cp.muted),
+                eyebrow(format!("amount \u{b7} {}", disp(base)).to_uppercase(), cp.muted),
             ]
             .align_y(Alignment::Center),
         )
         .width(Length::Fill)
-        .padding(Padding::new(0.0).left(BROW_PAD_H * scale).right(BROW_PAD_H * scale).bottom(5.0 * scale));
+        .padding(
+            Padding::new(0.0)
+                .left(BROW_PAD_H * scale)
+                .right((BROW_PAD_H + gutter) * scale)
+                .bottom(5.0 * scale),
+        );
 
         let level_row = |price: f64, amount: f64, ask: bool| -> Element<'a, Message> {
             let ink = if ask { cp.red } else { cp.green };
             let wash = if ask { ASK_WASH } else { BID_WASH };
-            let bar_w = ((amount / max_amount) as f32).clamp(0.0, 1.0) * inner;
+            let picked = selected.as_deref() == Some(fmt_price(price).as_str());
+            let bar_w = ((amount / max_amount) as f32).clamp(0.0, 1.0) * (inner - gutter * scale).max(1.0);
             let bar = container(
                 row![
                     Space::new().width(Length::Fill),
@@ -85,27 +103,44 @@ pub fn book<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
             )
             .width(Length::Fill)
             .height(Length::Fixed(BROW_H * scale))
-            .align_y(Alignment::Center);
-            let words = container(
-                row![
-                    text(fmt_price(price)).font(MONO).size(BROW * scale).color(ink),
-                    Space::new().width(Length::Fill),
-                    text(fmt_amount(amount)).font(MONO).size(BROW * scale).color(cp.dim),
-                ]
-                .align_y(Alignment::Center),
-            )
-            .width(Length::Fill)
-            .height(Length::Fixed(BROW_H * scale))
             .align_y(Alignment::Center)
-            .padding(Padding::new(0.0).left(BROW_PAD_H * scale).right(BROW_PAD_H * scale));
+            .padding(Padding::new(0.0).right(gutter * scale));
+            let mut words_line = row![
+                text(fmt_price(price)).font(MONO).size(BROW * scale).color(ink),
+                Space::new().width(Length::Fill),
+                text(fmt_amount(amount))
+                    .font(MONO)
+                    .size(BROW * scale)
+                    .color(if picked { cp.text } else { cp.dim }),
+            ]
+            .align_y(Alignment::Center);
+            if picking {
+                let mark: Element<'a, Message> = if picked {
+                    text("\u{2713}").font(MONO).size(9.5 * scale).color(cp.green).boxed()
+                } else {
+                    Space::new().boxed()
+                };
+                words_line = words_line.push(
+                    container(mark)
+                        .width(Length::Fixed((GUTTER_W + GUTTER_GAP) * scale))
+                        .align_x(Alignment::End)
+                        .boxed(),
+                );
+            }
+            let words = container(words_line)
+                .width(Length::Fill)
+                .height(Length::Fixed(BROW_H * scale))
+                .align_y(Alignment::Center)
+                .padding(Padding::new(0.0).left(BROW_PAD_H * scale).right(BROW_PAD_H * scale));
             button(stack![bar, words])
                 .width(Length::Fill)
                 .padding(Padding::ZERO)
                 .on_press_maybe(clickable.then(|| Message::TradeBookPriceClicked(format!("{price:.6}"))))
                 .style(move |_, status| {
                     let hot = clickable && matches!(status, button::Status::Hovered | button::Status::Pressed);
+                    let bg = if picked { cp.pill } else if hot { cp.hover } else { Color::TRANSPARENT };
                     button::Style {
-                        background: Some(if hot { cp.hover } else { Color::TRANSPARENT }.into()),
+                        background: Some(bg.into()),
                         border: Border { color: Color::TRANSPARENT, width: 0.0, radius: (3.0 * scale).into() },
                         text_color: cp.text,
                         shadow: Shadow::default(),
@@ -120,12 +155,13 @@ pub fn book<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
             ladder = ladder.push(level_row(p, a, true));
         }
         let mid = mid_and_spread(&book);
-        let (mid_str, spread_str) = match mid {
-            Some((m, s)) if s >= 0.0 && s <= DEGENERATE_SPREAD_PCT => (fmt_price(m), format!("{s:.2}%")),
-            Some((_, s)) if s < 0.0 => (NA.to_string(), "crossed".to_string()),
-            Some(_) => (NA.to_string(), "wide".to_string()),
-            None => (NA.to_string(), "one-sided".to_string()),
+        let (mid_str, spread_str, spread_ink) = match mid {
+            Some((m, s)) if s >= 0.0 && s <= DEGENERATE_SPREAD_PCT => (fmt_price(m), format!("{s:.2}%"), cp.dim),
+            Some((_, s)) if s < 0.0 => (NA.to_string(), "crossed".to_string(), cp.amber),
+            Some(_) => (NA.to_string(), "wide".to_string(), cp.amber),
+            None => (NA.to_string(), "one-sided".to_string(), cp.amber),
         };
+        let mid_ink = if mid_str == NA { cp.faint } else { cp.text };
         ladder = ladder.push(
             column![
                 Space::new().height(3.0 * scale),
@@ -134,11 +170,11 @@ pub fn book<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
                     row![
                         eyebrow("MID".to_string(), cp.muted),
                         Space::new().width(6.0 * scale),
-                        text(mid_str).font(MONO).size(MID * scale).color(cp.text),
+                        text(mid_str).font(MONO).size(MID * scale).color(mid_ink),
                         Space::new().width(14.0 * scale),
                         eyebrow("SPREAD".to_string(), cp.muted),
                         Space::new().width(6.0 * scale),
-                        eyebrow(spread_str, cp.muted),
+                        text(spread_str).font(MONO).size(SPREAD * scale).color(spread_ink),
                     ]
                     .align_y(Alignment::Center),
                 )
@@ -220,8 +256,8 @@ pub fn depth_meta(state: &AppState) -> String {
         return String::new();
     }
     match typed_limit(state) {
-        Some(p) => format!("limit at {}", fmt_price(p)),
-        None => format!("cumulative \u{b7} \u{b1} {:.2}%", depth_window(state).1),
+        Some(p) => format!("at {}", fmt_price(p)),
+        None => format!("\u{b1} {:.2}%", depth_window(state).1),
     }
 }
 
@@ -251,10 +287,13 @@ pub fn depth<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
     let cum_bids = bids.last().map(|l| l.1).unwrap_or(0.0);
     let cum_asks = asks.last().map(|l| l.1).unwrap_or(0.0);
     let limit_mark = typed_limit(state).filter(|p| *p >= lo && *p <= hi);
+    let base_unit = disp(base).to_uppercase();
 
     grid::fill_or_scroll(
         DEPTH_MIN_H,
-        move || depth_body(bids.clone(), asks.clone(), lo, hi, mid, limit_mark, cum_bids, cum_asks, cp, scale),
+        move || {
+            depth_body(bids.clone(), asks.clone(), lo, hi, mid, limit_mark, cum_bids, cum_asks, base_unit.clone(), cp, scale)
+        },
         cp,
         scale,
     )
@@ -272,6 +311,7 @@ fn depth_body<'a>(
     limit_mark: Option<f64>,
     cum_bids: f64,
     cum_asks: f64,
+    base_unit: String,
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
@@ -330,9 +370,9 @@ fn depth_body<'a>(
         compact::hairline(cp.rule),
         container(
             row![
-                foot("CUM. BIDS", format!("{} XRP", fmt_xrp(cum_bids)), cp.green, false),
+                foot("CUM. BIDS", format!("{} {}", fmt_xrp(cum_bids), base_unit), cp.green, false),
                 Space::new().width(Length::Fill),
-                foot("CUM. ASKS", format!("{} XRP", fmt_xrp(cum_asks)), cp.red, true),
+                foot("CUM. ASKS", format!("{} {}", fmt_xrp(cum_asks), base_unit), cp.red, true),
             ]
             .align_y(Alignment::End),
         )

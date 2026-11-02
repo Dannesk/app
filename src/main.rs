@@ -62,6 +62,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _ = handle.spawn(dannesk_core::channel::activity_watchdog());
 
+    let _ = handle.spawn(dannesk_core::utils::trade::quote_task());
+
     let wallet_handle = handle.spawn_blocking(move || {
         wallet::load_wallets(tx_for_wallet);
     });

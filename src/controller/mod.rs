@@ -125,7 +125,6 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             state.xrp_grid.menu_open = false;
             state.btc_grid.menu_open = false;
             state.send_asset_picker_open = false;
-            panes::dismiss_pair_search(state);
         }
         Message::PlainEdit(field, op) => {
             if state.apply_plain_edit(field, op) {
@@ -247,11 +246,7 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             state.xrp_grid.flush_if_settled(panes::XRP_KEY);
             state.btc_grid.flush_if_settled(panes::BTC_KEY);
             if state.xrp_view == XrpView::Menu {
-                crate::controller::xrp::trade_grid_init(state);
-                if state.trade_step == 1 {
-                    crate::controller::xrp::follow_wallet_side(state);
-                    crate::controller::xrp::refresh_trade_twin(state);
-                }
+                crate::controller::xrp::sync_trade(state);
             }
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -299,7 +294,6 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         Message::TabChanged(tab) => {
             state.selected_tab = tab;
             state.settings_open = false;
-            crate::controller::xrp::sync_trade_books(state);
         }
         Message::OpenSettings => {
             state.settings_open = true;

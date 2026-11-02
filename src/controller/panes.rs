@@ -746,9 +746,7 @@ pub enum GridMsg {
     Period(ChartPeriod),
     SendSign,
     TicketSign,
-    PairSearchOpened,
-    PairSearchDismissed,
-    PairSearchSubmitted,
+    PairDoor(PaneKind),
 }
 
 fn on_screen(state: &AppState, chain: Chain) -> bool {
@@ -759,9 +757,13 @@ fn on_screen(state: &AppState, chain: Chain) -> bool {
     tab && state.activity_log.is_none()
 }
 
-pub fn dismiss_pair_search(state: &mut AppState) {
-    state.trade_pair_search_open = false;
-    state.trade_pair_query.clear();
+fn prune_pair_list(state: &mut AppState) {
+    if let Some(kind) = state.trade_pair_list {
+        if !state.xrp_grid.has(kind) {
+            state.trade_pair_list = None;
+            state.trade_pair_query.clear();
+        }
+    }
 }
 
 fn grid_mut(state: &mut AppState, chain: Chain) -> &mut Grid {
@@ -786,7 +788,6 @@ pub fn handle(state: &mut AppState, chain: Chain, msg: GridMsg) -> Task<Message>
     let scale = state.scale();
     match msg {
         GridMsg::MenuToggled => {
-            dismiss_pair_search(state);
             let g = grid_mut(state, chain);
             g.menu_open = !g.menu_open;
         }
@@ -821,7 +822,10 @@ pub fn handle(state: &mut AppState, chain: Chain, msg: GridMsg) -> Task<Message>
                     clear_pane_form(state, chain, *kind);
                 }
                 match chain {
-                    Chain::Xrp => crate::controller::xrp::clear_trade_pair(state),
+                    Chain::Xrp => {
+                        crate::controller::xrp::clear_trade_pair(state);
+                        crate::controller::xrp::ensure_trade_pair(state);
+                    }
                     Chain::Btc => crate::controller::btc::set_balance_sats(state, false),
                 }
             }
@@ -846,36 +850,19 @@ pub fn handle(state: &mut AppState, chain: Chain, msg: GridMsg) -> Task<Message>
             if chain != Chain::Xrp {
                 return Task::none();
             }
-            state.trade_step = 1;
-            let checked = crate::controller::xrp::handle(state, Message::TradeContinueClicked);
-            if state.trade_step == 2 {
-                let sent = crate::controller::xrp::handle(state, Message::TradeSubmitClicked);
-                state.trade_step = 1;
-                return sent;
-            }
-            return checked;
+            return crate::controller::xrp::handle(state, Message::TradeSubmitClicked);
         }
-        GridMsg::PairSearchOpened => {
+        GridMsg::PairDoor(kind) => {
             if chain != Chain::Xrp {
                 return Task::none();
             }
-            state.trade_pair_search_open = true;
+            state.trade_pair_list = if state.trade_pair_list == Some(kind) { None } else { Some(kind) };
             state.trade_pair_query.clear();
-        }
-        GridMsg::PairSearchDismissed => dismiss_pair_search(state),
-        GridMsg::PairSearchSubmitted => {
-            if chain != Chain::Xrp {
-                return Task::none();
-            }
-            let query = state.trade_pair_query.clone();
-            let (rows, _) = crate::ui::managexrp::xrptrade::picker::listing(&query);
-            if let Some((b, q)) = rows.into_iter().next() {
-                return crate::controller::xrp::handle(state, Message::TradePairSelected(b.to_string(), q.to_string()));
-            }
         }
     }
     if chain == Chain::Xrp {
-        crate::controller::xrp::trade_grid_init(state);
+        prune_pair_list(state);
+        crate::controller::xrp::push_trade_ticket(state);
     }
     Task::none()
 }

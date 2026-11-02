@@ -223,6 +223,7 @@ impl Tx {
 
     pub(crate) fn state_label(&self) -> &'static str {
         match self.status {
+            TransactionStatus::Success if self.kind == Kind::Offer => "filled",
             TransactionStatus::Success => "success",
             TransactionStatus::Partial => "partial",
             TransactionStatus::Killed => "killed",
@@ -455,6 +456,8 @@ mod tests {
             received_currency: None,
             remaining: None,
             remaining_currency: None,
+            remaining_pay: None,
+            remaining_pay_currency: None,
             coverage: None,
             fill_price: None,
         }

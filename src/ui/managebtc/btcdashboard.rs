@@ -53,7 +53,7 @@ const UNIT_RESERVE: f32 = 23.0;
 pub fn view(state: &AppState) -> Element<'_, Message> {
     let cp = theme::compact(&state.theme);
     let scale = state.scale();
-    let host = grid::Host { chain: Chain::Btc, title: "BTC", grid: &state.btc_grid, wrap: Message::BtcGrid, bar: None };
+    let host = grid::Host { chain: Chain::Btc, title: "BTC", grid: &state.btc_grid, wrap: Message::BtcGrid };
     grid::screen(host, state, pane_content, cp, scale)
 }
 

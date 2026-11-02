@@ -13,5 +13,5 @@ pub mod formatting;
 pub mod price;
 pub mod reserves;
 
-pub use dannesk_core::utils::{liquidity, orderbook, tokens};
+pub use dannesk_core::utils::{liquidity, orderbook, tokens, trade};
 pub use formatting::{add_commas, fiat_amount, format_token_amount, format_usd, money};

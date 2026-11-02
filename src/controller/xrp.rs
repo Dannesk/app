@@ -1,13 +1,12 @@
 use iced::Task;
 use crate::controller::message::{Message, PlainField, SecureField, TagPane};
-use crate::controller::app_state::{AppState, EnableInputMode, ImportMode, SendAnchor, XrpTokenTab, XrpView, TradeAnchor, TradeContract, TradeSide};
+use crate::controller::app_state::{AppState, EnableInputMode, ImportMode, SendAnchor, XrpTokenTab, XrpView, TradeKind, TradeSide, TradeTif, TradeView};
 use crate::secure::SecureString;
 use crate::channel::CHANNEL;
 use crate::bridge::xrp_import_logic::XRPImportLogic;
 use crate::bridge::xrp_create_logic::XRPCreateLogic;
 use crate::bridge::cancel_logic::CancelLogic;
 use crate::bridge::trade_logic::TradeLogic;
-use crate::ws::{rates_send, RatesCommand};
 
 pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
     match message {
@@ -545,195 +544,156 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
         Message::TradeSideSet(side) => {
             state.trade_side_chosen = true;
             if state.trade_side != side {
-                state.trade_side = side;
-                std::mem::swap(&mut state.trade_pay_asset, &mut state.trade_receive_asset);
-                std::mem::swap(&mut state.trade_amount, &mut state.trade_receive);
-                state.trade_anchor = match state.trade_anchor {
-                    TradeAnchor::Pay => TradeAnchor::Receive,
-                    TradeAnchor::Receive => TradeAnchor::Pay,
-                };
-                state.trade_error = None;
-                }
-        }
-        Message::TradeUnitToggled => {
-            state.trade_side_chosen = true;
-            state.trade_anchor = match state.trade_anchor {
-                TradeAnchor::Pay => TradeAnchor::Receive,
-                TradeAnchor::Receive => TradeAnchor::Pay,
-            };
-            state.trade_error = None;
-            refresh_trade_twin(state);
+                let (base, quote) = trade_market_pair(state);
+                let (base, quote) = (base.to_string(), quote.to_string());
+                orient_trade_pair(state, side, &base, &quote);
+            }
+            push_trade_ticket(state);
         }
         Message::TradeMaxClicked => {
-            let pay = state.trade_pay_asset.as_str();
-            state.trade_amount = if pay == "XRP" {
-                let owed = xrp_fee() + if trade_can_rest(state) { xrp_reserve().map_or(0.0, |r| r.per_object) } else { 0.0 };
-                crate::utils::format_token_amount(xrp_available().map_or(0.0, |a| (a - owed).max(0.0)), 6)
-            } else {
-                exact_amount(CHANNEL.token(pay).0)
-            };
-            state.trade_anchor = TradeAnchor::Pay;
-            state.trade_error = None;
-            refresh_trade_twin(state);
+            let max = CHANNEL.trade_quote_rx.borrow().as_ref().and_then(|q| q.max_base).filter(|m| *m > 0.0);
+            if let Some(m) = max {
+                let (base, _) = trade_market_pair(state);
+                state.trade_amount = if state.trade_side == TradeSide::Sell && base != "XRP" {
+                    exact_amount(m)
+                } else {
+                    crate::utils::format_token_amount(m, SIGN_PLACES)
+                };
+                push_trade_ticket(state);
+            }
         }
-        Message::TradeOrderOptionSet(opt) => {
-            state.trade_side_chosen = true;
-            state.trade_flags = match opt {
-                1 => vec!["tfImmediateOrCancel".to_string()],
-                2 => vec!["tfFillOrKill".to_string()],
-                _ => vec![],
-            };
+        Message::TradeTifSet(tif) => {
+            state.trade_tif = tif;
+            push_trade_ticket(state);
         }
         Message::TradePairSelected(base, quote) => {
             let side = trade_default_side(&base, &quote);
             state.trade_side_chosen = false;
             orient_trade_pair(state, side, &base, &quote);
-            state.trade_amount = String::new();
-            state.trade_receive = String::new();
-            state.trade_limit_price = String::new();
-            state.trade_contract = Some(TradeContract::Limit);
+            state.trade_amount.clear();
+            state.trade_limit_price.clear();
+            state.trade_tif = TradeTif::Gtc;
+            state.trade_mode = TradeKind::Limit;
+            state.trade_view = TradeView::Ticket;
+            state.trade_review_fee = None;
+            state.trade_pair_list = None;
             state.trade_pair_query.clear();
-            state.trade_pair_search_open = false;
-            state.trade_error = None;
+            clear_trade_secrets(state);
             persist_trade_pair(state);
-            sync_trade_books(state);
+            push_trade_ticket(state);
         }
         Message::TradeMarketSelected => {
-            state.trade_side_chosen = true;
-            state.trade_contract = Some(TradeContract::Market);
-            state.trade_error = None;
-        }
-        Message::TradeLimitSelected => {
-            state.trade_side_chosen = true;
-            state.trade_contract = Some(TradeContract::Limit);
-            state.trade_error = None;
-        }
-        Message::TradeBookPriceClicked(val) => {
-            if trade_is_limit(state) {
-                state.trade_limit_price = val;
-                state.trade_error = None;
+            let offered = CHANNEL.trade_quote_rx.borrow().as_ref().is_some_and(|q| q.market_ok);
+            if offered {
+                state.trade_side_chosen = true;
+                state.trade_mode = TradeKind::Market;
+                state.trade_limit_price.clear();
+                state.trade_tif = TradeTif::Gtc;
+                push_trade_ticket(state);
             }
         }
-        Message::TradeContinueClicked => {
-            if state.trade_step == 1 {
-                match state.trade_contract {
-                    None => {
-                        state.trade_error = Some("ERR: NO_CONTRACT // pick Market or Limit".to_string());
-                        return Task::none();
-                    }
-                    Some(TradeContract::Market) if trade_book_quote(state).is_none() => {
-                        state.trade_error = Some("ERR: NO_QUOTE // waiting for the ledger".to_string());
-                        return Task::none();
-                    }
-                    _ => {}
+        Message::TradeLimitOpened => {
+            state.trade_side_chosen = true;
+            if state.trade_mode == TradeKind::Limit {
+                state.trade_view = TradeView::Limit;
+            } else {
+                state.trade_mode = TradeKind::Limit;
+                state.trade_view = TradeView::Ticket;
+            }
+            push_trade_ticket(state);
+        }
+        Message::TradeLimitSet => {
+            if state.trade_limit_price.trim().parse::<f64>().ok().filter(|p| *p > 0.0).is_some() {
+                state.trade_view = TradeView::Ticket;
+            }
+        }
+        Message::TradeLimitCancelled => {
+            state.trade_limit_price.clear();
+            state.trade_view = TradeView::Ticket;
+            push_trade_ticket(state);
+        }
+        Message::TradeReviewPressed => {
+            let quote = CHANNEL.trade_quote_rx.borrow().clone();
+            let fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
+            if let Some(q) = quote.filter(|q| review_ready(q, fee)) {
+                state.trade_review_fee = fee;
+                state.trade_view = TradeView::Review(Box::new(q));
+            }
+        }
+        Message::TradeReviewCancelled => {
+            state.trade_view = TradeView::Ticket;
+            state.trade_review_fee = None;
+            clear_trade_secrets(state);
+        }
+        Message::TradeBookPriceClicked(val) => {
+            let reviewing = matches!(state.trade_view, TradeView::Review(_));
+            if state.trade_mode == TradeKind::Limit && !reviewing {
+                state.trade_limit_price = val;
+                if state.trade_view == TradeView::Limit {
+                    state.trade_view = TradeView::Ticket;
                 }
-                let limit = trade_effective_limit(state);
-                if limit <= 0.0 {
-                    state.trade_error = Some(trade_no_price(state).to_string());
-                    return Task::none();
-                }
-                let typed = match state.trade_anchor {
-                    TradeAnchor::Pay => state.trade_amount.trim(),
-                    TradeAnchor::Receive => state.trade_receive.trim(),
-                };
-                if typed.parse::<f64>().is_err() {
-                    state.trade_error = Some("ERR: INVALID_NUMBER_FORMAT".to_string());
-                    return Task::none();
-                }
-                let terms = trade_terms(state, limit);
-                if terms.pay <= 0.0 || terms.receive <= 0.0 {
-                    state.trade_error = Some("ERR: MIN_VALUE_REQUIRED".to_string());
-                    return Task::none();
-                }
-                if !trade_fits(state, terms.pay) {
-                    state.trade_error = Some(
-                        format!("ERR: INSUFFICIENT_FUNDS // MAX: {:.6}", trade_available(state).unwrap_or(0.0))
-                    );
-                    return Task::none();
-                }
-                state.trade_error = None;
-                state.trade_step = 2;
+                push_trade_ticket(state);
             }
         }
         Message::TradeSubmitClicked => {
+            let TradeView::Review(quote) = &state.trade_view else { return Task::none() };
+            let q = (**quote).clone();
             let (_, wallet_address, key_deleted, key_mode) = CHANNEL.wallet_balance_rx.borrow().clone();
-            let Some(address) = wallet_address else {
-                state.trade_error = Some("ERR: NO_WALLET_FOUND".to_string());
-                return Task::none();
-            };
-            let Some(ws_tx) = crate::ws::CRYPTO_COMMANDS_TX.get().cloned() else {
-                state.trade_error = Some("ERR: WS_NOT_READY".to_string());
-                return Task::none();
-            };
-            let mode       = match EnableInputMode::detect(key_deleted, key_mode) {
+            let Some(address) = wallet_address else { return Task::none() };
+            let Some(ws_tx) = crate::ws::CRYPTO_COMMANDS_TX.get().cloned() else { return Task::none() };
+            let Some(fee) = state.trade_review_fee else { return Task::none() };
+            let (Some(pay), Some(receive)) = (q.pay.clone(), q.receive.clone()) else { return Task::none() };
+            let mode = match EnableInputMode::detect(key_deleted, key_mode) {
                 EnableInputMode::Passphrase => "passphrase",
                 EnableInputMode::Seed => "seed",
             }
             .to_string();
-            let limit = trade_effective_limit(state);
-            if limit <= 0.0 {
-                state.trade_error = Some(trade_no_price(state).to_string());
-                return Task::none();
-            }
-            let terms = trade_terms(state, limit);
-            if !trade_fits(state, terms.pay) {
-                state.trade_error = Some(
-                    format!("ERR: INSUFFICIENT_FUNDS // MAX: {:.6}", trade_available(state).unwrap_or(0.0))
-                );
-                return Task::none();
-            }
 
-            let walk = trade_book_quote(state);
+            let pay_f: f64 = pay.parse().unwrap_or(0.0);
+            let receive_f: f64 = receive.parse().unwrap_or(0.0);
+            let anchor_is_pay = q.ticket.side == TradeSide::Sell;
+            let expected_vwap = (q.ticket.kind == TradeKind::Market)
+                .then(|| {
+                    q.price_row
+                        .map(|p| if anchor_is_pay { p } else if p > 0.0 { 1.0 / p } else { 0.0 })
+                })
+                .flatten()
+                .filter(|v| *v > 0.0);
             let _ = CHANNEL.pending_trade_tx.send(Some(crate::channel::PendingTrade {
-                pair: format!("{}/{}", state.trade_pay_asset, state.trade_receive_asset),
-                anchor: match state.trade_anchor {
-                    TradeAnchor::Pay => "pay",
-                    TradeAnchor::Receive => "receive",
-                }
-                .to_string(),
-                bound: limit,
-                expected_vwap: if trade_is_market(state) { walk.as_ref().map(|q| q.vwap) } else { None },
-                ledger_index: walk
-                    .as_ref()
-                    .map(|q| q.ledger)
-                    .filter(|i| *i > 0)
-                    .or_else(|| CHANNEL.xrp_node_rx.borrow().ledger_index)
-                    .unwrap_or(0),
+                pair: format!("{}/{}", q.pay_asset, q.receive_asset),
+                anchor: if anchor_is_pay { "pay" } else { "receive" }.to_string(),
+                bound: if pay_f > 0.0 { receive_f / pay_f } else { 0.0 },
+                expected_vwap,
+                ledger_index: if q.ledger > 0 {
+                    q.ledger
+                } else {
+                    CHANNEL.xrp_node_rx.borrow().ledger_index.unwrap_or(0)
+                },
                 last_ledger: None,
                 sequence: None,
                 hash: None,
                 tx_id: None,
-                pay: terms.pay,
-                receive: terms.receive,
+                pay: pay_f,
+                receive: receive_f,
             }));
 
             let passphrase = state.trade_passphrase.take_trimmed();
             let mnemonic   = state.trade_seed_text.take();
             let bip39      = state.trade_bip39.take_trimmed();
-            let base_asset = state.trade_pay_asset.clone();
-            let quote_asset = state.trade_receive_asset.clone();
-            let pay_amount = if trade_pays_whole_balance(state) { exact_amount(terms.pay) } else { amount_string(terms.pay) };
-            let receive_amount = amount_string(terms.receive);
-            let mut flags = trade_tif(state);
-            if state.trade_anchor == TradeAnchor::Pay {
-                flags.push("tfSell".to_string());
-            }
-            let fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
+            clear_trade_inputs(state);
             return Task::perform(
                 async move {
                     TradeLogic::process(
                         mode, passphrase, mnemonic, bip39,
-                        base_asset, quote_asset, pay_amount, receive_amount, flags,
-                        address, fee, ws_tx, None,
+                        q.pay_asset, q.receive_asset, pay, receive, q.flags,
+                        address, Some(fee), ws_tx, None,
                     ).await
                 },
                 |_| Message::TradeCompleted,
             );
         }
         Message::TradeCompleted => {
-            clear_trade_form_after_order(state);
-            state.xrp_view = XrpView::Menu;
-            trade_grid_init(state);
+            clear_trade_inputs(state);
         }
         Message::CancelOrderClicked(seq) => {
             clear_cancel_form(state);
@@ -871,378 +831,76 @@ pub fn trade_index_rate(state: &AppState) -> f64 {
     if b == q { 1.0 } else { crate::utils::price::cross(&b, &q) }
 }
 
-pub fn trade_book_quote(state: &AppState) -> Option<crate::utils::orderbook::Quote> {
-    use crate::utils::orderbook::{oriented, touch, walk, Quote};
-    let pay = state.trade_pay_asset.as_str();
-    let recv = state.trade_receive_asset.as_str();
-    let typed = trade_typed_amount(state);
-    if typed <= 0.0 {
-        let (book, _) = oriented(pay, recv)?;
-        let t = touch(&book)?;
-        return Some(Quote {
-            vwap: t,
-            floor: t,
-            filled: 0.0,
-            receive: 0.0,
-            depth_short: false,
-            ledger: book.ledger,
-            from_pool: 0.0,
-            clob_levels: 0,
-        });
-    }
-    let q = walk(pay, recv, typed, matches!(state.trade_anchor, TradeAnchor::Pay))?;
-    trade_frame_ok(q.ledger).then_some(q)
-}
-
-fn trade_frame_ok(frame: u64) -> bool {
-    let live = CHANNEL.xrp_node_rx.borrow().ledger_index.unwrap_or(0);
-    if frame == 0 || live == 0 {
-        return false;
-    }
-    frame + FRAME_STALE_LEDGERS >= live
-}
-
-const FRAME_STALE_LEDGERS: u64 = 2;
-
-pub fn trade_market_offered(state: &AppState) -> bool {
-    let (pay, recv) = (state.trade_pay_asset.as_str(), state.trade_receive_asset.as_str());
-    if pay.is_empty() || recv.is_empty() || (pay != "XRP" && recv != "XRP") {
-        return false;
-    }
-    !crate::utils::orderbook::oriented(pay, recv).is_some_and(|(b, _)| trade_issuer_restricted(&b))
-}
-
-pub fn trade_quotable(state: &AppState) -> bool {
-    if !trade_market_offered(state) {
-        return false;
-    }
-    let (pay, recv) = (state.trade_pay_asset.as_str(), state.trade_receive_asset.as_str());
-    crate::utils::orderbook::oriented(pay, recv)
-        .is_some_and(|(b, _)| crate::utils::orderbook::touch(&b).is_some() && trade_frame_ok(b.ledger))
-}
-
-fn trade_touch(state: &AppState) -> f64 {
-    crate::utils::orderbook::oriented(&state.trade_pay_asset, &state.trade_receive_asset)
-        .and_then(|(b, _)| crate::utils::orderbook::touch(&b))
-        .unwrap_or(0.0)
-}
-
-fn trade_tick_size(state: &AppState) -> Option<u32> {
-    crate::utils::orderbook::oriented(&state.trade_pay_asset, &state.trade_receive_asset)
-        .and_then(|(b, _)| b.tick_size)
-}
-
-pub fn trade_issuer_restricted(book: &crate::channel::OrderBook) -> bool {
-    book.require_auth == Some(true) || book.global_freeze == Some(true)
-}
-
-fn trade_typed_amount(state: &AppState) -> f64 {
-    let s = match state.trade_anchor {
-        TradeAnchor::Pay => &state.trade_amount,
-        TradeAnchor::Receive => &state.trade_receive,
-    };
-    s.trim().parse::<f64>().unwrap_or(0.0)
-}
-
-fn wanted_books() -> Vec<String> {
-    if !xrp_wallet_exists() {
-        return Vec::new();
-    }
-    crate::ws::rates::book_pairs()
-}
-
 fn xrp_wallet_exists() -> bool {
     CHANNEL.wallet_balance_rx.borrow().1.is_some()
 }
 
-pub fn trade_grid_init(state: &mut AppState) {
-    if !xrp_wallet_exists() {
-        sync_trade_books(state);
-        return;
-    }
-    if state.trade_step == 0 {
-        state.trade_step = 1;
-    }
-    sync_trade_books(state);
-}
-
-pub fn sync_trade_books(state: &mut AppState) {
-    let wanted = wanted_books();
-    for old in &state.trade_books {
-        if !wanted.contains(old) {
-            rates_send(RatesCommand::UnsubscribeBook(old.clone()));
-        }
-    }
-    for new in &wanted {
-        if !state.trade_books.contains(new) {
-            rates_send(RatesCommand::SubscribeBook(new.clone()));
-        }
-    }
-    state.trade_books = wanted;
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct TradeTerms {
-    pub pay: f64,
-    pub receive: f64,
-}
-
-pub const SIGN_PLACES: usize = 6;
-
-pub fn trade_terms(state: &AppState, limit: f64) -> TradeTerms {
-    use crate::utils::orderbook::{ceil_to, floor_to};
-    match state.trade_anchor {
-        TradeAnchor::Pay => {
-            let typed = state.trade_amount.trim().parse::<f64>().unwrap_or(0.0);
-            let pay = if trade_pays_whole_balance(state) { typed } else { floor_to(typed, SIGN_PLACES) };
-            let receive = if limit > 0.0 { floor_to(pay * limit, SIGN_PLACES) } else { 0.0 };
-            TradeTerms { pay, receive }
-        }
-        TradeAnchor::Receive => {
-            let receive = floor_to(state.trade_receive.trim().parse::<f64>().unwrap_or(0.0), SIGN_PLACES);
-            let pay = if limit > 0.0 { ceil_to(receive / limit, SIGN_PLACES) } else { 0.0 };
-            TradeTerms { pay, receive }
-        }
-    }
-}
-
-pub fn trade_pays_whole_balance(state: &AppState) -> bool {
-    let pay = state.trade_pay_asset.as_str();
-    if pay == "XRP" || state.trade_anchor != TradeAnchor::Pay {
-        return false;
-    }
-    let balance = CHANNEL.token(pay).0;
-    balance > 0.0 && state.trade_amount.trim().parse::<f64>().ok() == Some(balance)
-}
+pub const SIGN_PLACES: usize = crate::utils::trade::SIGN_PLACES;
 
 pub fn trade_decimals(code: &str) -> usize {
     if code == "XRP" { 6 } else { 2 }
 }
 
-pub fn trade_derived_decimals(code: &str) -> usize {
-    if code == "XRP" { 6 } else { 4 }
-}
-
-pub fn trade_expected_price(state: &AppState, limit: f64) -> Option<f64> {
-    let x = trade_expected(state, limit)?;
-    let (pay, recv) = if trade_fill_now(state) {
-        let q = trade_book_quote(state)?;
-        (q.filled, q.receive)
-    } else {
-        let terms = trade_terms(state, limit);
-        match state.trade_anchor {
-            TradeAnchor::Pay => (terms.pay, x),
-            TradeAnchor::Receive => (x, terms.receive),
-        }
-    };
-    if pay <= 0.0 || recv <= 0.0 {
+pub fn current_ticket(state: &AppState) -> Option<crate::utils::trade::TradeTicket> {
+    if !xrp_wallet_exists() {
         return None;
     }
-    Some(trade_market_price(state, recv / pay))
-}
-
-pub fn trade_expected(state: &AppState, limit: f64) -> Option<f64> {
-    if !trade_is_market(state) || limit <= 0.0 {
+    let (base, quote) = trade_market_pair(state);
+    if base.is_empty() || quote.is_empty() {
         return None;
     }
-    let q = trade_book_quote(state)?;
-    let terms = trade_terms(state, limit);
-    Some(expected_amount(
-        state.trade_anchor,
-        trade_fill_now(state),
-        (q.filled, q.receive),
-        (terms.pay, terms.receive),
-        limit,
-    ))
+    Some(crate::utils::trade::TradeTicket {
+        base: base.to_string(),
+        quote: quote.to_string(),
+        side: state.trade_side,
+        kind: state.trade_mode,
+        amount: state.trade_amount.trim().to_string(),
+        limit: state.trade_limit_price.trim().parse::<f64>().ok().filter(|p| *p > 0.0),
+        tif: state.trade_tif,
+    })
 }
 
-pub(crate) fn expected_amount(
-    anchor: TradeAnchor,
-    fill_now: bool,
-    walk: (f64, f64),
-    want: (f64, f64),
-    limit: f64,
-) -> f64 {
-    let (walk_filled, walk_receive) = walk;
-    let (want_pay, want_receive) = want;
-    if fill_now {
-        return match anchor {
-            TradeAnchor::Pay => walk_receive,
-            TradeAnchor::Receive => walk_filled,
-        };
-    }
-    match anchor {
-        TradeAnchor::Pay => walk_receive + (want_pay - walk_filled).max(0.0) * limit,
-        TradeAnchor::Receive => walk_filled + (want_receive - walk_receive).max(0.0) / limit,
-    }
-}
-
-fn trade_fill_now(state: &AppState) -> bool {
-    !trade_can_rest(state)
-}
-
-pub fn refresh_trade_twin(state: &mut AppState) {
-    use crate::utils::orderbook::{ceil_to, floor_to};
-    let limit = trade_effective_limit(state);
-    let terms = trade_terms(state, limit);
-    let expected = trade_expected(state, limit);
-    let (value, dec, target) = match state.trade_anchor {
-        TradeAnchor::Pay => {
-            let dec = trade_derived_decimals(&state.trade_receive_asset);
-            (floor_to(expected.unwrap_or(terms.receive), dec), dec, &mut state.trade_receive)
+pub fn push_trade_ticket(state: &AppState) {
+    let ticket = current_ticket(state);
+    CHANNEL.trade_ticket_tx.send_if_modified(|t| {
+        if *t == ticket {
+            false
+        } else {
+            *t = ticket;
+            true
         }
-        TradeAnchor::Receive => {
-            let dec = trade_derived_decimals(&state.trade_pay_asset);
-            (ceil_to(expected.unwrap_or(terms.pay), dec), dec, &mut state.trade_amount)
-        }
-    };
-    let text = if value > 0.0 { crate::utils::format_token_amount(value, dec) } else { String::new() };
-    if *target != text {
-        *target = text;
+    });
+}
+
+pub fn sync_trade(state: &mut AppState) {
+    follow_wallet_side(state);
+    push_trade_ticket(state);
+}
+
+pub fn review_ready(q: &crate::utils::trade::TradeQuote, fee: Option<u64>) -> bool {
+    let typed: f64 = q.ticket.amount.trim().parse().unwrap_or(0.0);
+    q.lockable
+        && fee.is_some()
+        && typed > 0.0
+        && q.max_base.is_some_and(|m| typed <= m + 1e-9)
+        && trade_fee_xrp_ok(q)
+}
+
+pub fn trade_fee_xrp_ok(q: &crate::utils::trade::TradeQuote) -> bool {
+    if q.pay_asset == "XRP" {
+        return true;
     }
+    let resting = q.ticket.kind == TradeKind::Limit && q.ticket.tif == TradeTif::Gtc;
+    xrp_reserve().is_some_and(|r| r.available >= xrp_fee() + if resting { r.per_object } else { 0.0 })
 }
 
-fn amount_string(x: f64) -> String {
-    let raw = format!("{:.*}", SIGN_PLACES, x);
-    raw.trim_end_matches('0').trim_end_matches('.').to_string()
-}
-
-pub fn trade_tif(state: &AppState) -> Vec<String> {
-    if trade_is_market(state) {
-        vec!["tfImmediateOrCancel".to_string()]
-    } else {
-        state.trade_flags.clone()
-    }
-}
-
-pub fn trade_is_market(state: &AppState) -> bool {
-    state.trade_contract == Some(TradeContract::Market) && trade_quotable(state)
-}
-
-pub fn trade_is_limit(state: &AppState) -> bool {
-    state.trade_contract == Some(TradeContract::Limit)
-}
-
-pub fn trade_can_rest(state: &AppState) -> bool {
-    !trade_tif(state).iter().any(|f| f == "tfImmediateOrCancel" || f == "tfFillOrKill")
-}
-
-const CUSHION_ALPHA: f64 = 0.5;
-
-const CUSHION_MAX: f64 = 0.01;
-
-fn trade_delta_min(tick_size: Option<u32>) -> f64 {
-    let by_tick = tick_size
-        .filter(|n| *n >= 1)
-        .map(|n| 10f64.powi(-((n as i32) - 1)))
-        .unwrap_or(0.0);
-    by_tick.max(1e-7)
-}
-
-fn trade_cushioned(floor: f64, touch: f64, tick_size: Option<u32>) -> f64 {
-    if floor <= 0.0 {
-        return 0.0;
-    }
-    let slope = if touch > 0.0 { ((touch - floor) / touch).max(0.0) } else { 0.0 };
-    let d = (CUSHION_ALPHA * slope).clamp(trade_delta_min(tick_size), CUSHION_MAX);
-    crate::utils::orderbook::floor_sig(floor * (1.0 - d), 9)
-}
-
-pub const BOUND_GUARD_PCT: f64 = 5.0;
-
-pub fn trade_bound_vs_mid(state: &AppState, bound: f64) -> Option<f64> {
-    let (base, quote) = trade_market_pair(state);
-    let m = crate::utils::liquidity::market(base, quote)?;
-    if m.mid <= 0.0 || bound <= 0.0 {
-        return None;
-    }
-    Some((trade_market_price(state, bound) - m.mid) / m.mid * 100.0)
-}
-
-pub fn trade_bound_sane(state: &AppState, bound: f64) -> bool {
-    let (base, quote) = trade_market_pair(state);
-    let Some(m) = crate::utils::liquidity::market(base, quote) else { return false };
-    match trade_bound_vs_mid(state, bound) {
-        Some(d) => d.abs() <= BOUND_GUARD_PCT || m.stable,
-        None => false,
-    }
-}
-
-fn trade_market_bound(state: &AppState, q: &crate::utils::orderbook::Quote) -> f64 {
-    trade_cushioned(q.floor, trade_touch(state), trade_tick_size(state))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum MarketVerdict {
-    LimitOnly,
-    Measuring,
-    NoFrame,
-    Idle,
-    NoDepth,
-    Walked { coverage_pct: f64, bound_pct: f64, held: bool },
-}
-
-pub fn trade_market_verdict(state: &AppState) -> MarketVerdict {
-    use crate::utils::orderbook::oriented;
-    if !trade_market_offered(state) {
-        return MarketVerdict::LimitOnly;
-    }
-    let (base, quote) = trade_market_pair(state);
-    if crate::utils::liquidity::market(base, quote).is_none() {
-        return MarketVerdict::Measuring;
-    }
-    let typed = trade_typed_amount(state);
-    if typed <= 0.0 {
-        return MarketVerdict::Idle;
-    }
-    let (pay, recv) = (state.trade_pay_asset.as_str(), state.trade_receive_asset.as_str());
-    let Some((book, _)) = oriented(pay, recv) else { return MarketVerdict::NoFrame };
-    if !trade_frame_ok(book.ledger) {
-        return MarketVerdict::NoFrame;
-    }
-    let Some(q) = trade_book_quote(state) else { return MarketVerdict::NoDepth };
-    let got = match state.trade_anchor {
-        TradeAnchor::Pay => q.filled,
-        TradeAnchor::Receive => q.receive,
-    };
-    let bound = trade_market_bound(state, &q);
-    let bound_pct = trade_bound_vs_mid(state, bound).unwrap_or(0.0);
-    MarketVerdict::Walked {
-        coverage_pct: coverage_pct(got, typed),
-        bound_pct,
-        held: !trade_bound_sane(state, bound),
-    }
-}
-
-pub(crate) fn coverage_pct(got: f64, want: f64) -> f64 {
-    if want <= 0.0 {
-        return 0.0;
-    }
-    (got / want * 100.0).clamp(0.0, 100.0)
-}
-
-fn trade_no_price(state: &AppState) -> &'static str {
-    if state.trade_contract == Some(TradeContract::Market) && trade_book_quote(state).is_some() {
-        "ERR: OFF_MARKET // the book has a hole this ledger, wait one"
-    } else {
-        "ERR: NO_PRICE"
-    }
-}
-
-pub fn trade_effective_limit(state: &AppState) -> f64 {
-    match state.trade_contract {
-        None => 0.0,
-        Some(TradeContract::Market) => match trade_book_quote(state).filter(|_| trade_quotable(state)) {
-            Some(q) => {
-                let b = trade_market_bound(state, &q);
-                if trade_bound_sane(state, b) { b } else { 0.0 }
-            }
-            None => 0.0,
-        },
-        Some(TradeContract::Limit) => {
-            trade_internal_price(state, state.trade_limit_price.trim().parse::<f64>().unwrap_or(0.0))
-        }
-    }
+pub(crate) fn clear_trade_secrets(state: &mut AppState) {
+    state.trade_passphrase.clear();
+    state.trade_passphrase_reveal = false;
+    state.trade_bip39.clear();
+    state.trade_bip39_reveal = false;
+    state.trade_seed_text.clear();
+    state.trade_seed_reveal = false;
 }
 
 const PAIR_KEY: &str = "xrp_pair";
@@ -1264,15 +922,33 @@ pub fn clear_trade_pair(state: &mut AppState) {
     state.trade_pay_asset.clear();
     state.trade_receive_asset.clear();
     state.trade_amount.clear();
-    state.trade_receive.clear();
     state.trade_limit_price.clear();
-    state.trade_error = None;
-    crate::controller::panes::dismiss_pair_search(state);
+    state.trade_pair_list = None;
+    state.trade_pair_query.clear();
     let _ = crate::bridge::json_storage::update_json::<serde_json::Value>("settings.json", |json| {
         if let Some(obj) = json.as_object_mut() {
             obj.remove(PAIR_KEY);
         }
     });
+}
+
+pub fn ensure_trade_pair(state: &mut AppState) {
+    {
+        let (base, quote) = trade_market_pair(state);
+        if !base.is_empty() && !quote.is_empty() {
+            return;
+        }
+    }
+    use crate::ui::managexrp::xrptrade::picker;
+    let (rows, _) = picker::listing("");
+    let (base, quote) = rows
+        .into_iter()
+        .next()
+        .or_else(|| picker::all_markets().into_iter().next())
+        .unwrap_or(("XRP", "RLUSD"));
+    let side = trade_default_side(base, quote);
+    state.trade_side_chosen = false;
+    orient_trade_pair(state, side, base, quote);
 }
 
 pub fn restore_trade_pair(state: &mut AppState) {
@@ -1316,16 +992,11 @@ fn orient_trade_pair(state: &mut AppState, side: TradeSide, base: &str, quote: &
     };
     state.trade_pay_asset = pay.to_string();
     state.trade_receive_asset = recv.to_string();
-    state.trade_anchor = match side {
-        TradeSide::Sell => TradeAnchor::Pay,
-        TradeSide::Buy => TradeAnchor::Receive,
-    };
 }
 
 pub fn follow_wallet_side(state: &mut AppState) {
     if state.trade_side_chosen
         || !state.trade_amount.trim().is_empty()
-        || !state.trade_receive.trim().is_empty()
         || !state.trade_limit_price.trim().is_empty()
     {
         return;
@@ -1348,32 +1019,11 @@ pub fn trade_market_pair(state: &AppState) -> (&str, &str) {
     }
 }
 
-pub fn trade_market_price(state: &AppState, internal: f64) -> f64 {
-    match state.trade_side {
-        TradeSide::Sell => internal,
-        TradeSide::Buy => if internal > 0.0 { 1.0 / internal } else { 0.0 },
-    }
-}
-
-pub fn trade_internal_price(state: &AppState, market: f64) -> f64 {
-    trade_market_price(state, market)
-}
-
 pub fn trade_available(state: &AppState) -> Option<f64> {
     if state.trade_pay_asset == "XRP" {
         xrp_available()
     } else {
         Some(CHANNEL.token(state.trade_pay_asset.as_str()).0)
-    }
-}
-
-pub fn trade_fits(state: &AppState, amount: f64) -> bool {
-    let Some(r) = xrp_reserve() else { return false };
-    let xrp_owed = xrp_fee() + if trade_can_rest(state) { r.per_object } else { 0.0 };
-    if state.trade_pay_asset == "XRP" {
-        amount + xrp_owed <= r.available
-    } else {
-        amount <= CHANNEL.token(state.trade_pay_asset.as_str()).0 && xrp_owed <= r.available
     }
 }
 
@@ -1413,40 +1063,26 @@ pub fn trade_expiry_check() {
     }
 }
 
-pub(crate) fn clear_trade_form(state: &mut AppState) {
-    sync_trade_books(state);
-    state.trade_pay_asset = String::new();
-    state.trade_receive_asset = String::new();
-    clear_trade_inputs(state);
-}
-
-fn clear_trade_form_after_order(state: &mut AppState) {
-    let (base, quote) = trade_market_pair(state);
-    let (base, quote) = (base.to_string(), quote.to_string());
-    clear_trade_form(state);
-    orient_trade_pair(state, trade_default_side(&base, &quote), &base, &quote);
-}
-
 pub(crate) fn clear_trade_inputs(state: &mut AppState) {
-    state.trade_step = 0;
     state.trade_amount = String::new();
     state.trade_limit_price = String::new();
-    state.trade_flags = Vec::new();
-    state.trade_contract = Some(TradeContract::Limit);
+    state.trade_tif = crate::utils::trade::TradeTif::Gtc;
+    state.trade_mode = crate::utils::trade::TradeKind::Limit;
+    state.trade_view = TradeView::Ticket;
+    state.trade_review_fee = None;
+    state.trade_pair_query.clear();
+    if state.trade_pair_list == Some(crate::controller::panes::PaneKind::Ticket) {
+        state.trade_pair_list = None;
+    }
     let (base, quote) = trade_market_pair(state);
     let (base, quote) = (base.to_string(), quote.to_string());
-    let side = trade_default_side(&base, &quote);
-    state.trade_side_chosen = false;
-    orient_trade_pair(state, side, &base, &quote);
-    state.trade_receive = String::new();
-    state.trade_pair_query.clear();
-    state.trade_error = None;
-    state.trade_passphrase.clear();
-    state.trade_passphrase_reveal = false;
-    state.trade_bip39.clear();
-    state.trade_bip39_reveal = false;
-    state.trade_seed_text.clear();
-    state.trade_seed_reveal = false;
+    if !base.is_empty() && !quote.is_empty() {
+        let side = trade_default_side(&base, &quote);
+        state.trade_side_chosen = false;
+        orient_trade_pair(state, side, &base, &quote);
+    }
+    clear_trade_secrets(state);
+    push_trade_ticket(state);
 }
 
 pub fn xrp_reserve() -> Option<crate::utils::reserves::Reserve> {
@@ -1522,16 +1158,8 @@ pub fn after_plain_edit(state: &mut AppState, field: PlainField) {
             state.send_anchor = SendAnchor::Fiat;
             derive_send_amount(state, rate);
         }
-        PlainField::TradeAmount => {
-            state.trade_anchor = TradeAnchor::Pay;
-            state.trade_error = None;
-        }
-        PlainField::TradeReceive => {
-            state.trade_anchor = TradeAnchor::Receive;
-            state.trade_error = None;
-        }
-        PlainField::TradeLimit => {
-            state.trade_error = None;
+        PlainField::TradeAmount | PlainField::TradeLimit => {
+            push_trade_ticket(state);
         }
         PlainField::TradePairQuery => {}
         _ => {}
@@ -1704,14 +1332,8 @@ pub(crate) fn clear_disable_form(state: &mut AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn coverage_is_clamped_to_a_percent() {
-        assert_eq!(coverage_pct(1000.000001, 1000.0), 100.0);
-        assert!((coverage_pct(333.0, 1000.0) - 33.3).abs() < 0.01);
-        assert_eq!(coverage_pct(0.0, 1000.0), 0.0);
-        assert_eq!(coverage_pct(5.0, 0.0), 0.0);
-    }
+    use crate::controller::panes::PaneKind;
+    use crate::utils::trade::{TradeQuote, TradeTicket, Verdict};
 
     #[test]
     fn exact_amount_round_trips_the_ledger_string() {
@@ -1720,74 +1342,38 @@ mod tests {
         }
     }
 
-    const WALK: (f64, f64) = (600.0, 840.0);
-    const WANT: (f64, f64) = (1000.0, 1371.4);
-    const LIMIT: f64 = 1.3714;
-
-    #[test]
-    fn a_depth_short_ticket_never_estimates_above_the_walk() {
-        let e = expected_amount(TradeAnchor::Pay, true, WALK, WANT, LIMIT);
-        assert!((e - WALK.1).abs() < 1e-9, "{e}");
-        assert!(e <= WALK.1 + 1e-9, "an IOC estimate may never exceed the walk");
-    }
-
-    #[test]
-    fn the_receive_anchor_estimate_is_also_the_walk_under_a_fill_now_tif() {
-        let e = expected_amount(TradeAnchor::Receive, true, WALK, WANT, LIMIT);
-        assert!((e - WALK.0).abs() < 1e-9, "{e}");
-        assert!(e < WANT.0, "the ticket asked to spend more than the book takes");
-    }
-
-    #[test]
-    fn a_resting_remainder_is_priced_at_the_limit_and_that_is_deliberate() {
-        let e = expected_amount(TradeAnchor::Pay, false, WALK, WANT, LIMIT);
-        assert!((e - (840.0 + 400.0 * LIMIT)).abs() < 1e-9, "{e}");
-        assert!(e > WALK.1, "a GTC estimate covers the part that rests");
-    }
-
-    #[test]
-    fn the_two_arms_agree_when_the_book_covers_the_size() {
-        let full = (1000.0, 1380.0);
-        let ioc = expected_amount(TradeAnchor::Pay, true, full, WANT, LIMIT);
-        let gtc = expected_amount(TradeAnchor::Pay, false, full, WANT, LIMIT);
-        assert!((ioc - gtc).abs() < 1e-9);
-    }
-
-    #[test]
-    fn a_walk_past_the_typed_size_never_reduces_the_estimate() {
-        let deep = (1200.0, 1650.0);
-        let e = expected_amount(TradeAnchor::Pay, false, deep, WANT, LIMIT);
-        assert!((e - 1650.0).abs() < 1e-9, "{e}");
-    }
-
-    #[test]
-    fn the_cushion_only_ever_loosens_the_bound() {
-        let floor = 1.3714;
-        for touch in [1.3714, 1.3800, 1.5000, 0.0] {
-            let b = trade_cushioned(floor, touch, None);
-            assert!(b > 0.0 && b < floor, "touch {touch}: {b} not under {floor}");
+    fn frozen_quote() -> TradeQuote {
+        TradeQuote {
+            ticket: TradeTicket {
+                base: "XRP".to_string(),
+                quote: "RLUSD".to_string(),
+                side: TradeSide::Sell,
+                kind: TradeKind::Limit,
+                amount: "500".to_string(),
+                limit: Some(1.3004),
+                tif: TradeTif::Gtc,
+            },
+            market_ok: true,
+            require_auth: false,
+            global_freeze: false,
+            bids: Vec::new(),
+            asks: Vec::new(),
+            book_mid: Some(1.2994),
+            book_spread_pct: Some(0.11),
+            ledger: 1,
+            fresh: true,
+            verdict: Verdict::Idle,
+            price_row: None,
+            counter: Some(650.2),
+            route: None,
+            pay_asset: "XRP".to_string(),
+            receive_asset: "RLUSD".to_string(),
+            pay: Some("500".to_string()),
+            receive: Some("650.2".to_string()),
+            flags: vec!["tfSell".to_string()],
+            lockable: true,
+            max_base: Some(8213.10219),
         }
-        assert_eq!(trade_cushioned(0.0, 1.0, None), 0.0);
-    }
-
-    #[test]
-    fn a_steeper_book_earns_a_wider_cushion() {
-        let floor = 1.0;
-        let flat = trade_cushioned(floor, 1.0001, None);
-        let steep = trade_cushioned(floor, 1.05, None);
-        assert!(steep < flat, "steep {steep} should sit lower than flat {flat}");
-        let absurd = trade_cushioned(floor, 100.0, None);
-        assert!(absurd >= floor * (1.0 - CUSHION_MAX) * 0.999_999, "{absurd}");
-    }
-
-    #[test]
-    fn delta_min_clears_one_tick() {
-        assert!((trade_delta_min(Some(5)) - 1e-4).abs() < 1e-12);
-        assert!((trade_delta_min(Some(6)) - 1e-5).abs() < 1e-12);
-        assert!((trade_delta_min(None) - 1e-7).abs() < 1e-15);
-        let flat_default = trade_cushioned(1.0, 1.0, None);
-        let flat_bbrl = trade_cushioned(1.0, 1.0, Some(5));
-        assert!(flat_bbrl < flat_default, "{flat_bbrl} !< {flat_default}");
     }
 
     #[test]
@@ -1798,7 +1384,7 @@ mod tests {
             state.trade_side_chosen = true;
             state.trade_amount = "1".to_string();
 
-            clear_trade_form_after_order(&mut state);
+            clear_trade_inputs(&mut state);
 
             assert_eq!(trade_market_pair(&state), ("XRP", "RLUSD"), "after a {side:?}");
             let (base, quote) = trade_market_pair(&state);
@@ -1807,5 +1393,75 @@ mod tests {
             assert!(!state.trade_side_chosen, "after a {side:?}");
             assert_eq!(state.trade_amount, "", "after a {side:?}");
         }
+    }
+
+    #[test]
+    fn picking_a_pair_drops_the_review_lock_and_resets_the_ticket() {
+        let mut state = AppState::default();
+        orient_trade_pair(&mut state, TradeSide::Sell, "XRP", "RLUSD");
+        state.trade_mode = TradeKind::Market;
+        state.trade_tif = TradeTif::Fok;
+        state.trade_amount = "500".to_string();
+        state.trade_view = TradeView::Review(Box::new(frozen_quote()));
+        state.trade_review_fee = Some(12);
+        state.trade_pair_list = Some(PaneKind::Depth);
+
+        let _ = handle(&mut state, Message::TradePairSelected("RLUSD".to_string(), "EUROP".to_string()));
+
+        assert_eq!(state.trade_view, TradeView::Ticket, "the lock survived a pair pick");
+        assert_eq!(state.trade_review_fee, None);
+        assert_eq!(state.trade_mode, TradeKind::Limit, "the mode is reset to Limit, the settled rule");
+        assert_eq!(state.trade_tif, TradeTif::Gtc);
+        assert_eq!(state.trade_amount, "");
+        assert_eq!(state.trade_pair_list, None);
+        assert_eq!(trade_market_pair(&state), ("RLUSD", "EUROP"));
+    }
+
+    #[test]
+    fn a_book_press_is_inert_while_the_review_is_open() {
+        let mut state = AppState::default();
+        orient_trade_pair(&mut state, TradeSide::Sell, "XRP", "RLUSD");
+        state.trade_mode = TradeKind::Limit;
+        state.trade_limit_price = "1.3004".to_string();
+        state.trade_view = TradeView::Review(Box::new(frozen_quote()));
+
+        let _ = handle(&mut state, Message::TradeBookPriceClicked("1.3016".to_string()));
+
+        assert_eq!(state.trade_limit_price, "1.3004", "a level press reached a locked ticket");
+        assert!(matches!(state.trade_view, TradeView::Review(_)));
+
+        state.trade_view = TradeView::Limit;
+        let _ = handle(&mut state, Message::TradeBookPriceClicked("1.3016".to_string()));
+        assert_eq!(state.trade_limit_price, "1.3016");
+        assert_eq!(state.trade_view, TradeView::Ticket, "a picked level closes the price swap");
+    }
+
+    #[test]
+    fn leaving_market_lands_on_the_ticket_not_the_price_swap() {
+        let mut state = AppState::default();
+        orient_trade_pair(&mut state, TradeSide::Sell, "XRP", "RLUSD");
+        state.trade_mode = TradeKind::Market;
+
+        let _ = handle(&mut state, Message::TradeLimitOpened);
+        assert_eq!(state.trade_mode, TradeKind::Limit);
+        assert_eq!(state.trade_view, TradeView::Ticket, "a mode switch opened the price swap");
+
+        let _ = handle(&mut state, Message::TradeLimitOpened);
+        assert_eq!(state.trade_view, TradeView::Limit, "Limit while already on opens the swap");
+    }
+
+    #[test]
+    fn cancelling_the_price_swap_leaves_limit_with_no_price() {
+        let mut state = AppState::default();
+        orient_trade_pair(&mut state, TradeSide::Sell, "XRP", "RLUSD");
+        let _ = handle(&mut state, Message::TradeLimitOpened);
+        assert_eq!(state.trade_view, TradeView::Limit);
+        state.trade_limit_price = "1.3050".to_string();
+
+        let _ = handle(&mut state, Message::TradeLimitCancelled);
+
+        assert_eq!(state.trade_view, TradeView::Ticket);
+        assert_eq!(state.trade_mode, TradeKind::Limit, "Limit stays on");
+        assert_eq!(state.trade_limit_price, "", "no price survives a cancel");
     }
 }

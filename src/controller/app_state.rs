@@ -142,13 +142,6 @@ impl BaseCcy {
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TradeAnchor {
-    Pay,
-    Receive,
-}
-
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SendAnchor {
     #[default]
@@ -156,17 +149,13 @@ pub enum SendAnchor {
     Fiat,
 }
 
+pub use crate::utils::trade::{TradeKind, TradeSide, TradeTif};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TradeContract {
-    Market,
+#[derive(Debug, Clone, PartialEq)]
+pub enum TradeView {
+    Ticket,
     Limit,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TradeSide {
-    Sell,
-    Buy,
+    Review(Box<crate::utils::trade::TradeQuote>),
 }
 
 #[derive(Copy, Debug, Clone, PartialEq, Default)]
@@ -368,28 +357,23 @@ pub struct AppState {
     pub btc_bump_bip39_reveal: bool,
     pub btc_bump_seed_text: SecureString,
     pub btc_bump_seed_reveal: bool,
-    pub trade_step: u8,
-
     pub trade_pay_asset: String,
     pub trade_receive_asset: String,
     pub trade_amount: String,
     pub trade_limit_price: String,
-    pub trade_flags: Vec<String>,
-   
-    pub trade_contract: Option<TradeContract>,
-    
+    pub trade_mode: TradeKind,
+    pub trade_tif: TradeTif,
+
     pub trade_side: TradeSide,
-   
+
     pub trade_side_chosen: bool,
 
-    pub trade_pair_search_open: bool,
-    pub trade_anchor: TradeAnchor,
+    pub trade_view: TradeView,
 
-    pub trade_receive: String,
+    pub trade_pair_list: Option<crate::controller::panes::PaneKind>,
+
+    pub trade_review_fee: Option<u64>,
     pub trade_pair_query: String,
-    pub trade_error: Option<String>,
- 
-    pub trade_books: Vec<String>,
     pub trade_passphrase: SecureString,
     pub trade_passphrase_reveal: bool,
     pub trade_bip39: SecureString,
@@ -531,7 +515,6 @@ impl AppState {
             PlainField::XrpSendTag => &mut self.send_tag_draft,
             PlainField::XrpReceiveTag => &mut self.receive_tag_draft,
             PlainField::TradeAmount => &mut self.trade_amount,
-            PlainField::TradeReceive => &mut self.trade_receive,
             PlainField::TradeLimit => &mut self.trade_limit_price,
             PlainField::TradePairQuery => &mut self.trade_pair_query,
         }
@@ -551,7 +534,6 @@ impl AppState {
                 | PlainField::XrpSendAmount
                 | PlainField::XrpSendFiat
                 | PlainField::TradeAmount
-                | PlainField::TradeReceive
                 | PlainField::TradeLimit => {
                     let dots = s.chars().filter(|c| *c == '.').count()
                         + add.chars().filter(|c| *c == '.').count();
@@ -645,6 +627,7 @@ impl AppState {
         self.btc_grid = crate::controller::panes::Grid::load(crate::controller::panes::Chain::Btc, crate::controller::panes::BTC_KEY)
             .unwrap_or_else(|| crate::controller::panes::Grid::new(crate::controller::panes::Chain::Btc));
         crate::controller::xrp::clear_trade_pair(self);
+        crate::controller::xrp::ensure_trade_pair(self);
     }
 
     pub fn secure_field_len(&mut self, field: SecureField) -> usize {
@@ -803,21 +786,18 @@ impl Default for AppState {
             btc_send_bip39_reveal: false,
             btc_send_seed_text: SecureString::input(),
             btc_send_seed_reveal: false,
-            trade_step: 0,
             trade_pay_asset: String::new(),
             trade_receive_asset: String::new(),
             trade_amount: String::new(),
             trade_limit_price: String::new(),
-            trade_flags: Vec::new(),
-            trade_contract: Some(TradeContract::Limit),
+            trade_mode: TradeKind::Limit,
+            trade_tif: TradeTif::Gtc,
             trade_side: TradeSide::Buy,
             trade_side_chosen: false,
-            trade_pair_search_open: false,
-            trade_anchor: TradeAnchor::Receive,
-            trade_receive: String::new(),
+            trade_view: TradeView::Ticket,
+            trade_pair_list: None,
+            trade_review_fee: None,
             trade_pair_query: String::new(),
-            trade_error: None,
-            trade_books: Vec::new(),
             trade_passphrase: SecureString::input(),
             trade_passphrase_reveal: false,
             trade_bip39: SecureString::input(),
@@ -869,6 +849,7 @@ impl Default for AppState {
             rate_history_long: HashMap::new(),
         };
         crate::controller::xrp::restore_trade_pair(&mut app);
+        crate::controller::xrp::ensure_trade_pair(&mut app);
         crate::controller::xrp::restore_receive_tag(&mut app);
         app
     }
