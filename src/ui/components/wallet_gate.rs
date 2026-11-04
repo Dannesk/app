@@ -1,15 +1,15 @@
 
 
 use iced::Widget as _;
-use iced::time::Duration;
-use iced::widget::canvas::{self as cnvs, path::Arc, Frame, Geometry, LineCap, LineDash, Path, Stroke};
+use iced::widget::canvas::{self as cnvs, Frame, Geometry, Path, Stroke};
 use iced::widget::text::LineHeight;
 use iced::widget::{button, canvas, column, container, row, stack, svg, text, Space};
-use iced::{mouse, window, Border, Color, Element, Length, Padding, Point, Radians, Rectangle, Shadow};
+use iced::{mouse, Border, Color, Element, Length, Padding, Point, Rectangle, Shadow};
 
+use crate::channel::Socket;
 use crate::controller::message::Message;
 use crate::ui::components::compact::vrule;
-use crate::utils::bloom;
+use crate::ui::components::orbit::{self, Chain};
 use crate::utils::fonts::LIGHT;
 use crate::utils::icons;
 use crate::utils::theme::CompactPalette;
@@ -21,14 +21,10 @@ const DASH: f32 = 2.0;
 const DASH_PITCH: f32 = 8.0;
 const LIT: f32 = 58.0;
 const LIT_W: f32 = 1.7;
-const LAP_SECS: f32 = 21.0;
 const PLATE: f32 = 142.0;
-const GLYPH: f32 = 62.0;
-const XRP_MARK_W: f32 = 44.0;
-const XRP_MARK_H: f32 = XRP_MARK_W * 424.0 / 512.0;
-
-
-const FRAME: Duration = Duration::from_millis(33);
+pub(crate) const GLYPH: f32 = 62.0;
+pub(crate) const XRP_MARK_W: f32 = 44.0;
+pub(crate) const XRP_MARK_H: f32 = XRP_MARK_W * 424.0 / 512.0;
 
 
 const WORDS: f32 = 15.0;
@@ -93,9 +89,14 @@ pub fn figure(mark: Mark, p: &'static CompactPalette, scale: f32) -> Element<'st
             .boxed(),
     };
 
+    let chain = match mark {
+        Mark::Btc => Chain::Btc,
+        Mark::Xrp => Chain::Xrp,
+    };
+    let node = orbit::node(chain, orbit::socket() == Socket::Live);
     let orbit = Orbit {
         track: Color { a: 0.32, ..p.faint },
-        lit:   Color { a: 0.85, ..p.green },
+        lit:   Color { a: 0.85, ..node.color(p) },
         plate: p.border_soft,
         scale,
     };
@@ -146,21 +147,6 @@ struct Orbit {
 impl cnvs::Program<Message> for Orbit {
     type State = ();
 
-    fn update(
-        &self,
-        _state: &mut (),
-        event: &cnvs::Event,
-        _bounds: Rectangle,
-        _cursor: mouse::Cursor,
-    ) -> Option<cnvs::Action<Message>> {
-        match event {
-            cnvs::Event::Window(window::Event::RedrawRequested(now)) => {
-                Some(cnvs::Action::request_redraw_at(*now + FRAME))
-            }
-            _ => None,
-        }
-    }
-
     fn draw(
         &self,
         _state: &(),
@@ -173,36 +159,15 @@ impl cnvs::Program<Message> for Orbit {
         let mut frame = Frame::new(renderer, bounds.size());
         let c = Point::new(bounds.width / 2.0, bounds.height / 2.0);
         let r = TRACK_R * s;
-
-        let circumference = std::f32::consts::TAU * r;
-        let pitch = circumference / (circumference / (DASH_PITCH * s)).round();
-        let dash = [DASH * s, pitch - DASH * s];
-        frame.stroke(
-            &Path::circle(c, r),
-            Stroke {
-                line_dash: LineDash { segments: &dash, offset: 0 },
-                line_cap: LineCap::Round,
-                ..Stroke::default().with_color(self.track).with_width(1.0)
-            },
-        );
-
-   
-        let head = (bloom::clock_secs() % LAP_SECS) / LAP_SECS * std::f32::consts::TAU;
-        let sweep = LIT / TRACK_R;
-        frame.stroke(
-            &Path::new(|b| {
-                b.arc(Arc {
-                    center: c,
-                    radius: r,
-                    start_angle: Radians(head),
-                    end_angle: Radians(head + sweep),
-                })
-            }),
-            Stroke {
-                line_cap: LineCap::Round,
-              
-                ..Stroke::default().with_color(self.lit).with_width((LIT_W * s).max(1.0))
-            },
+        orbit::track(&mut frame, c, r, DASH * s, DASH_PITCH * s, self.track);
+        orbit::arc(
+            &mut frame,
+            c,
+            r,
+            -std::f32::consts::FRAC_PI_2,
+            LIT / TRACK_R,
+            self.lit,
+            (LIT_W * s).max(1.0),
         );
 
         frame.stroke(

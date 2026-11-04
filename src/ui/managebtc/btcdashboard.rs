@@ -129,7 +129,7 @@ fn pane_content<'a>(
                     ),
                 )
             }
-            PaneKind::Blocks => (strip("blocks"), None, blocks_pane(state, cp, scale)),
+            PaneKind::Blocks => (strip("network"), None, blocks_pane(state, cp, scale)),
             PaneKind::Transactions => (
                 strip(panes_ui::transactions::title(state)),
                 None,
@@ -735,7 +735,7 @@ fn blocks_body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
             .padding(Padding::new(0.0).top(2.0 * scale).bottom(10.0 * scale)),
         drow("status", vec![(format!("\u{25cf} {word}"), dot)], 3.0, cp, scale),
         drow(
-            "tip",
+            "block",
             vec![(node.tip_height.map_or(NA.to_string(), |h| add_commas(h as i64)), cp.text)],
             3.0,
             cp,

@@ -1,7 +1,7 @@
 use iced::Subscription;
 use crate::controller::message::Message;
 use crate::controller::app_state::AppState;
-use crate::channel::{ActivityLogState, RateHistoryMap, CHANNEL};
+use crate::channel::{ActivityLogState, RateHistoryMap, Socket, CHANNEL};
 use tokio::sync::watch::Receiver;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
@@ -21,6 +21,7 @@ pub fn subscriptions(state: &AppState) -> Subscription<Message> {
         watch("rates", CHANNEL.rates_rx.clone()),
         watch("loaded", CHANNEL.loaded_rx.clone()),
         watch("launch", CHANNEL.launch_rx.clone()),
+        watch_socket(CHANNEL.socket_rx.clone()),
         watch("rates_ws_status", CHANNEL.rates_ws_status_rx.clone()),
         watch("relay_ws_status", CHANNEL.relay_ws_status_rx.clone()),
         watch("btc_ws_status", CHANNEL.btc_ws_status_rx.clone()),
@@ -61,12 +62,6 @@ pub fn subscriptions(state: &AppState) -> Subscription<Message> {
                 _ => None,
             }
         }));
-    }
-    if state.gate_unlocked
-        && state.selected_tab == crate::controller::app_state::Tab::Balance
-        && crate::ui::managebalance::totalbalance::fetching()
-    {
-        subs.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::FetchTick));
     }
     if state.activity_log.is_some() {
         subs.push(
@@ -133,6 +128,16 @@ fn watch_rate_history_long(rx: Receiver<RateHistoryMap>) -> Subscription<Message
             let _ = rx.changed().await;
             let val = rx.borrow().clone();
             Some((Message::RateHistoryLongReceived(val), rx))
+        })
+    })
+}
+
+fn watch_socket(rx: Receiver<Socket>) -> Subscription<Message> {
+    Subscription::run_with(WatchHandle { id: "socket", rx }, |handle| {
+        iced::futures::stream::unfold(handle.rx.clone(), |mut rx| async move {
+            let _ = rx.changed().await;
+            let val = *rx.borrow_and_update();
+            Some((Message::SocketChanged(val), rx))
         })
     })
 }

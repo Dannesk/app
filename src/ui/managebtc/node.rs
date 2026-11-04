@@ -16,6 +16,7 @@ pub(crate) const FEE_BANDS: [(f32, &str); 5] = [
 
 
 pub(crate) const BEHIND_FLOOR_SECS: u64 = 60;
+pub(crate) const SYNCED_FLOOR: f32 = 0.9999;
 
 pub(crate) fn band_color(band: usize, p: &'static CompactPalette) -> Color {
     match band {
@@ -55,7 +56,7 @@ impl NodeFrameView for NodeFrame {
         }
         match self.sync {
         
-            Some(s) if s < 0.9999 => ("syncing", p.amber),
+            Some(s) if s < SYNCED_FLOOR => ("syncing", p.amber),
             Some(_) => ("synced", p.green),
             None => ("unknown", p.muted),
         }

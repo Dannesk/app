@@ -4,9 +4,11 @@ use iced::mouse;
 use iced::widget::canvas::{self, Canvas, Frame};
 use iced::widget::pane_grid::Pane;
 use iced::widget::{column, container, responsive, row, stack, text, Column, Space};
-use iced::{Alignment, Color, Element, Length, Padding, Point, Radians, Rectangle, Size};
+use iced::{window, Alignment, Color, Element, Length, Padding, Point, Rectangle, Size};
+use std::time::Instant;
 
-use crate::channel::{XrpNodeStats as NodeFrame, CHANNEL};
+use crate::channel::{Socket, XrpNodeStats as NodeFrame, CHANNEL};
+use crate::ui::components::orbit::{self, Middle, Node, Status};
 use crate::controller::app_state::{AppState, ChartPeriod, EnableInputMode, SendAnchor, XrpTokenTab};
 use crate::controller::message::{Message, PlainField, SecureField, TagPane};
 use crate::controller::panes::{Chain, GridMsg, LedgerBar, PaneKind};
@@ -192,23 +194,6 @@ const ORBIT_FIGURE: [f32; 4] = [28.0, 24.0, 20.0, 16.0];
 const BALANCE_MIN_H: f32 = 180.0;
 const LEDGER_PULSE: std::time::Duration = std::time::Duration::from_millis(1400);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OrbitState {
-    Live,
-    Syncing,
-    Offline,
-}
-
-pub fn orbit_state(node_up: bool, synced: Option<bool>) -> OrbitState {
-    if !node_up {
-        OrbitState::Offline
-    } else if synced == Some(false) {
-        OrbitState::Syncing
-    } else {
-        OrbitState::Live
-    }
-}
-
 fn balance_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     grid::fill_or_scroll_by(BALANCE_MIN_H, move |size: Size| balance_body(state, size, cp, scale), cp, scale)
 }
@@ -219,8 +204,10 @@ fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette
     let ccy = state.base_currency.code();
     let mask = |s: String| if hide { "\u{2022}".repeat(4) } else { s };
 
+    let loaded = *CHANNEL.loaded_rx.borrow();
+    let ready = loaded.wallets && loaded.xrp;
     let xrp_rate = price::cross("XRP", ccy);
-    let mut total = (xrp_rate > 0.0).then(|| xrp_amount * xrp_rate);
+    let mut total = (ready && xrp_rate > 0.0).then(|| xrp_amount * xrp_rate);
     for t in tokens::TOKENS {
         let (bal, has, _) = CHANNEL.token(t.code);
         if has && bal > 0.0 {
@@ -228,22 +215,16 @@ fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette
             total = total.filter(|_| rate > 0.0).map(|sum| sum + bal * rate);
         }
     }
-    let fiat = if hide { Some("\u{2022}".repeat(6)) } else { total.map(money) };
-    let shown = fiat.clone().unwrap_or_else(|| NA.to_string());
 
     let node = CHANNEL.xrp_node_rx.borrow().clone();
-    let orbit = orbit_state(CHANNEL.health(crate::channel::XRP_NODE).is_up(), node.synced);
-    let arc = match orbit {
-        OrbitState::Live => cp.green,
-        OrbitState::Syncing => cp.amber,
-        OrbitState::Offline => cp.red,
+    let socket = orbit::socket();
+    let xrp = orbit::xrp_node(socket == Socket::Live);
+    let middle = orbit::middle(socket, [Some(xrp), None], total.is_some(), [ready, true], orbit::rates_pending());
+    let (word, word_ink) = match xrp {
+        Node::CatchingUp(_) => ("Syncing", cp.amber),
+        _ => ("Ledger", cp.muted),
     };
-    let (word, word_ink) = match orbit {
-        OrbitState::Live => ("Ledger", cp.muted),
-        OrbitState::Syncing => ("Syncing", cp.amber),
-        OrbitState::Offline => ("Offline", cp.muted),
-    };
-    let fresh = orbit == OrbitState::Live && state.ledger_at.is_some_and(|t| t.elapsed() < LEDGER_PULSE);
+    let fresh = xrp == Node::Live && state.ledger_at.is_some_and(|t| t.elapsed() < LEDGER_PULSE);
     let mut ledger = row![text(word).size(ROW_KEY * scale).color(word_ink)]
         .spacing(6.0 * scale)
         .align_y(Alignment::End);
@@ -258,30 +239,56 @@ fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette
     }
 
     let ring_d = (size.width / scale - 2.0 * RING_PAD).min(RING_MAX).max(RING_MIN);
-    let unit_w = ccy.chars().count() as f32 * HERO_UNIT * MONO_ADVANCE;
-    let fsize = ORBIT_FIGURE
-        .into_iter()
-        .find(|s| shown.chars().count() as f32 * s * 0.58 + 7.0 + unit_w <= ring_d * 0.8)
-        .unwrap_or(ORBIT_FIGURE[3]);
-    let hero = row![
-        text(shown).font(LIGHT).size(fsize * scale).color(if fiat.is_some() { cp.text } else { cp.faint }),
-        Space::new().width(7.0 * scale),
-        container(text(ccy.to_uppercase()).font(MONO).size(HERO_UNIT * scale).color(cp.muted))
-            .padding(Padding::new(0.0).bottom((fsize * 0.17).round() * scale)),
-    ]
-    .align_y(Alignment::End);
+    let fit = |chars: usize, extra: f32| {
+        ORBIT_FIGURE
+            .into_iter()
+            .find(|s| chars as f32 * s * 0.58 + extra <= ring_d * 0.8)
+            .unwrap_or(ORBIT_FIGURE[3])
+    };
     let native = row![
         text(mask(format!("{xrp_amount:.6}"))).font(MONO).size(ROW_VALUE * scale).color(cp.dim),
         Space::new().width(5.0 * scale),
         text("XRP").font(MONO).size(ROW_VALUE * scale).color(cp.muted),
     ]
     .align_y(Alignment::End);
-    let figures = column![hero, Space::new().height(8.0 * scale), native].align_x(Alignment::Center);
+    let figures: Element<'a, Message> = match middle {
+        Middle::Figure { dim, .. } => {
+            let shown = if hide { "\u{2022}".repeat(6) } else { money(total.unwrap_or(0.0)) };
+            let unit_w = ccy.chars().count() as f32 * HERO_UNIT * MONO_ADVANCE;
+            let fsize = fit(shown.chars().count(), 7.0 + unit_w);
+            let hero = row![
+                text(shown).font(LIGHT).size(fsize * scale).color(if dim { cp.dim } else { cp.text }),
+                Space::new().width(7.0 * scale),
+                container(text(ccy.to_uppercase()).font(MONO).size(HERO_UNIT * scale).color(cp.muted))
+                    .padding(Padding::new(0.0).bottom((fsize * 0.17).round() * scale)),
+            ]
+            .align_y(Alignment::End);
+            column![hero, Space::new().height(8.0 * scale), native].align_x(Alignment::Center).boxed()
+        }
+        Middle::Status(status) => {
+            let words = text(status.words())
+                .font(LIGHT)
+                .size(fit(status.words().chars().count(), 0.0) * scale)
+                .color(if status.strong() { cp.text } else { cp.dim });
+            if ready && status != Status::Connecting {
+                column![words, Space::new().height(8.0 * scale), native].align_x(Alignment::Center).boxed()
+            } else {
+                words.boxed()
+            }
+        }
+    };
+    let alpha = orbit::arc_alpha(&state.theme);
     let d = Length::Fixed(ring_d * scale);
     let ring = stack![
-        Canvas::new(Ring { track: Color { a: 0.32, ..cp.faint }, lit: Color { a: 0.85, ..arc }, scale })
-            .width(d)
-            .height(d),
+        Canvas::new(Ring {
+            track: Color { a: 0.32, ..cp.faint },
+            lit: Color { a: alpha, ..xrp.color(cp) },
+            dim: Color { a: alpha, ..cp.dim },
+            laps: state.socket_laps,
+            scale,
+        })
+        .width(d)
+        .height(d),
         container(figures).center(d),
     ];
     let orbit = column![ring, Space::new().height(8.0 * scale), ledger].align_x(Alignment::Center);
@@ -297,15 +304,36 @@ fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette
 struct Ring {
     track: Color,
     lit: Color,
+    dim: Color,
+    laps: Option<(Instant, u32)>,
     scale: f32,
 }
 
+#[derive(Default)]
+struct RingMemory {
+    now: Option<Instant>,
+}
+
 impl<Message> canvas::Program<Message> for Ring {
-    type State = ();
+    type State = RingMemory;
+
+    fn update(
+        &self,
+        state: &mut RingMemory,
+        event: &canvas::Event,
+        _bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Option<canvas::Action<Message>> {
+        let canvas::Event::Window(window::Event::RedrawRequested(now)) = event else {
+            return None;
+        };
+        state.now = Some(*now);
+        orbit::turn(self.laps, *now).map(|_| canvas::Action::request_redraw())
+    }
 
     fn draw(
         &self,
-        _state: &Self::State,
+        state: &RingMemory,
         renderer: &iced::Renderer,
         _theme: &iced::Theme,
         bounds: Rectangle,
@@ -317,31 +345,19 @@ impl<Message> canvas::Program<Message> for Ring {
         if r <= 0.0 {
             return vec![frame.into_geometry()];
         }
-        let circumference = std::f32::consts::TAU * r;
-        let pitch = circumference / (circumference / (RING_PITCH * self.scale)).round();
-        let dash = [RING_DASH * self.scale, pitch - RING_DASH * self.scale];
-        frame.stroke(
-            &canvas::Path::circle(c, r),
-            canvas::Stroke {
-                line_dash: canvas::LineDash { segments: &dash, offset: 0 },
-                line_cap: canvas::LineCap::Round,
-                ..canvas::Stroke::default().with_color(self.track).with_width(1.0)
-            },
-        );
-        let start = -std::f32::consts::FRAC_PI_2;
-        frame.stroke(
-            &canvas::Path::new(|b| {
-                b.arc(canvas::path::Arc {
-                    center: c,
-                    radius: r,
-                    start_angle: Radians(start),
-                    end_angle: Radians(start + RING_LIT),
-                })
-            }),
-            canvas::Stroke {
-                line_cap: canvas::LineCap::Round,
-                ..canvas::Stroke::default().with_color(self.lit).with_width((RING_LIT_W * self.scale).max(1.0))
-            },
+        orbit::track(&mut frame, c, r, RING_DASH * self.scale, RING_PITCH * self.scale, self.track);
+        let (lit, spin) = match orbit::turn(self.laps, state.now.unwrap_or_else(Instant::now)) {
+            Some(t) => (self.dim, std::f32::consts::TAU * t),
+            None => (self.lit, 0.0),
+        };
+        orbit::arc(
+            &mut frame,
+            c,
+            r,
+            spin - std::f32::consts::FRAC_PI_2,
+            RING_LIT,
+            lit,
+            (RING_LIT_W * self.scale).max(1.0),
         );
         vec![frame.into_geometry()]
     }
@@ -979,14 +995,6 @@ mod tests {
 
     fn at(open: u64, base: u64) -> NodeFrame {
         NodeFrame { open_ledger_fee: Some(open), fee_base: Some(base), ..Default::default() }
-    }
-
-    #[test]
-    fn the_orbit_is_the_network_state() {
-        assert_eq!(orbit_state(false, Some(true)), OrbitState::Offline);
-        assert_eq!(orbit_state(true, Some(false)), OrbitState::Syncing);
-        assert_eq!(orbit_state(true, Some(true)), OrbitState::Live);
-        assert_eq!(orbit_state(true, None), OrbitState::Live);
     }
 
     #[test]

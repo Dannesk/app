@@ -7,3 +7,4 @@ pub mod tui;
 pub mod send_screen;
 pub mod tx_panel;
 pub mod grid;
+pub mod orbit;

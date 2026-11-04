@@ -11,6 +11,7 @@ use crate::channel::CHANNEL;
 use crate::controller::message::Message;
 use crate::controller::app_state::XrpView;
 use crate::controller::app_state::AppState;
+use crate::ui::components::orbit;
 
 const SHORT_HISTORY_CAP: usize = 120;           
 const SHORT_BUCKET_MS: u64 = 30 * 1000;           
@@ -240,6 +241,10 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         }
         Message::Sync => {
             panes::note_ledger(state);
+            state.btc_behind_peak = orbit::peak(
+                state.btc_behind_peak,
+                orbit::btc_node(orbit::socket() == crate::channel::Socket::Live),
+            );
             xrp::trade_expiry_check();
             crate::controller::xrp::resync_send_twin(state);
             crate::controller::btc::resync_send_twin(state);
@@ -311,7 +316,9 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         }
         Message::HistoryLoadMore(list) => return Task::future(crate::bridge::history_logic::load_more(list)).discard(),
         Message::SystemFontsIndexed => {}
-        Message::FetchTick => {}
+        Message::SocketChanged(socket) => {
+            state.socket_laps = orbit::laps(state.socket_laps, socket, std::time::Instant::now());
+        }
         Message::FirstFrame => {
             crate::startup_trace::first_frame();
             return crate::utils::fonts::system_fonts_task();

@@ -154,7 +154,7 @@ pub enum Message {
     ImportFailed,
     ActivityChanged(Option<ActivityLogState>),
     ActivityTick(std::time::Instant),
-    FetchTick,
+    SocketChanged(crate::channel::Socket),
     ActivityDismiss,
     BackClicked,
     DeleteXrpKey,

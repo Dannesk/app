@@ -170,16 +170,6 @@ pub fn compact(theme: &iced::Theme) -> &'static CompactPalette {
     }
 }
 
-pub fn bloom_alpha(theme: &iced::Theme) -> f32 {
-    if theme.to_string().contains("Graphite") {
-        0.26
-    } else if is_dark(theme) {
-        0.28
-    } else {
-        0.30
-    }
-}
-
 pub fn is_dark(theme: &iced::Theme) -> bool {
     matches!(theme, iced::Theme::Dark)
         || theme.to_string().contains("Obsidian")

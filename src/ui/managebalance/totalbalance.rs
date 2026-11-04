@@ -1,77 +1,70 @@
-
-
 use iced::Widget as _;
 use std::cell::Cell;
 use std::hash::{Hash, Hasher};
+use std::time::Instant;
 
 use iced::mouse;
-use iced::widget::canvas::{self, Cache, Canvas, Geometry};
-use iced::widget::{column, container, row, stack, text, Space};
-use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle};
+use iced::widget::canvas::{self, Cache, Canvas, Event, Geometry};
+use iced::widget::text::{Span, Wrapping};
+use iced::widget::{column, container, rich_text, row, span, stack, text, Space};
+use iced::{window, Alignment, Color, Element, Length, Padding, Point, Rectangle};
 
-use crate::channel::CHANNEL;
+use crate::channel::{Socket, CHANNEL};
 use crate::controller::app_state::AppState;
 use crate::controller::message::Message;
 use crate::ui::components::compact as ck;
-use crate::utils::bloom;
-use crate::utils::fonts::{LIGHT, MONO};
-use crate::utils::money;
+use crate::ui::components::orbit::{self, Chain, Line, Middle, Node, Status};
+use crate::ui::components::tui::MONO_ADVANCE;
+use crate::utils::fonts::{LIGHT, MONO, SANS};
 use crate::utils::sparkline;
 use crate::utils::theme::{self, CompactPalette};
-use crate::utils::{icons, price, tokens};
+use crate::utils::{add_commas, icons, money, price, tokens};
 
+const RING_R: f32 = 210.0;
+const RING_PAD: f32 = 24.0;
+const MARK_W: f32 = 11.0;
+const MARK_GAP: f32 = 8.0;
+const RING_LIFT: f32 = 10.0;
+const TRACK_ALPHA: f32 = 0.32;
+const TRACK_DASH: f32 = 2.0;
+const TRACK_PITCH: f32 = 8.0;
+const ARC_W: f32 = 1.7;
+const ARC_DEG: f32 = 20.0;
+const CATCH_DEG: f32 = 150.0;
+const HOMES: [f32; 2] = [315.0, 135.0];
 
-const STAGE_PAD_BOTTOM: f32 = 28.0;
-const DELTA_GAP: f32 = 22.0;
-
-const DELTA_H: f32 = 16.0;
-const DELTA_SPACING: f32 = 9.0;
-const FOOT_PAD_BOTTOM: f32 = 15.0;
-const SEAL: f32 = 540.0;
-
-const CLEAR_RX: f32 = 250.0;
-const CLEAR_RY: f32 = 58.0;
-
-const SEAL_PHASE_RAD: f32 = 1.9;
-
-
-
-const HERO: f32 = 104.0;
-const HERO_CENTS: f32 = 48.0;
-const HERO_UNIT: f32 = 11.0;
-const HERO_UNIT_GAP: f32 = 15.0;
-const HERO_MASK: f32 = 74.0;
-const HERO_NA: f32 = 72.0;
-
-const HERO_NA_UNIT_GAP: f32 = 17.0;
+const HERO_SIZES: [f32; 3] = [80.0, 60.0, 48.0];
+const HERO_FIT: f32 = 0.84;
+const CENTS: f32 = 0.46;
+const DIGIT_EM: f32 = 0.573; // mean Inter Light digit advance
+const MARK_EM: f32 = 0.267; // Inter Light comma and period advance
+const SANS_BASE: f32 = 0.136; // Inter baseline above the bottom of a 1.0 line box
+const MONO_BASE: f32 = 0.14; // JetBrains Mono baseline above the bottom of a 1.0 line box
+const UNIT: f32 = 11.0;
+const UNIT_GAP: f32 = 12.0;
+const HERO_MASK: f32 = 57.0;
+const LINE_GAP: f32 = 20.0;
+const LINE: f32 = 13.0;
+const LINE_H: f32 = 16.0;
+const COUNT: f32 = 12.0;
 const DELTA: f32 = 12.0;
 const PERIOD: f32 = 9.0;
+const DELTA_SPACING: f32 = 9.0;
+const STATUS: f32 = 28.0;
+const STATUS_H: f32 = 34.0;
 const FOOT: f32 = 9.5;
+const FOOT_PAD_BOTTOM: f32 = 15.0;
 
 const MASK: &str = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}";
-const NA: &str = "\u{2014}";
 
-
-const PLACEHOLDER_W: f32 = 320.0;
-const PLACEHOLDER_H: f32 = 62.0;
-const PLACEHOLDER_RADIUS: f32 = 10.0;
-const PULSE_SECS: f32 = 1.2;
-
-
-pub fn fetching() -> bool {
-    let xrp_wallet = CHANNEL.wallet_balance_rx.borrow().1.is_some();
-    let btc_wallet = CHANNEL.bitcoin_wallet_rx.borrow().1.is_some();
-    if !xrp_wallet && !btc_wallet {
-        return false;
-    }
-    let launch = *CHANNEL.launch_rx.borrow();
-    let loaded = *CHANNEL.loaded_rx.borrow();
-    let priced = !CHANNEL.rates_rx.borrow().is_empty();
-    launch.fetching(*CHANNEL.rates_ws_status_rx.borrow(), priced)
-        || (xrp_wallet && launch.fetching(*CHANNEL.relay_ws_status_rx.borrow(), loaded.xrp))
-        || (btc_wallet && launch.fetching(*CHANNEL.btc_ws_status_rx.borrow(), loaded.btc))
+fn hero_size(int: &str, cents: &str, ccy: &str) -> f32 {
+    let em = |s: &str| s.chars().map(|c| if c.is_ascii_digit() { DIGIT_EM } else { MARK_EM }).sum::<f32>();
+    let unit = UNIT_GAP + ccy.chars().count() as f32 * UNIT * MONO_ADVANCE;
+    HERO_SIZES
+        .into_iter()
+        .find(|s| em(int) * s + em(cents) * s * CENTS + unit <= HERO_FIT * 2.0 * RING_R)
+        .unwrap_or(HERO_SIZES[HERO_SIZES.len() - 1])
 }
-
 
 pub fn view(state: &AppState) -> Element<'_, Message> {
     let p = theme::compact(&state.theme);
@@ -81,12 +74,10 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 
     let (xrp_amount, xrp_wallet, _, _) = CHANNEL.wallet_balance_rx.borrow().clone();
     let (btc_amount, btc_wallet, _, _) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
-   
     let no_wallet = xrp_wallet.is_none() && btc_wallet.is_none();
     let held: Vec<&tokens::TokenDef> =
         tokens::TOKENS.iter().filter(|t| CHANNEL.token(t.code).1).collect();
 
-  
     let xrp_rate = price::cross("XRP", ccy);
     let btc_rate = price::cross("BTC", ccy);
     let xrp_fiat = (xrp_rate > 0.0).then(|| xrp_amount * xrp_rate);
@@ -99,11 +90,13 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         let r = price::cross(t.code, ccy);
         (r > 0.0).then(|| acc + bal * r)
     });
-   
+
     let loaded = *CHANNEL.loaded_rx.borrow();
-    let balances_in = loaded.wallets
-        && (xrp_wallet.is_none() || loaded.xrp)
-        && (btc_wallet.is_none() || loaded.btc);
+    let ready = [
+        loaded.wallets && (xrp_wallet.is_none() || loaded.xrp),
+        loaded.wallets && (btc_wallet.is_none() || loaded.btc),
+    ];
+    let balances_in = ready.iter().all(|r| *r);
     let total: Option<f64> = if !balances_in {
         None
     } else if no_wallet {
@@ -114,259 +107,283 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
             _ => None,
         }
     };
-   
-    let fetching = !no_wallet && total.is_none() && fetching();
+
+    let socket = orbit::socket();
+    let live = socket == Socket::Live;
+    let owned = [xrp_wallet.is_some(), btc_wallet.is_some()];
+    let every = Chain::ALL.map(|c| orbit::node(c, live));
+    let nodes = [owned[0].then_some(every[0]), owned[1].then_some(every[1])];
+    let middle = orbit::middle(socket, nodes, total.is_some(), ready, orbit::rates_pending());
 
     if !no_wallet {
-        crate::startup_trace::stamp(if total.is_some() {
-            "balance shows a total"
-        } else if fetching {
-            "balance shows the placeholder"
-        } else {
-            "balance shows the dash"
+        crate::startup_trace::stamp(match middle {
+            Middle::Figure { .. } => "balance shows a total",
+            Middle::Status(Status::Connecting) => "balance shows connecting",
+            Middle::Status(_) => "balance shows a status",
         });
     }
 
-  
     let pct: Option<f32> = total.filter(|_| !hide && !no_wallet).and_then(|_| {
         let mut holdings: Vec<(&str, f64)> = vec![("XRP", xrp_amount), ("BTC", btc_amount)];
         holdings.extend(held.iter().map(|t| (t.code, CHANNEL.token(t.code).0)));
         sparkline::change_pct(&sparkline::total_series(&holdings, ccy, &state.rate_history_long))
     });
 
-  
-    let no_rate = total.is_none() && !fetching;
-    let alpha = seal_alpha(&state.theme, no_rate);
+    let arcs = Chain::ALL.map(|c| {
+        let n = every[c as usize];
+        Arc {
+            chain: c,
+            color: n.color(p),
+            behind: match n {
+                Node::CatchingUp(behind) => behind,
+                _ => None,
+            },
+            ink: if owned[c as usize] { p.dim } else { p.faint },
+        }
+    });
+    let ring_box = Length::Fixed((RING_R + RING_PAD) * 2.0 * scale);
+    let ring = Orbit {
+        arcs,
+        peaks: [None, state.btc_behind_peak],
+        laps: state.socket_laps,
+        track: Color { a: TRACK_ALPHA, ..p.faint },
+        dim: p.dim,
+        alpha: orbit::arc_alpha(&state.theme),
+        scale,
+    };
+    let centred = |content: Element<'static, Message>| {
+        container(content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .padding(Padding::new(0.0).bottom(2.0 * RING_LIFT * scale))
+            .clip(true)
+    };
 
- 
-    let lift = (DELTA_GAP + DELTA_H + STAGE_PAD_BOTTOM) / 2.0 * scale;
-    let seal_layer = container(
-        Canvas::new(Seal::new(p.faint, p.text, alpha, scale))
-            .width(Length::Fixed(SEAL * scale))
-            .height(Length::Fixed(SEAL * scale)),
-    )
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .align_x(Alignment::Center)
-    .align_y(Alignment::Center)
-    .padding(Padding::new(0.0).bottom(2.0 * lift))
-    .clip(true);
-
-    let stage_layer = container(stage(total, pct, hide, fetching, ccy, p, scale))
-        .width(Length::Fill)
-        .height(Length::Fill)
+    let core: Element<'static, Message> = match middle {
+        Middle::Figure { dim, line } => column![
+            Space::new().height((LINE_GAP + LINE_H) * scale),
+            hero(total.unwrap_or(0.0), dim, hide, ccy, p, scale),
+            Space::new().height(LINE_GAP * scale),
+            container(under(line, pct, p, scale))
+                .height(Length::Fixed(LINE_H * scale))
+                .align_y(Alignment::Center),
+        ]
         .align_x(Alignment::Center)
-        .align_y(Alignment::Center);
+        .boxed(),
+        Middle::Status(status) => text(status.words())
+            .font(LIGHT)
+            .size(STATUS * scale)
+            .line_height(STATUS_H / STATUS)
+            .color(if status.strong() { p.text } else { p.dim })
+            .boxed(),
+    };
 
-    let corner_layer = container(corner(p, scale))
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .padding(Padding::new(0.0).top(ck::CORNER_TOP * scale).left(ck::CORNER_LEFT * scale));
-
-    let mid = stack![seal_layer, stage_layer, corner_layer]
-        .width(Length::Fill)
-        .height(Length::Fill);
-
-    let mut screen = column![mid].width(Length::Fill).height(Length::Fill);
-    if no_rate {
+    let foot = balances_in && matches!(middle, Middle::Status(s) if s != Status::Connecting);
+    let foot: Element<'static, Message> = if !foot {
+        Space::new().boxed()
+    } else {
         let native = if hide {
             format!("{MASK} XRP \u{b7} {MASK} BTC")
         } else {
             format!("{xrp_amount:.6} XRP \u{b7} {btc_amount:.8} BTC")
         };
-        screen = screen.push(
-            container(text(native).font(MONO).size(FOOT * scale).color(p.muted))
-                .width(Length::Fill)
-                .align_x(Alignment::Center)
-                .padding(Padding::new(0.0).bottom(FOOT_PAD_BOTTOM * scale)).boxed(),
-        );
-    }
-    screen.boxed()
-}
-
-
-fn stage<'a>(
-    total: Option<f64>,
-    pct:   Option<f32>,
-    hide:  bool,
-    fetching: bool,
-    ccy:   &'static str,
-    p:     &'static CompactPalette,
-    scale: f32,
-) -> Element<'a, Message> {
-    let unit = |gap: f32| {
-        row![
-            Space::new().width(gap * scale),
-            text(ccy.to_uppercase()).font(MONO).size(HERO_UNIT * scale).color(p.muted),
-        ]
+        text(native).font(MONO).size(FOOT * scale).color(p.muted).boxed()
     };
 
-    let hero: Element<'a, Message> = match (total, hide) {
-    
-        (None, _) if fetching => container(
-            Canvas::new(Placeholder { from: p.faint, to: p.dim })
-                .width(Length::Fixed(PLACEHOLDER_W * scale))
-                .height(Length::Fixed(PLACEHOLDER_H * scale)),
-        )
-        .height(Length::Fixed(HERO * scale))
-        .align_y(Alignment::Center)
-        .boxed(),
-        (None, _) => row![
-            text(NA).font(LIGHT).size(HERO_NA * scale).line_height(1.0).color(p.faint),
-            unit(HERO_NA_UNIT_GAP),
-        ]
-        .align_y(Alignment::Center)
-        .boxed(),
-        (Some(_), true) => row![
-            text(MASK).font(LIGHT).size(HERO_MASK * scale).line_height(1.0).color(p.dim),
-            unit(HERO_UNIT_GAP),
-        ]
-        .align_y(Alignment::End)
-        .boxed(),
-        (Some(v), false) => {
-            // Dollars first: the cents drop to half size in `muted`.
-            let s = money(v);
-            let (int, cents) = s.split_at(s.len() - 3);
-            row![
-                text(int.to_string()).font(LIGHT).size(HERO * scale).line_height(1.0).color(p.text),
-                text(cents.to_string()).font(LIGHT).size(HERO_CENTS * scale).line_height(1.0).color(p.muted),
-                unit(HERO_UNIT_GAP),
-            ]
+    stack![
+        centred(Canvas::new(ring).width(ring_box).height(ring_box).boxed()),
+        centred(core),
+        container(foot)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::Center)
             .align_y(Alignment::End)
-            .boxed()
-        }
-    };
-
-    let under: Element<'a, Message> = match (total, pct) {
-        (None, _) if fetching => Space::new().boxed(),
-        (None, _) => text("rate unavailable").font(MONO).size(DELTA * scale).color(p.muted).boxed(),
-        (Some(_), Some(pct)) => row![
-            text(format!("{pct:+.2}%")).font(MONO).size(DELTA * scale).color(p.text),
-            Space::new().width(DELTA_SPACING * scale),
-            text("TODAY").font(MONO).size(PERIOD * scale).color(p.muted),
-        ]
-        .align_y(Alignment::End)
-        .boxed(),
-        (Some(_), None) => Space::new().boxed(),
-    };
-
-    column![
-        hero,
-        Space::new().height(DELTA_GAP * scale),
-        container(under).height(Length::Fixed(DELTA_H * scale)).align_y(Alignment::Center),
+            .padding(Padding::new(0.0).bottom(FOOT_PAD_BOTTOM * scale)),
+        container(ck::corner_button(icons::SLIDERS.clone(), Message::OpenSettings, p, scale))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(Padding::new(0.0).top(ck::CORNER_TOP * scale).left(ck::CORNER_LEFT * scale)),
     ]
-    .align_x(Alignment::Center)
-    .padding(Padding::new(0.0).bottom(STAGE_PAD_BOTTOM * scale))
+    .width(Length::Fill)
+    .height(Length::Fill)
     .boxed()
 }
 
-
-fn seal_alpha(t: &iced::Theme, no_rate: bool) -> f32 {
-    if no_rate {
-        0.11
-    } else if theme::is_dark(t) {
-        0.15
-    } else {
-        0.16
+fn hero(
+    total: f64,
+    dim: bool,
+    hide: bool,
+    ccy: &'static str,
+    p: &'static CompactPalette,
+    scale: f32,
+) -> Element<'static, Message> {
+    let unit = |size: f32| {
+        container(text(ccy.to_uppercase()).font(MONO).size(UNIT * scale).line_height(1.0).color(p.muted))
+            .padding(Padding::new(0.0).bottom((SANS_BASE * size - MONO_BASE * UNIT) * scale))
+    };
+    if hide {
+        return row![
+            text(MASK).font(LIGHT).size(HERO_MASK * scale).line_height(1.0).color(p.dim),
+            Space::new().width(UNIT_GAP * scale),
+            unit(HERO_MASK),
+        ]
+        .align_y(Alignment::End)
+        .boxed();
     }
+    let s = money(total);
+    let (int, cents) = s.split_at(s.len() - 3);
+    let size = hero_size(int, cents, ccy);
+    row![
+        text(int.to_string())
+            .font(LIGHT)
+            .size(size * scale)
+            .line_height(1.0)
+            .color(if dim { p.dim } else { p.text }),
+        container(text(cents.to_string()).font(LIGHT).size(size * CENTS * scale).line_height(1.0).color(p.muted))
+            .padding(Padding::new(0.0).bottom(SANS_BASE * size * (1.0 - CENTS) * scale)),
+        Space::new().width(UNIT_GAP * scale),
+        unit(size),
+    ]
+    .align_y(Alignment::End)
+    .boxed()
 }
 
+fn under(line: Line, pct: Option<f32>, p: &'static CompactPalette, scale: f32) -> Element<'static, Message> {
+    let name = |c: Chain| -> Span<'static, ()> { span(c.name()).font(SANS).size(LINE * scale).color(p.text) };
+    let said = |s: &'static str| -> Span<'static, ()> { span(s).font(SANS).size(LINE * scale).color(p.dim) };
+    let spans: Vec<Span<'static, ()>> = match line {
+        Line::Delta => {
+            return match pct {
+                Some(pct) => row![
+                    text(format!("{pct:+.2}%")).font(MONO).size(DELTA * scale).color(p.text),
+                    Space::new().width(DELTA_SPACING * scale),
+                    text("TODAY").font(MONO).size(PERIOD * scale).color(p.muted),
+                ]
+                .align_y(Alignment::End)
+                .boxed(),
+                None => Space::new().boxed(),
+            };
+        }
+        Line::Offline(c, None) => vec![name(c), said(" node offline")],
+        Line::Offline(c, Some(d)) => vec![name(c), said(" node offline \u{b7} "), name(d), said(" catching up")],
+        Line::Connecting(c) => vec![said("Connecting to "), name(c), said(" node\u{2026}")],
+        Line::NoPeers => vec![name(Chain::Btc), said(" node has no peers")],
+        Line::CatchingUp(c, None) => vec![name(c), said(" node catching up")],
+        Line::CatchingUp(c, Some(behind)) => vec![
+            name(c),
+            said(" node catching up \u{b7} "),
+            span(add_commas(behind as i64)).font(MONO).size(COUNT * scale).color(p.text),
+            said(c.behind()),
+        ],
+    };
+    rich_text(spans).wrapping(Wrapping::None).boxed()
+}
 
-struct Seal {
-    edge_in: Color,
-    edge_out: Color,
+#[derive(Clone, Copy)]
+struct Arc {
+    chain: Chain,
+    color: Color,
+    behind: Option<u64>,
+    ink: Color,
+}
+
+struct Orbit {
+    arcs: [Arc; 2],
+    peaks: [Option<u64>; 2],
+    laps: Option<(Instant, u32)>,
+    track: Color,
+    dim: Color,
     alpha: f32,
     scale: f32,
-    key: u64,
-}
-
-impl Seal {
-    fn new(edge_in: Color, edge_out: Color, alpha: f32, scale: f32) -> Self {
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        for c in [edge_in, edge_out] {
-            for v in [c.r, c.g, c.b, c.a] {
-                v.to_bits().hash(&mut h);
-            }
-        }
-        alpha.to_bits().hash(&mut h);
-        scale.to_bits().hash(&mut h);
-        Self { edge_in, edge_out, alpha, scale, key: h.finish() }
-    }
 }
 
 #[derive(Default)]
-struct SealState {
+struct OrbitMemory {
+    now: Option<Instant>,
     key: Cell<u64>,
-    cache: Cache,
+    track: Cache,
 }
 
-impl canvas::Program<Message> for Seal {
-    type State = SealState;
+impl canvas::Program<Message> for Orbit {
+    type State = OrbitMemory;
 
-    fn draw(
+    fn update(
         &self,
-        state: &SealState,
-        renderer: &iced::Renderer,
-        _theme: &iced::Theme,
-        bounds: Rectangle,
+        state: &mut OrbitMemory,
+        event: &Event,
+        _bounds: Rectangle,
         _cursor: mouse::Cursor,
-    ) -> Vec<Geometry<iced::Renderer>> {
-        if state.key.get() != self.key {
-            state.cache.clear();
-            state.key.set(self.key);
-        }
-        let geometry = state.cache.draw(renderer, bounds.size(), |frame| {
-            bloom::draw_cleared(
-                frame,
-                Point::new(bounds.width / 2.0, bounds.height / 2.0),
-                bounds.width.min(bounds.height),
-                SEAL_PHASE_RAD / std::f32::consts::TAU * bloom::LOOP_SECS,
-                self.edge_in,
-                self.edge_out,
-                self.alpha,
-                Some((CLEAR_RX * self.scale, CLEAR_RY * self.scale)),
-            );
-        });
-        vec![geometry]
-    }
-}
-
-
-struct Placeholder {
-    from: Color,
-    to: Color,
-}
-
-impl canvas::Program<Message> for Placeholder {
-    type State = ();
-
-    fn draw(
-        &self,
-        _state: &(),
-        renderer: &iced::Renderer,
-        _theme: &iced::Theme,
-        bounds: Rectangle,
-        _cursor: mouse::Cursor,
-    ) -> Vec<Geometry<iced::Renderer>> {
-        let mut frame = canvas::Frame::new(renderer, bounds.size());
-        
-        let breath = 0.5 - 0.5 * (bloom::clock_secs() / PULSE_SECS * std::f32::consts::TAU).cos();
-        let k = 0.25 + 0.5 * breath;
-        let mix = |a: f32, b: f32| a + (b - a) * k;
-        let ink = Color {
-            r: mix(self.from.r, self.to.r),
-            g: mix(self.from.g, self.to.g),
-            b: mix(self.from.b, self.to.b),
-            a: mix(self.from.a, self.to.a),
+    ) -> Option<canvas::Action<Message>> {
+        let Event::Window(window::Event::RedrawRequested(now)) = event else {
+            return None;
         };
-        let radius = PLACEHOLDER_RADIUS * bounds.height / PLACEHOLDER_H;
-        let bar = canvas::Path::rounded_rectangle(Point::ORIGIN, bounds.size(), radius.into());
-        frame.fill(&bar, ink);
-        vec![frame.into_geometry()]
+        state.now = Some(*now);
+        orbit::turn(self.laps, *now).map(|_| canvas::Action::request_redraw())
+    }
+
+    fn draw(
+        &self,
+        state: &OrbitMemory,
+        renderer: &iced::Renderer,
+        _theme: &iced::Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<Geometry<iced::Renderer>> {
+        let c = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let r = RING_R * self.scale;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for v in [self.track.r, self.track.g, self.track.b, self.track.a, self.scale] {
+            v.to_bits().hash(&mut h);
+        }
+        if state.key.get() != h.finish() {
+            state.track.clear();
+            state.key.set(h.finish());
+        }
+        let track = state.track.draw(renderer, bounds.size(), |frame| {
+            orbit::track(frame, c, r, TRACK_DASH * self.scale, TRACK_PITCH * self.scale, self.track);
+        });
+
+        let mut frame = canvas::Frame::new(renderer, bounds.size());
+        let lap = orbit::turn(self.laps, state.now.unwrap_or_else(Instant::now));
+        for ((arc, home), peak) in self.arcs.iter().zip(HOMES).zip(self.peaks) {
+            let (color, sweep, spin) = match lap {
+                Some(t) => (self.dim, ARC_DEG, 360.0 * t),
+                None => (arc.color, ARC_DEG + CATCH_DEG * orbit::progress(arc.behind, peak), 0.0),
+            };
+            let start = (home - ARC_DEG / 2.0 + spin - 90.0).to_radians();
+            orbit::arc(
+                &mut frame,
+                c,
+                r,
+                start,
+                sweep.to_radians(),
+                Color { a: self.alpha, ..color },
+                ARC_W * self.scale,
+            );
+            let at = (home + spin - 90.0).to_radians();
+            let reach = r + (MARK_GAP + MARK_W / 2.0) * self.scale;
+            orbit::mark(
+                &mut frame,
+                arc.chain,
+                Point::new(c.x + reach * at.cos(), c.y + reach * at.sin()),
+                MARK_W * self.scale,
+                arc.ink,
+            );
+        }
+        vec![track, frame.into_geometry()]
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn corner<'a>(p: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    ck::corner_button(icons::SLIDERS.clone(), Message::OpenSettings, p, scale)
+    #[test]
+    fn long_totals_step_down_to_stay_inside_the_ring() {
+        assert_eq!(hero_size("17,943", ".53", "usd"), 80.0);
+        assert_eq!(hero_size("1,284,630", ".07", "usd"), 60.0);
+        assert_eq!(hero_size("400,000,000", ".00", "vnd"), 48.0);
+    }
 }
