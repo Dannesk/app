@@ -119,6 +119,16 @@ pub fn tier_quotes(state: &AppState) -> Option<[u64; 4]> {
 }
 
 
+pub fn typical_vsize() -> u64 {
+    let address = CHANNEL.bitcoin_wallet_rx.borrow().1.clone();
+    let kind = address
+        .as_deref()
+        .and_then(BtcScriptType::of_address)
+        .unwrap_or_else(crate::btc_script_type::stored);
+    vsize_for(&[kind], &[kind.spk_len(), kind.spk_len()])
+}
+
+
 pub fn tiers_all_at_floor(state: &AppState) -> bool {
     tier_quotes(state).is_some_and(|q| q.iter().all(|s| *s == q[0]))
 }
@@ -206,7 +216,7 @@ pub(crate) const PICK_FEE: &str = "pick a fee, or set one yourself";
 const UNPRICED: &str = "no estimate yet";
 
 
-const BACK_OF_QUEUE: &str = "back of the queue";
+pub(crate) const BACK_OF_QUEUE: &str = "back of the queue";
 const WELL_UNDER: &str = "well under the going rate";
 const JUST_UNDER: &str = "just under the going rate";
 const GOING_RATE: &str = "around the going rate";

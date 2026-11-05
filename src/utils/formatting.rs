@@ -51,9 +51,34 @@ pub fn fiat_amount(val: f64) -> String {
     format_token_amount(val, decimals)
 }
 
+pub fn fiat_cost(val: f64) -> String {
+    if val >= 1.0 || val <= 0.0 {
+        return money(val.max(0.0));
+    }
+    let d = ((-val.log10().floor()) as usize + 1).max(2);
+    let s = format!("{:.*}", d, val);
+    if d > 2 && s.parse::<f64>().is_ok_and(|r| r >= 10f64.powi(2 - d as i32)) {
+        format!("{:.*}", d - 1, val)
+    } else {
+        s
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::fiat_amount;
+    use super::{fiat_amount, fiat_cost};
+
+    #[test]
+    fn a_fee_cost_keeps_two_figures_under_one_and_cents_above() {
+        assert_eq!(fiat_cost(0.011841), "0.012");
+        assert_eq!(fiat_cost(0.03789), "0.038");
+        assert_eq!(fiat_cost(0.12157), "0.12");
+        assert_eq!(fiat_cost(0.0996), "0.10");
+        assert_eq!(fiat_cost(0.00093), "0.00093");
+        assert_eq!(fiat_cost(2.0485), "2.05");
+        assert_eq!(fiat_cost(34.727), "34.73");
+        assert_eq!(fiat_cost(1234.5), "1,234.50");
+    }
 
     #[test]
     fn a_fiat_amount_carries_the_rate_until_cents_are_the_noise_floor() {

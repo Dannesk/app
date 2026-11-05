@@ -268,7 +268,7 @@ impl PaneTree {
                 a: leaf(PaneKind::Balance),
                 b: Box::new(PaneTree::Split {
                     axis: Axis::Horizontal,
-                    ratio: 0.29,
+                    ratio: 0.53,
                     a: leaf(PaneKind::Fees),
                     b: leaf(PaneKind::Chart),
                 }),

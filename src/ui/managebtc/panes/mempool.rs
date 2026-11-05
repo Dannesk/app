@@ -11,7 +11,7 @@ use crate::channel::{BtcBand, BtcNodeStats as NodeFrame, BANDS};
 use crate::controller::app_state::AppState;
 use crate::controller::message::Message;
 use crate::ui::components::grid::{self, drow, NA};
-use crate::ui::managebtc::node::{trim_rate, NodeFrameView};
+use crate::ui::managebtc::node::{rate_text, NodeFrameView};
 use crate::utils::fonts::{self, MONO};
 use crate::utils::theme::CompactPalette;
 use crate::utils::add_commas;
@@ -58,7 +58,7 @@ fn body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Ele
     };
 
     let (left, right) = match bands {
-        Some(b) => (trim_rate(b[0].from), format!("{}+ sat/vB", trim_rate(b[BANDS - 1].from))),
+        Some(b) => (rate_text(b[0].from), format!("{}+ sat/vB", rate_text(b[BANDS - 1].from))),
         None => (String::new(), String::new()),
     };
 
@@ -191,9 +191,9 @@ pub(crate) fn readout(frame: &mut Frame, word: &str, ink: Color, bg: Color, scal
 
 fn band_word(bands: &[BtcBand; BANDS], i: usize) -> String {
     let span = if i + 1 < BANDS {
-        format!("{}\u{2013}{} sat/vB", trim_rate(bands[i].from), trim_rate(bands[i + 1].from))
+        format!("{}\u{2013}{} sat/vB", rate_text(bands[i].from), rate_text(bands[i + 1].from))
     } else {
-        format!("{}+ sat/vB", trim_rate(bands[i].from))
+        format!("{}+ sat/vB", rate_text(bands[i].from))
     };
     format!("{span} \u{b7} {:.2} vMB", bands[i].vsize as f64 / BLOCK_VSIZE)
 }
@@ -353,7 +353,7 @@ mod tests {
         let mut b = bands(0.1, 1.6);
         b[0].vsize = 4_277_889;
         b[13].vsize = 50_160;
-        assert_eq!(band_word(&b, 0), "0.1\u{2013}0.12 sat/vB \u{b7} 4.28 vMB");
-        assert_eq!(band_word(&b, 13), "1.6+ sat/vB \u{b7} 0.05 vMB");
+        assert_eq!(band_word(&b, 0), "0.10\u{2013}0.12 sat/vB \u{b7} 4.28 vMB");
+        assert_eq!(band_word(&b, 13), "1.60+ sat/vB \u{b7} 0.05 vMB");
     }
 }

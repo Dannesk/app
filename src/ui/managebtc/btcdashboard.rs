@@ -2,11 +2,11 @@
 
 use iced::widget::{Column, Row};
 use iced::Widget as _;
-use iced::mouse;
-use iced::widget::canvas::{self, Canvas, Frame};
+use iced::widget::canvas::Canvas;
 use iced::widget::pane_grid::Pane;
-use iced::widget::{button, column, container, responsive, row, stack, text, Space};
-use iced::{Alignment, Border, Color, Element, Length, Padding, Point, Rectangle, Shadow, Size};
+use iced::widget::text::{Ellipsis, Span, Wrapping};
+use iced::widget::{button, column, container, responsive, rich_text, row, span, stack, text, Space};
+use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow, Size};
 
 use crate::channel::{BtcNodeStats as NodeFrame, Socket, CHANNEL};
 use crate::controller::app_state::{AppState, BtcFeeTier, ChartPeriod, EnableInputMode};
@@ -21,22 +21,17 @@ use crate::ui::components::signing::SignFields;
 use crate::utils::{fiat_amount, money};
 use crate::ui::components::compact;
 use crate::ui::components::orbit;
-use crate::ui::managebtc::node::{band_color, fee_band, tip_age, trim_rate, NodeFrameView};
+use crate::ui::managebtc::node::{band_color, fee_band, is_quiet, rate_text, tip_age, NodeFrameView, Verdict};
 use crate::ui::managebtc::btcsend;
 use crate::ui::managebtc::panes as panes_ui;
 use crate::utils::fonts::{LIGHT, MONO};
 use crate::utils::sparkline::{change_pct, chart_data};
 use crate::utils::theme::{self, CompactPalette};
-use crate::utils::{add_commas, format_token_amount, format_usd, price};
+use crate::utils::{add_commas, fiat_cost, format_token_amount, format_usd, price};
 
 
-const TIER_W: f32 = 30.0;
-const RATE_W: f32 = 36.0;
-const COST_W: f32 = 70.0;
-const LADDER_GAP: f32 = 8.0;
-const BAR_H: f32 = 6.0;
-
-const BAR_MIN_FILL: f32 = 4.0;
+const FEE_NAME: f32 = 11.0;
+const FEE_DOT: f32 = 5.0;
 const CHIP_GAP: f32 = 4.0;
 
 const CARD_GAP: f32 = 4.0;
@@ -75,11 +70,7 @@ fn pane_content<'a>(
     let (title, meta, body): (Element<'a, Message>, Option<Element<'a, Message>>, Element<'a, Message>) =
         match kind {
             PaneKind::Balance => (strip("balance"), None, balance_pane(state, cp, scale)),
-            PaneKind::Fees => (
-                strip("fees"),
-                Some(text("sat/vB").font(MONO).size(STRIP * scale).color(cp.faint).boxed()),
-                fees_pane(state, cp, scale),
-            ),
+            PaneKind::Fees => (strip("fees"), None, fees_pane(state, cp, scale)),
             PaneKind::Chart => {
                 let series = chart_series(state);
                 let prices: Vec<f32> = series.iter().map(|p| p.1).collect();
@@ -255,109 +246,118 @@ fn balance_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
 }
 
 
-fn ladder_colour(tiers: &[f32; 4], i: usize, cp: &'static CompactPalette) -> Color {
-    if tiers[i] >= tiers[3] {
-        cp.green
-    } else if tiers[i] <= tiers[0] {
-        cp.red
-    } else {
-        cp.amber
-    }
-}
-
 fn fees_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     let node = NodeFrame::current();
-    let tiers = node.tiers;
-    let quotes = btcsend::tier_quotes(state);
     let ccy = state.base_currency.code();
-    let rate = price::cross("BTC", ccy);
+    let price = price::cross("BTC", ccy);
+    let vsize = btcsend::typical_vsize();
+    let quiet = is_quiet(&node);
 
     let mut col: Column<Element<'_, Message>> = column![].width(Length::Fill);
     for (i, name) in ["min", "low", "med", "high"].into_iter().enumerate() {
-        let (ratio, colour, rate_text, cost) = match tiers {
+        if i > 0 {
+            col = col.push(compact::hairline(cp.rule));
+        }
+        let row = match node.tiers {
             Some(t) => {
-                let cost = quotes.map(|q| q[i]).map(|sats| {
-                    if rate > 0.0 {
-                        format!("{} {}", format_usd(sats as f64 / 1e8 * rate), ccy.to_lowercase())
-                    } else {
-                        format!("{sats} sats")
-                    }
-                });
-                let ratio = node.bands.and_then(|b| panes_ui::mempool::axis_position(&b, t[i]));
-                (ratio, ladder_colour(&t, i, cp), trim_rate(t[i]), cost)
+                let sats = btcsend::tier_sats_at(t[i], vsize);
+                let mut cost = vec![
+                    (add_commas(sats as i64), cp.dim),
+                    (" sat".to_string(), cp.muted),
+                    (" \u{b7} ".to_string(), cp.faint),
+                ];
+                if price > 0.0 {
+                    cost.push((fiat_cost(sats as f64 / 1e8 * price), cp.dim));
+                    cost.push((format!(" {}", ccy.to_lowercase()), cp.muted));
+                } else {
+                    cost.push((NA.to_string(), cp.faint));
+                }
+                fee_row(name, Some(rate_text(t[i])), cost, (!quiet).then(|| Verdict::of(&t, i)), cp, scale)
             }
-            None => (None, cp.faint, NA.to_string(), None),
+            None => fee_row(name, None, vec![(" ".to_string(), cp.dim)], None, cp, scale),
         };
-        col = col.push(ladder_row(name, ratio, colour, rate_text, cost, cp, scale));
+        col = col.push(row);
+    }
+    if quiet {
+        col = col.push(compact::hairline(cp.rule)).push(quiet_line(cp, scale));
     }
     grid::scroller(col.boxed(), cp, scale)
 }
 
-fn ladder_row<'a>(
+fn fee_row<'a>(
     name: &str,
-    ratio: Option<f32>,
-    colour: Color,
-    rate: String,
-    cost: Option<String>,
+    rate: Option<String>,
+    cost: Vec<(String, Color)>,
+    verdict: Option<Verdict>,
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
-    let bar = Canvas::new(FeeBar { ratio, fill: colour, track: cp.pill, min_fill: BAR_MIN_FILL * scale })
-        .width(Length::Fill)
-        .height(Length::Fixed(BAR_H * scale));
+    let mut left = column![text(name.to_string()).size(FEE_NAME * scale).color(cp.text)].spacing(2.0 * scale);
+    if let Some(v) = verdict {
+        left = left.push(
+            row![
+                fee_dot(v.colour(cp), scale),
+                text(v.word())
+                    .size(ROW_KEY * scale)
+                    .color(cp.dim)
+                    .wrapping(Wrapping::None)
+                    .ellipsis(Ellipsis::End),
+            ]
+            .spacing(5.0 * scale)
+            .align_y(Alignment::Center)
+            .boxed(),
+        );
+    }
+    let rate_line: Element<'a, Message> = match rate {
+        Some(r) => {
+            let spans: Vec<Span<'static, ()>> = vec![
+                span(r).font(MONO).size(ROW_TOTAL * scale).color(cp.text),
+                span(" sat/vB").font(MONO).size(STRIP * scale).color(cp.muted),
+            ];
+            rich_text(spans).wrapping(Wrapping::None).boxed()
+        }
+        None => text(NA).font(MONO).size(ROW_TOTAL * scale).color(cp.faint).boxed(),
+    };
     container(
         row![
-            container(text(name.to_string()).size(ROW_KEY * scale).color(cp.dim)).width(Length::Fixed(TIER_W * scale)),
-            bar,
-            container(text(rate).font(MONO).size(grid::ROW_VALUE * scale).color(cp.text))
-                .width(Length::Fixed(RATE_W * scale))
+            container(left).width(Length::Fill).clip(true),
+            column![rate_line, compact::mono_runs(cost, ROW_KEY * scale)]
+                .spacing(2.0 * scale)
                 .align_x(Alignment::End),
-            container(
-                text(cost.unwrap_or_else(|| NA.to_string()))
-                    .font(MONO)
-                    .size(9.0 * scale)
-                    .color(cp.muted),
-            )
-            .width(Length::Fixed(COST_W * scale))
-            .align_x(Alignment::End),
         ]
-        .spacing(LADDER_GAP * scale)
+        .spacing(10.0 * scale)
         .align_y(Alignment::Center),
     )
     .width(Length::Fill)
-    .padding(Padding::new(0.0).top(2.0 * scale).bottom(2.0 * scale))
+    .padding(Padding::new(0.0).top(4.0 * scale).bottom(4.0 * scale))
     .boxed()
 }
 
-
-struct FeeBar {
-    ratio: Option<f32>,
-    fill: Color,
-    track: Color,
-    min_fill: f32,
+fn quiet_line<'a>(cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let words: Vec<Span<'static, ()>> = vec![
+        span("Quiet:").size(ROW_KEY * scale).color(cp.text),
+        span(" every tier gets into the next block").size(ROW_KEY * scale).color(cp.dim),
+    ];
+    container(
+        row![fee_dot(cp.green, scale), rich_text(words).wrapping(Wrapping::None)]
+            .spacing(6.0 * scale)
+            .align_y(Alignment::Center),
+    )
+    .width(Length::Fill)
+    .padding(Padding::new(0.0).top(6.0 * scale))
+    .clip(true)
+    .boxed()
 }
 
-impl<Message> canvas::Program<Message> for FeeBar {
-    type State = ();
-
-    fn draw(
-        &self,
-        _state: &Self::State,
-        renderer: &iced::Renderer,
-        _theme: &iced::Theme,
-        bounds: Rectangle,
-        _cursor: mouse::Cursor,
-    ) -> Vec<canvas::Geometry> {
-        let mut frame = Frame::new(renderer, bounds.size());
-        let w = bounds.width;
-        let h = bounds.height;
-        frame.fill_rectangle(Point::ORIGIN, Size::new(w, h), self.track);
-        if let Some(r) = self.ratio {
-            let fw = (w * r.clamp(0.0, 1.0)).round().max(self.min_fill.min(w));
-            frame.fill_rectangle(Point::ORIGIN, Size::new(fw, h), self.fill);
-        }
-        vec![frame.into_geometry()]
-    }
+fn fee_dot<'a>(colour: Color, scale: f32) -> Element<'a, Message> {
+    let size = FEE_DOT * scale;
+    container(Space::new().width(size).height(size))
+        .style(move |_| container::Style {
+            background: Some(colour.into()),
+            border: Border { color: Color::TRANSPARENT, width: 0.0, radius: (size / 2.0).into() },
+            ..Default::default()
+        })
+        .boxed()
 }
 
 
@@ -845,18 +845,18 @@ mod tests {
     fn the_ladder_colours_come_from_the_ladder() {
         let p = &theme::COMPACT_OBSIDIAN;
         let live = [0.1f32, 0.2, 0.3, 0.338];
-        assert_eq!(ladder_colour(&live, 0, p), p.red);
-        assert_eq!(ladder_colour(&live, 1, p), p.amber);
-        assert_eq!(ladder_colour(&live, 2, p), p.amber);
-        assert_eq!(ladder_colour(&live, 3, p), p.green);
+        assert_eq!(Verdict::of(&live, 0).colour(p), p.red);
+        assert_eq!(Verdict::of(&live, 1).colour(p), p.amber);
+        assert_eq!(Verdict::of(&live, 2).colour(p), p.amber);
+        assert_eq!(Verdict::of(&live, 3).colour(p), p.green);
         let quiet = [0.1f32; 4];
         for i in 0..4 {
-            assert_eq!(ladder_colour(&quiet, i, p), p.green, "rung {i}");
+            assert_eq!(Verdict::of(&quiet, i).colour(p), p.green, "rung {i}");
         }
      
         let partial = [0.1f32, 0.1, 0.3, 0.3];
-        assert_eq!(ladder_colour(&partial, 1, p), p.red);
-        assert_eq!(ladder_colour(&partial, 2, p), p.green);
+        assert_eq!(Verdict::of(&partial, 1).colour(p), p.red);
+        assert_eq!(Verdict::of(&partial, 2).colour(p), p.green);
     }
 
     #[test]

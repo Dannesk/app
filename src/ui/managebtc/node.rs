@@ -3,6 +3,7 @@
 use iced::Color;
 
 use crate::channel::{BtcNodeStats as NodeFrame, CHANNEL};
+use crate::ui::managebtc::btcsend;
 use crate::utils::theme::CompactPalette;
 
 
@@ -73,10 +74,61 @@ pub(crate) fn tip_age(tip_at: Option<u64>) -> Option<u64> {
     if at > now + 300 { None } else { Some(now.saturating_sub(at)) }
 }
 
-pub(crate) fn trim_rate(v: f32) -> String {
-    let s = format!("{v:.2}");
-    let s = s.trim_end_matches('0').trim_end_matches('.');
-    if s.is_empty() { "0".to_string() } else { s.to_string() }
+pub(crate) fn rate_text(v: f32) -> String {
+    let v = v as f64;
+    if (v * 100.0).round() < 1000.0 {
+        format!("{v:.2}")
+    } else if (v * 10.0).round() < 1000.0 {
+        format!("{v:.1}")
+    } else {
+        format!("{v:.0}")
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Verdict {
+    NextBlock,
+    ThreeBlocks,
+    SixBlocks,
+    BackOfQueue,
+}
+
+impl Verdict {
+    pub(crate) fn of(tiers: &[f32; 4], i: usize) -> Self {
+        let rate = tiers[i];
+        if rate >= tiers[3] {
+            Self::NextBlock
+        } else if rate <= tiers[0] {
+            Self::BackOfQueue
+        } else if rate >= tiers[2] {
+            Self::ThreeBlocks
+        } else {
+            Self::SixBlocks
+        }
+    }
+
+    pub(crate) fn word(self) -> &'static str {
+        match self {
+            Self::NextBlock => "next block",
+            Self::ThreeBlocks => "~3 blocks",
+            Self::SixBlocks => "~6 blocks",
+            Self::BackOfQueue => btcsend::BACK_OF_QUEUE,
+        }
+    }
+
+    pub(crate) fn colour(self, p: &'static CompactPalette) -> Color {
+        match self {
+            Self::NextBlock => p.green,
+            Self::BackOfQueue => p.red,
+            Self::ThreeBlocks | Self::SixBlocks => p.amber,
+        }
+    }
+}
+
+pub(crate) fn is_quiet(node: &NodeFrame) -> bool {
+    let all_tie = node.tiers.is_some_and(|t| t.iter().all(|r| *r == t[0]));
+    let all_fit = matches!((node.next_block_txs, node.mempool_txs), (Some(fit), Some(all)) if fit == all);
+    all_tie && all_fit
 }
 
 #[cfg(test)]
@@ -168,10 +220,33 @@ mod tests {
     }
 
     #[test]
-    fn trim_rate_spans_three_orders_of_magnitude() {
-        assert_eq!(trim_rate(0.10), "0.1");
-        assert_eq!(trim_rate(0.35), "0.35");
-        assert_eq!(trim_rate(1.40), "1.4");
-        assert_eq!(trim_rate(300.0), "300");
+    fn rate_text_drops_decimals_as_rates_grow() {
+        assert_eq!(rate_text(0.10), "0.10");
+        assert_eq!(rate_text(0.35), "0.35");
+        assert_eq!(rate_text(1.40), "1.40");
+        assert_eq!(rate_text(9.996), "10.0");
+        assert_eq!(rate_text(18.44), "18.4");
+        assert_eq!(rate_text(99.96), "100");
+        assert_eq!(rate_text(312.47), "312");
+    }
+
+    #[test]
+    fn one_rate_reads_one_verdict() {
+        use Verdict::*;
+        let spread = [0.10, 0.13, 0.34, 1.09];
+        assert_eq!([0, 1, 2, 3].map(|i| Verdict::of(&spread, i)), [BackOfQueue, SixBlocks, ThreeBlocks, NextBlock]);
+        let floor_crowd = [0.10, 0.10, 0.10, 0.12];
+        assert_eq!([0, 1, 2, 3].map(|i| Verdict::of(&floor_crowd, i)), [BackOfQueue, BackOfQueue, BackOfQueue, NextBlock]);
+        let low_as_med = [0.10, 0.34, 0.34, 1.09];
+        assert_eq!(Verdict::of(&low_as_med, 1), ThreeBlocks);
+    }
+
+    #[test]
+    fn quiet_needs_a_tie_and_room_for_everything() {
+        let tie = NodeFrame { tiers: Some([0.1; 4]), next_block_txs: Some(900), mempool_txs: Some(900), ..Default::default() };
+        assert!(is_quiet(&tie));
+        assert!(!is_quiet(&NodeFrame { mempool_txs: Some(4_000), ..tie }), "a floor crowd deeper than a block");
+        assert!(!is_quiet(&NodeFrame { tiers: Some([0.1, 0.1, 0.1, 0.12]), ..tie }));
+        assert!(!is_quiet(&NodeFrame::default()));
     }
 }

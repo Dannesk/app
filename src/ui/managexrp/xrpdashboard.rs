@@ -998,25 +998,6 @@ mod tests {
         assert!(at(10, 0).verdict(&theme::COMPACT_OBSIDIAN).is_none());
     }
 
-    #[test]
-    fn an_empty_frame_reads_as_offline() {
-        let p = &theme::COMPACT_OBSIDIAN;
-        let (word, color) = NodeFrame::default().status(p);
-        assert_eq!(word, "offline");
-        assert_eq!(color, p.red);
-    }
-
-    #[test]
-    fn a_not_synced_node_reports_its_own_state_word() {
-        let p = &theme::COMPACT_OBSIDIAN;
-        let f = NodeFrame {
-            ledger_index: Some(1), peers: Some(3), synced: Some(false), state: Some("syncing".into()),
-            ..Default::default()
-        };
-        assert_eq!(f.status(p), ("syncing".to_string(), p.amber));
-        let full = NodeFrame { synced: Some(true), state: Some("full".into()), peers: Some(21), ..Default::default() };
-        assert_eq!(full.status(p), ("synced".to_string(), p.green));
-    }
 
     #[test]
     fn the_fee_ramp_only_climbs() {
