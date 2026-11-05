@@ -829,16 +829,10 @@ fn band_color(band: usize, p: &'static CompactPalette) -> Color {
 }
 
 pub(crate) trait NodeFrameView {
-    fn is_empty(&self) -> bool;
     fn verdict(&self, p: &'static CompactPalette) -> Option<(&'static str, Color)>;
-    fn status(&self, p: &'static CompactPalette) -> (String, Color);
 }
 
 impl NodeFrameView for NodeFrame {
-    fn is_empty(&self) -> bool {
-        self.ledger_index.is_none() && self.peers.is_none() && self.state.is_none()
-    }
-
     fn verdict(&self, p: &'static CompactPalette) -> Option<(&'static str, Color)> {
         let (open, base) = (self.open_ledger_fee?, self.fee_base?);
         if base == 0 {
@@ -853,17 +847,6 @@ impl NodeFrameView for NodeFrame {
         };
         Some((FEE_WORDS[band], band_color(band, p)))
     }
-
-    fn status(&self, p: &'static CompactPalette) -> (String, Color) {
-        if self.is_empty() {
-            return ("offline".to_string(), p.red);
-        }
-        match (self.synced, self.state.as_deref()) {
-            (Some(true), _) => ("synced".to_string(), p.green),
-            (Some(false), Some(s)) => (s.to_string(), p.amber),
-            _ => ("unknown".to_string(), p.muted),
-        }
-    }
 }
 
 const NETWORK_MIN_H: f32 = 165.0;
@@ -876,7 +859,11 @@ fn network_body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
     let node = CHANNEL.xrp_node_rx.borrow().clone();
     let fee = node.open_ledger_fee.map_or(NA.to_string(), |d| d.to_string());
     let verdict = node.verdict(cp);
-    let (word, dot) = node.status(cp);
+    let (word, dot) = match orbit::xrp_node(orbit::socket() == Socket::Live) {
+        Node::Live => ("synced".to_string(), cp.green),
+        Node::CatchingUp(_) => (node.state.clone().unwrap_or_else(|| "syncing".to_string()), cp.amber),
+        Node::Waiting | Node::NoPeers | Node::Offline => ("offline".to_string(), cp.red),
+    };
 
     let tape = Canvas::new(Tape {
         bars: state.ledger_tape.iter().copied().collect(),

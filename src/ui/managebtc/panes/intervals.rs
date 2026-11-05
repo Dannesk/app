@@ -12,7 +12,7 @@ use crate::controller::app_state::AppState;
 use crate::controller::message::Message;
 use crate::ui::components::grid::{self, drow, NA};
 use crate::ui::managebtc::node::{tip_age, NodeFrameView};
-use crate::ui::managebtc::panes::mempool::{axis_row, readout, slot_at, track, BarHover, AXIS, LABEL_PAD, MONO_ADVANCE};
+use crate::ui::managebtc::panes::mempool::{axis_row, readout, slot_at, track, BarHover, AXIS, LABEL_PAD, MONO_ADVANCE, READOUT_STRIP};
 use crate::utils::add_commas;
 use crate::utils::fonts;
 use crate::utils::theme::CompactPalette;
@@ -221,7 +221,9 @@ impl<Message> canvas::Program<Message> for Intervals {
         let gap = BAR_GAP * s;
         let slot = ((w - gap * (n as f32 - 1.0)).max(0.0) / n as f32).round().max(1.0);
         let max = self.max.max(1) as f32;
-        let height_of = |secs: u64| (h * secs as f32 / max).clamp(1.0, h).round();
+        let strip = (READOUT_STRIP * s).min(h);
+        let plot = h - strip;
+        let height_of = |secs: u64| (plot * secs as f32 / max).clamp(1.0, plot.max(1.0)).round();
         let x_of = |i: usize| (i as f32 * (slot + gap)).round();
         let hovered = state.cursor.and_then(|c| slot_at(c.x, w, n, gap));
 
@@ -255,7 +257,7 @@ impl<Message> canvas::Program<Message> for Intervals {
         }
 
         if let Some(f) = self.rule {
-            let y = (h * f).round() + 0.5;
+            let y = (strip + plot * f).round() + 0.5;
             let dash = [3.0 * s, 2.0 * s];
             frame.stroke(
                 &Path::line(Point::new(0.0, y), Point::new(w, y)),
@@ -268,7 +270,7 @@ impl<Message> canvas::Program<Message> for Intervals {
             let pad = LABEL_PAD * s;
             let word = "10M";
             let tw = word.chars().count() as f32 * size * MONO_ADVANCE;
-            let top = (y - LABEL_LIFT * s).max(0.0);
+            let top = (y - LABEL_LIFT * s).max(strip);
             frame.fill_rectangle(Point::new(w - tw - 2.0 * pad, top), Size::new(tw + 2.0 * pad, size + 2.0), self.bg);
             frame.fill_text(canvas::Text {
                 content: word.to_string(),

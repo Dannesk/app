@@ -8,7 +8,7 @@ use iced::widget::pane_grid::Pane;
 use iced::widget::{button, column, container, responsive, row, stack, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Point, Rectangle, Shadow, Size};
 
-use crate::channel::{BtcNodeStats as NodeFrame, CHANNEL};
+use crate::channel::{BtcNodeStats as NodeFrame, Socket, CHANNEL};
 use crate::controller::app_state::{AppState, BtcFeeTier, ChartPeriod, EnableInputMode};
 use crate::controller::message::{Message, PlainField, SecureField};
 use crate::controller::panes::{Chain, GridMsg, PaneKind};
@@ -20,6 +20,7 @@ use crate::ui::components::send_screen::{self as screen};
 use crate::ui::components::signing::SignFields;
 use crate::utils::{fiat_amount, money};
 use crate::ui::components::compact;
+use crate::ui::components::orbit;
 use crate::ui::managebtc::node::{band_color, fee_band, tip_age, trim_rate, NodeFrameView};
 use crate::ui::managebtc::btcsend;
 use crate::ui::managebtc::panes as panes_ui;
@@ -713,7 +714,7 @@ fn blocks_body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
     let node = NodeFrame::current();
     let now = now_secs();
     let dark = theme::is_dark(&state.theme);
-    let (word, dot) = node.status(cp);
+    let (word, dot) = if orbit::btc_node(orbit::socket() == Socket::Live).up() { node.status(cp) } else { ("offline", cp.red) };
     let newest = node.blocks[0];
 
     let since = match tip_age(node.tip_at) {

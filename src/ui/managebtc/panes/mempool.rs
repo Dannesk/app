@@ -24,6 +24,7 @@ const BAR_RADIUS: f32 = 1.0;
 pub(crate) const AXIS: f32 = 8.0;
 const AXIS_PAD_BOTTOM: f32 = 9.0;
 pub(crate) const READOUT: f32 = 9.0;
+pub(crate) const READOUT_STRIP: f32 = 15.0;
 pub(crate) const LABEL_PAD: f32 = 4.0;
 pub(crate) const MONO_ADVANCE: f32 = 0.6;
 const BLOCK_VSIZE: f64 = 1_000_000.0;
@@ -43,6 +44,7 @@ fn body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Ele
         Some(b) => Canvas::new(Histogram {
             bands: b,
             cut: node.tiers.and_then(|t| cut_x(&b, t[3])),
+            rule: cp.rule,
             ink: cp.dim,
             hot: cp.text,
             faint: cp.faint,
@@ -200,6 +202,7 @@ fn band_word(bands: &[BtcBand; BANDS], i: usize) -> String {
 struct Histogram {
     bands: [BtcBand; BANDS],
     cut: Option<f32>,
+    rule: Color,
     ink: Color,
     hot: Color,
     faint: Color,
@@ -237,12 +240,19 @@ impl<Message> canvas::Program<Message> for Histogram {
         let slot = (w - gap * (n as f32 - 1.0)).max(0.0) / n as f32;
         let max = self.bands.iter().map(|b| b.vsize).max().unwrap_or(0).max(1) as f32;
         let hovered = state.cursor.and_then(|c| slot_at(c.x, w, n, gap));
+        let strip = (READOUT_STRIP * s).min(h);
+        let plot = h - strip;
+        let base_y = (h - 1.0).round() + 0.5;
+        frame.stroke(
+            &Path::line(Point::new(0.0, base_y), Point::new(w, base_y)),
+            Stroke::default().with_color(self.rule).with_width(1.0),
+        );
 
         for (i, b) in self.bands.iter().enumerate() {
             if b.vsize == 0 {
                 continue;
             }
-            let bh = (h * b.vsize as f32 / max).max(1.0).round();
+            let bh = (plot * (b.vsize as f32 / max).sqrt()).max(1.0).round();
             let x = (i as f32 * (slot + gap)).round();
             let bar = Path::new(|p| {
                 p.rounded_rectangle(
@@ -258,7 +268,7 @@ impl<Message> canvas::Program<Message> for Histogram {
             let x = (w * f).round() + 0.5;
             let dash = [3.0 * s, 2.0 * s];
             frame.stroke(
-                &Path::line(Point::new(x, 0.0), Point::new(x, h)),
+                &Path::line(Point::new(x, strip), Point::new(x, h)),
                 Stroke {
                     line_dash: LineDash { segments: &dash, offset: 0 },
                     ..Stroke::default().with_color(self.faint).with_width(1.0)
@@ -275,10 +285,10 @@ impl<Message> canvas::Program<Message> for Histogram {
             let tw = word_w(word);
             let box_w = tw + 2.0 * pad;
             let box_x = if right_side { x - 0.5 } else { x + 0.5 - box_w };
-            frame.fill_rectangle(Point::new(box_x, 0.0), Size::new(box_w, size + 2.0), self.bg);
+            frame.fill_rectangle(Point::new(box_x, strip), Size::new(box_w, size + 2.0), self.bg);
             frame.fill_text(canvas::Text {
                 content: word.to_string(),
-                position: Point::new(if right_side { x + pad } else { x - pad }, 1.0),
+                position: Point::new(if right_side { x + pad } else { x - pad }, strip + 1.0),
                 color: self.faint,
                 size: Pixels(size),
                 font: fonts::MONO,
