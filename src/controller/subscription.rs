@@ -30,6 +30,7 @@ pub fn subscriptions(state: &AppState) -> Subscription<Message> {
         watch("tokens", CHANNEL.tokens_rx.clone()),
         watch("orderbook", CHANNEL.orderbook_rx.clone()),
         watch("trade_quote", CHANNEL.trade_quote_rx.clone()),
+        watch("btc_send_quote", CHANNEL.btc_send_quote_rx.clone()),
         watch("transactions", CHANNEL.transactions_rx.clone()),
         watch("btc_transactions", CHANNEL.btc_transactions_rx.clone()),
         watch("btc_node", CHANNEL.btc_node_rx.clone()),

@@ -64,6 +64,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _ = handle.spawn(dannesk_core::utils::trade::quote_task());
 
+    let _ = handle.spawn(dannesk_core::utils::btc_send::quote_task());
+    let _ = crate::channel::CHANNEL.btc_send_draft_tx.send_replace(Some(Default::default()));
+
     let wallet_handle = handle.spawn_blocking(move || {
         wallet::load_wallets(tx_for_wallet);
     });

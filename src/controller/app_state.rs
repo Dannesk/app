@@ -339,8 +339,12 @@ pub struct AppState {
     pub btc_send_anchor: SendAnchor,
   
     pub btc_send_fee: String,
-    pub btc_send_fee_tier: Option<BtcFeeTier>,
-    pub btc_send_error: Option<String>,
+    pub btc_send_fee_tier: BtcFeeTier,
+    pub btc_send_custom: String,
+    pub btc_send_custom_open: bool,
+    pub btc_send_fee_face: bool,
+    pub btc_send_locked: Option<u64>,
+    pub btc_send_max_on: bool,
     pub btc_send_passphrase: SecureString,
     pub btc_send_passphrase_reveal: bool,
     pub btc_send_bip39: SecureString,
@@ -525,8 +529,13 @@ impl AppState {
     pub fn apply_plain_edit(&mut self, field: PlainField, op: SecureOp) -> bool {
         let accepts = |s: &str, at: usize, add: &str| -> bool {
             match field {
-                PlainField::BtcSendFee
-                | PlainField::BtcBumpFee
+                PlainField::BtcSendFee => {
+                    let mut candidate: String = s.chars().take(at).collect();
+                    candidate.push_str(add);
+                    candidate.extend(s.chars().skip(at));
+                    crate::ui::managebtc::btcsend::rate_accepts(&candidate)
+                }
+                PlainField::BtcBumpFee
                 | PlainField::XrpSendTag
                 | PlainField::XrpReceiveTag => {
                     add.chars().all(|c| c.is_ascii_digit())
@@ -771,8 +780,12 @@ impl Default for AppState {
             btc_send_fiat_amount: String::new(),
             btc_send_anchor: SendAnchor::Amount,
             btc_send_fee: String::new(),
-            btc_send_fee_tier: None,
-            btc_send_error: None,
+            btc_send_fee_tier: BtcFeeTier::Med,
+            btc_send_custom: String::new(),
+            btc_send_custom_open: false,
+            btc_send_fee_face: false,
+            btc_send_locked: None,
+            btc_send_max_on: false,
             btc_send_passphrase: SecureString::input(),
             btc_send_passphrase_reveal: false,
             btc_bump_txid: None,

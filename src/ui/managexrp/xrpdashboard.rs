@@ -572,7 +572,7 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
 }
 
 #[allow(clippy::too_many_arguments)]
-fn figure_input<'a>(
+pub(crate) fn figure_input<'a>(
     field: PlainField,
     value: &'a str,
     placeholder: &str,

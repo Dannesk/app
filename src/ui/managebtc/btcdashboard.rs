@@ -9,11 +9,11 @@ use iced::widget::{button, column, container, responsive, rich_text, row, span, 
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow, Size};
 
 use crate::channel::{BtcNodeStats as NodeFrame, Socket, CHANNEL};
-use crate::controller::app_state::{AppState, BtcFeeTier, ChartPeriod, EnableInputMode};
+use crate::controller::app_state::{AppState, BtcFeeTier, ChartPeriod, EnableInputMode, SendAnchor};
 use crate::controller::message::{Message, PlainField, SecureField};
 use crate::controller::panes::{Chain, GridMsg, PaneKind};
 use crate::ui::components::grid::{
-    self, drow, group_rule, label, rule_label, DashedWell, ADDR, AMT_GAP, EQ_W, FIELD_VALUE, HERO, HERO_UNIT, HINT, NA,
+    self, drow, group_rule, label, DashedWell, ADDR, FIELD_VALUE, HERO, HERO_UNIT, HINT, NA,
     ROW_KEY, ROW_TOTAL, STRIP,
 };
 use crate::ui::components::send_screen::{self as screen};
@@ -22,17 +22,18 @@ use crate::utils::{fiat_amount, money};
 use crate::ui::components::compact;
 use crate::ui::components::orbit;
 use crate::ui::managebtc::node::{band_color, fee_band, is_quiet, rate_text, tip_age, NodeFrameView, Verdict};
-use crate::ui::managebtc::btcsend;
+use crate::ui::managebtc::btcsend::{self, FeeQuote};
+use crate::ui::managexrp::panes as xrp_panes;
+use crate::ui::managexrp::xrpdashboard;
 use crate::ui::managebtc::panes as panes_ui;
 use crate::utils::fonts::{LIGHT, MONO};
 use crate::utils::sparkline::{change_pct, chart_data};
 use crate::utils::theme::{self, CompactPalette};
-use crate::utils::{add_commas, fiat_cost, format_token_amount, format_usd, price};
+use crate::utils::{add_commas, fiat_cost, format_token_amount, price};
 
 
 const FEE_NAME: f32 = 11.0;
 const FEE_DOT: f32 = 5.0;
-const CHIP_GAP: f32 = 4.0;
 
 const CARD_GAP: f32 = 4.0;
 const CARD_PAD_V: f32 = 5.0;
@@ -43,7 +44,6 @@ const CARD_AGE: f32 = 7.5;
 const TRAIN_CARDS: usize = 5;
 
 const TAIL: usize = 5;
-const UNIT_RESERVE: f32 = 23.0;
 
 
 pub fn view(state: &AppState) -> Element<'_, Message> {
@@ -100,7 +100,7 @@ fn pane_content<'a>(
                     ),
                 )
             }
-            PaneKind::Send => (strip("send"), None, send_pane(state, cp, scale)),
+            PaneKind::Send => (strip(send_title(state)), None, send_pane(state, cp, scale)),
             PaneKind::Wallet => (strip(panes_ui::wallet::title(state)), None, panes_ui::wallet::view(state, cp, scale)),
             PaneKind::Receive => {
                 let address = CHANNEL.bitcoin_wallet_rx.borrow().1.clone().unwrap_or_else(|| "No Address".to_string());
@@ -370,250 +370,352 @@ fn chart_series(state: &AppState) -> Vec<(u64, f32)> {
 }
 
 
+fn send_title(state: &AppState) -> &'static str {
+    if state.btc_send_step == 2 {
+        "review"
+    } else if state.btc_send_fee_face {
+        "network fee"
+    } else {
+        "send"
+    }
+}
+
 fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    if state.btc_send_step == 2 {
+        return send_review(state, cp, scale);
+    }
+    if state.btc_send_fee_face {
+        return fee_face(state, cp, scale);
+    }
+    grid::fill_or_scroll_by(send_form_min_h(state), move |size: Size| send_form(state, size, cp, scale), cp, scale)
+}
+
+const STAGE_MIN: f32 = 104.0;
+const STAGE_PAD: f32 = 12.0;
+const FEE_ROW_H: f32 = 40.0;
+const GUTTER_W: f32 = 9.0;
+
+fn recipient_hint(state: &AppState) -> Option<&'static str> {
+    let addr = state.btc_send_recipient.trim();
+    let own = CHANNEL.bitcoin_wallet_rx.borrow().1.clone();
+    if !addr.is_empty() && own.as_deref().is_some_and(|o| btcsend::same_address(o, addr)) {
+        Some(btcsend::SELF_ERROR)
+    } else {
+        btcsend::recipient_fault(addr)
+    }
+}
+
+fn send_form_min_h(state: &AppState) -> f32 {
+    let hint = if recipient_hint(state).is_some() { 5.0 + HINT * 1.3 } else { 0.0 };
+    let wrap = if state.btc_send_recipient.trim().chars().count() > 34 { ADDR * 1.6 } else { 0.0 };
+    let to_block = STRIP * 1.3 + 4.0 + screen::box_h(ADDR) + wrap + hint;
+    to_block + 8.0 + FEE_ROW_H + STAGE_MIN + grid::ROW_VALUE * 1.3 + 10.0 + grid::BUTTON_H + 2.0
+}
+
+fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let inner = (size.width / scale).max(1.0);
+    let ccy = state.base_currency.code();
+    let rate = price::cross("BTC", ccy);
+    let quote = btcsend::quote();
+    let gate = btcsend::gate(state, quote.as_ref());
+    let fee = quote.as_ref().and_then(|q| btcsend::in_use(state, q));
+    let addr = state.btc_send_recipient.trim();
+
+    let mut head = row![label("to", cp, scale)].align_y(Alignment::Center).width(Length::Fill);
+    if !addr.is_empty() {
+        head = head
+            .push(Space::new().width(Length::Fill).boxed())
+            .push(xrp_panes::link("clear", cp.dim, Message::BtcSendRecipientCleared, cp, scale));
+    }
+    let mut to_block = column![
+        head,
+        screen::boxed_plain(
+            PlainField::BtcSendRecipient,
+            &state.btc_send_recipient,
+            btcsend::PLACEHOLDER,
+            inner,
+            ADDR,
+            true,
+            None,
+            0.0,
+            None,
+            0.0,
+            None,
+            cp,
+            scale,
+        ),
+    ]
+    .width(Length::Fill);
+    if let Some(note) = recipient_hint(state) {
+        to_block = to_block
+            .push(Space::new().height(5.0 * scale).boxed())
+            .push(compact::mono_runs(vec![(note.to_string(), cp.red)], HINT * scale));
+    }
+
+    let tiers = quote.as_ref().and_then(|q| q.tiers);
+    let caption = match state.btc_send_fee_tier {
+        BtcFeeTier::Custom => fee.zip(tiers).map(|(f, t)| Caption::from(btcsend::custom_read(f.fee, &t))),
+        named => tiers.and_then(|t| named.index().map(|i| Caption::Verdict(Verdict::of(&t.map(|q| q.rate), i)))),
+    };
+    let fee_line = choice_button(
+        fee_choice(
+            "network fee",
+            Some(state.btc_send_fee_tier.label()),
+            caption,
+            fee.map_or(RateCell::Dash, |f| RateCell::Text(rate_text(f.rate))),
+            fee_cost(fee, rate, ccy, cp),
+            Gutter::Chevron,
+            cp,
+            scale,
+        ),
+        false,
+        Some(Message::BtcSendFeeFaceToggled),
+        cp,
+        scale,
+    );
+
+    let anchor_fiat = matches!(state.btc_send_anchor, SendAnchor::Fiat);
+    let (field, typed, placeholder, figure_unit) = if anchor_fiat {
+        (PlainField::BtcSendFiat, state.btc_send_fiat_amount.as_str(), "0.00", ccy.to_lowercase())
+    } else {
+        (PlainField::BtcSendAmount, state.btc_send_amount.as_str(), "0.00000000", "btc".to_string())
+    };
+    let figure = xrpdashboard::figure_input(
+        field,
+        typed,
+        placeholder,
+        &figure_unit,
+        inner - 2.0 * STAGE_PAD,
+        gate.red(),
+        gate.ready.then_some(Message::BtcSendContinueClicked),
+        cp,
+        scale,
+    );
+    let other = if anchor_fiat { state.btc_send_amount.trim() } else { state.btc_send_fiat_amount.trim() };
+    let twin_unit = if anchor_fiat { "BTC".to_string() } else { ccy.to_uppercase() };
+    let twin_placeholder = if anchor_fiat { "0.00000000" } else { "0.00" };
+    let (twin, twin_ink) = if typed.trim().is_empty() {
+        (format!("\u{2248} {twin_placeholder} {twin_unit}"), cp.faint)
+    } else if other.is_empty() {
+        (NA.to_string(), cp.faint)
+    } else {
+        (format!("\u{2248} {other} {twin_unit}"), cp.dim)
+    };
+    let can_swap = rate > 0.0;
+    let twin = if can_swap { format!("{twin}  \u{21c4}") } else { twin };
+    let stage = column![
+        screen::unit("btc", cp, scale),
+        Space::new().height(8.0 * scale),
+        figure,
+        Space::new().height(4.0 * scale),
+        xrp_panes::link_word(twin, twin_ink, can_swap.then_some(Message::BtcSendAnchorToggled), cp, scale),
+    ]
+    .align_x(Alignment::Center)
+    .width(Length::Fill);
+    let stage = container(stage)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_y(Alignment::Center)
+        .padding(Padding::new(STAGE_PAD * scale).left(0.0).right(0.0));
+
+    let spendable = quote.as_ref().and_then(|q| q.spendable);
+    let dust = quote.as_ref().and_then(|q| q.dust);
+    let (avail_label, avail_ink) = if gate.insufficient {
+        (btcsend::OVER_AVAILABLE.to_string(), cp.red)
+    } else if gate.under_dust {
+        (btcsend::dust_words(dust.unwrap_or(0)), cp.red)
+    } else {
+        ("available".to_string(), cp.muted)
+    };
+    let avail_value: Vec<(String, Color)> = match spendable {
+        Some(s) => vec![(format_token_amount(s as f64 / 1e8, 8), cp.text), (" btc".to_string(), cp.faint)],
+        None => vec![(NA.to_string(), cp.faint)],
+    };
+    let mut avail_row = row![
+        text(avail_label.to_uppercase()).font(MONO).size(STRIP * scale).color(avail_ink),
+        Space::new().width(Length::Fill),
+        compact::mono_runs(avail_value, grid::ROW_VALUE * scale),
+    ]
+    .align_y(Alignment::Center)
+    .width(Length::Fill);
+    if spendable.is_some() && fee.is_some_and(|f| f.max > 0) {
+        avail_row = avail_row
+            .push(Space::new().width(6.0 * scale).boxed())
+            .push(xrp_panes::link("max", cp.dim, Message::BtcSendMaxClicked, cp, scale));
+    }
+
+    column![
+        to_block,
+        Space::new().height(8.0 * scale),
+        compact::hairline(cp.rule),
+        fee_line,
+        compact::hairline(cp.rule),
+        stage,
+        avail_row,
+        Space::new().height(10.0 * scale),
+        grid::primary("Review", gate.ready, Message::BtcSendContinueClicked, cp, scale),
+        Space::new().height(2.0 * scale),
+    ]
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .boxed()
+}
+
+fn fee_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let ccy = state.base_currency.code();
+    let price = price::cross("BTC", ccy);
+    let quote = btcsend::quote();
+    let tiers = quote.as_ref().and_then(|q| q.tiers);
+    let quiet = is_quiet(&NodeFrame::current());
+    let open = state.btc_send_custom_open;
+    let live = quote.as_ref().is_some_and(|q| q.draft == btcsend::draft(state));
+
+    let mut col: Column<Element<'_, Message>> = column![].width(Length::Fill);
+    for (i, t) in [BtcFeeTier::Minimum, BtcFeeTier::Low, BtcFeeTier::Med, BtcFeeTier::High].into_iter().enumerate() {
+        if i > 0 {
+            col = col.push(compact::hairline(cp.rule));
+        }
+        let q = tiers.map(|t| t[i]);
+        let caption = tiers.filter(|_| !quiet).map(|t| Caption::Verdict(Verdict::of(&t.map(|f| f.rate), i)));
+        let picked = !open && state.btc_send_fee_tier == t;
+        let body = fee_choice(
+            t.label(),
+            None,
+            caption,
+            q.map_or(RateCell::Dash, |f| RateCell::Text(rate_text(f.rate))),
+            fee_cost(q, price, ccy, cp),
+            Gutter::Check(picked),
+            cp,
+            scale,
+        );
+        col = col.push(choice_button(body, picked, tiers.is_some().then_some(Message::BtcSendFeeTierSelected(t)), cp, scale));
+    }
+    if quiet {
+        col = col.push(compact::hairline(cp.rule)).push(quiet_line(cp, scale));
+    }
+    col = col.push(compact::hairline(cp.rule));
+
+    let typed_rate = state.btc_send_fee.trim().parse::<f32>().ok().filter(|r| r.is_finite() && *r > 0.0);
+    let typed = if open && typed_rate.is_some() { quote.as_ref().and_then(|q| q.custom) } else { None };
+    let read = typed.zip(tiers).map(|(f, t)| btcsend::custom_read(f.fee, &t));
+    let can_set = open && live && typed.is_some() && !matches!(read, Some(btcsend::CustomRead::Warning(_)));
+    let custom_row = if open {
+        let caption = read.map(Caption::from).unwrap_or(Caption::Plain(btcsend::OWN_RATE));
+        let field = screen::boxed_plain(
+            PlainField::BtcSendFee,
+            &state.btc_send_fee,
+            "0.00",
+            btcsend::FEE_BOX_W,
+            FIELD_VALUE,
+            false,
+            None,
+            0.0,
+            None,
+            0.0,
+            can_set.then_some(Message::BtcSendSetFee),
+            cp,
+            scale,
+        );
+        let body = fee_choice("custom", None, Some(caption), RateCell::Field(field), fee_cost(typed, price, ccy, cp), Gutter::Check(false), cp, scale);
+        choice_button(body, true, None, cp, scale)
+    } else if let (BtcFeeTier::Custom, Some(f)) = (state.btc_send_fee_tier, quote.as_ref().and_then(|q| q.custom)) {
+        let caption = tiers.map(|t| Caption::from(btcsend::custom_read(f.fee, &t)));
+        let body = fee_choice("custom", None, caption, RateCell::Text(rate_text(f.rate)), fee_cost(Some(f), price, ccy, cp), Gutter::Check(true), cp, scale);
+        choice_button(body, true, Some(Message::BtcSendFeeTierSelected(BtcFeeTier::Custom)), cp, scale)
+    } else {
+        let body = fee_choice("custom", None, Some(Caption::Plain(btcsend::OWN_RATE)), RateCell::Empty, Vec::new(), Gutter::Chevron, cp, scale);
+        choice_button(body, false, tiers.is_some().then_some(Message::BtcSendFeeTierSelected(BtcFeeTier::Custom)), cp, scale)
+    };
+    col = col.push(custom_row);
+
+    let buttons = if open {
+        grid::button_pair(
+            grid::quiet_button("Cancel", Message::BtcSendFeeFaceToggled, cp, scale),
+            grid::primary("Set fee", can_set, Message::BtcSendSetFee, cp, scale),
+            scale,
+        )
+    } else {
+        grid::quiet_button("Cancel", Message::BtcSendFeeFaceToggled, cp, scale)
+    };
+    column![grid::scroller(col.boxed(), cp, scale), Space::new().height(12.0 * scale), buttons]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .boxed()
+}
+
+fn send_review<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     responsive(move |size: Size| {
         let inner = (size.width / scale).max(1.0);
         let ccy = state.base_currency.code();
-        let (_, own_btc, key_deleted, key_mode) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
-
-        let addr = state.btc_send_recipient.trim();
-        let is_self = !addr.is_empty() && own_btc.as_deref().is_some_and(|own| btcsend::same_address(own, addr));
-        let addr_ok = !is_self && btcsend::is_valid(addr);
-     
-        let fault = btcsend::recipient_fault(addr);
         let rate = price::cross("BTC", ccy);
-        let tier = btcsend::effective_tier(state);
-        let fee = btcsend::resolved_fee(state);
-        let floor = btcsend::floor_sats(state);
-        let below_floor = fee.is_some_and(|f| f < floor);
-        let fee_colour = btcsend::selected_colour(state, fee, cp);
-        let amount = state.btc_send_amount.trim().parse::<f64>().ok().filter(|v| *v > 0.0);
-        let insufficient = match (amount, fee) {
-            (Some(a), Some(f)) => !btcsend::fits(a, f),
-            _ => false,
-        };
-        let valid = addr_ok && amount.is_some() && fee.is_some_and(|f| f >= floor) && !insufficient;
-        let fiat_of = |sats: u64| format!("{} {}", format_usd(sats as f64 / 1e8 * rate), ccy.to_lowercase());
+        let (_, _, key_deleted, key_mode) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
+        let addr = state.btc_send_recipient.trim();
+        let amount = btcsend::amount_sats(state);
+        let fee = state.btc_send_locked;
+        let quote = btcsend::quote();
+        let spendable = quote.as_ref().and_then(|q| q.spendable);
+        let dust = quote.as_ref().and_then(|q| q.dust);
+        let btc = |s: u64| format!("{}.{:08}", s / 100_000_000, s % 100_000_000);
 
-      
-        let hint: Option<Element<'a, Message>> = if is_self {
-            Some(compact::mono_runs(vec![(btcsend::SELF_ERROR.to_string(), cp.red)], HINT * scale))
-        } else {
-            fault.map(|note| compact::mono_runs(vec![(note.to_string(), cp.red)], HINT * scale))
-        };
-        let mut recipient = column![
-            label("recipient", cp, scale),
-            screen::boxed_plain(
-                PlainField::BtcSendRecipient,
-                &state.btc_send_recipient,
-                btcsend::PLACEHOLDER,
-                inner,
-                ADDR,
-                true,
-                None,
-                0.0,
-                None,
-                0.0,
-                None,
-                cp,
-                scale,
-            ),
-        ]
-        .width(Length::Fill);
-        if let Some(hint) = hint {
-            recipient = recipient.push(Space::new().height(5.0 * scale).boxed()).push(hint);
-        }
-
-        let box_w = ((inner - 2.0 * AMT_GAP - EQ_W) / 2.0).max(60.0);
-        let amount_row = row![
-            screen::boxed_plain(
-                PlainField::BtcSendAmount,
-                &state.btc_send_amount,
-                "0.00000000",
-                box_w,
-                FIELD_VALUE,
-                false,
-                None,
-                0.0,
-                Some(screen::unit("btc", cp, scale)),
-                UNIT_RESERVE,
-                None,
-                cp,
-                scale,
-            ),
-            Space::new().width(AMT_GAP * scale),
-            text("=").font(MONO).size(grid::ROW_VALUE * scale).color(cp.faint),
-            Space::new().width(AMT_GAP * scale),
-            screen::boxed_plain(
-                PlainField::BtcSendFiat,
-                &state.btc_send_fiat_amount,
-                "0.00",
-                box_w,
-                FIELD_VALUE,
-                false,
-                None,
-                0.0,
-                Some(screen::unit(ccy, cp, scale)),
-                UNIT_RESERVE,
-                None,
-                cp,
-                scale,
-            ),
-        ]
-        .align_y(Alignment::Center);
-   
-        let mut amount_sec = column![label("amount", cp, scale), amount_row].width(Length::Fill);
-        if insufficient {
-            amount_sec = amount_sec.push(Space::new().height(5.0 * scale).boxed()).push(compact::mono_runs(
-                vec![
-                    (btcsend::OVER_AVAILABLE.to_string(), cp.red),
-                    (format!("  \u{b7}  {} btc available", format_token_amount(btcsend::available_btc(), 8)), cp.muted),
-                ],
-                HINT * scale,
-            ));
-        }
-
-        let mut chips: Row<Element<'_, Message>> = row![].spacing(CHIP_GAP * scale).width(Length::Fill);
-        for t in BtcFeeTier::ALL {
-            chips = chips.push(chip(t.label(), Some(t) == tier, Message::BtcSendFeeTierSelected(t), cp, scale));
-        }
-        let outlook: Option<&'static str> = match fee {
-            Some(_) if below_floor => None,
-            Some(f) if btcsend::tiers_all_at_floor(state) && f == floor => Some(btcsend::QUIET),
-            Some(f) => Some(btcsend::fee_outlook(state, f)),
-            None => None,
-        };
-        let fee_line: Element<'a, Message> = if tier == Some(BtcFeeTier::Custom) {
-         
-            let note: Element<'a, Message> = match (fee, below_floor) {
-                (Some(f), false) => {
-                    let mut runs = Vec::new();
-                    if rate > 0.0 {
-                        runs.push((format!("\u{2248} {}", fiat_of(f)), cp.muted));
-                    }
-                    if let Some(o) = outlook {
-                        if !runs.is_empty() {
-                            runs.push(("  \u{b7}  ".to_string(), cp.faint));
-                        }
-                        runs.push((o.to_string(), cp.muted));
-                    }
-                    compact::mono_runs(runs, HINT * scale)
-                }
-                (Some(_), true) => compact::mono_runs(vec![(format!("minimum {floor}"), cp.red)], HINT * scale),
-                (None, _) => compact::mono_runs(vec![(format!("minimum {floor}"), cp.muted)], HINT * scale),
-            };
-            row![
-                screen::boxed_plain(
-                    PlainField::BtcSendFee,
-                    &state.btc_send_fee,
-                    "0",
-                    btcsend::FEE_BOX_W,
-                    FIELD_VALUE,
-                    false,
-                    None,
-                    0.0,
-                    Some(screen::unit("sats", cp, scale)),
-                    29.0,
-                    None,
-                    cp,
-                    scale,
-                ),
-                Space::new().width(8.0 * scale),
-                note,
-            ]
-            .align_y(Alignment::Center)
-            .boxed()
-        } else {
-            match fee {
-                Some(f) => {
-                    let mut runs = vec![(format!("{f} sats"), fee_colour)];
-                    if rate > 0.0 {
-                        runs.push(("  \u{b7}  ".to_string(), cp.faint));
-                        runs.push((format!("\u{2248} {}", fiat_of(f)), cp.muted));
-                    }
-                    if let Some(o) = outlook {
-                        runs.push(("  \u{b7}  ".to_string(), cp.faint));
-                        runs.push((o.to_string(), cp.muted));
-                    }
-                    compact::mono_runs(runs, HINT * scale)
-                }
-                None => {
-                    let note = if btcsend::tier_quotes(state).is_some() { btcsend::PICK_FEE } else { btcsend::NO_TIERS };
-                    compact::mono_runs(vec![(note.to_string(), cp.muted)], HINT * scale)
-                }
-            }
-        };
-        let fee_sec = column![
-            label("network fee", cp, scale),
-            chips,
-            Space::new().height(5.0 * scale),
-            fee_line,
-        ]
-        .width(Length::Fill);
-
-        let signing = state.btc_send_step >= 2;
-        let display_fee = if signing { Some(btcsend::committed_fee(state)).filter(|f| *f > 0) } else { fee };
-        let mut review = column![
-            rule_label("review", cp, scale),
+        let mut facts = column![
             screen::address_block((!addr.is_empty()).then_some(addr), TAIL, cp, scale),
             Space::new().height(7.0 * scale),
         ]
         .width(Length::Fill);
-        review = review.push(drow(
+        facts = facts.push(drow(
             "amount",
             match amount {
-                Some(a) => vec![(format_token_amount(a, 8), cp.text), (" btc".to_string(), cp.faint)],
+                Some(a) => vec![(btc(a), cp.text), (" btc".to_string(), cp.faint)],
                 None => vec![(NA.to_string(), cp.faint)],
             },
             2.0,
             cp,
             scale,
         ));
-     
-        review = review.push(
+        let fee_runs = match fee {
+            Some(f) => {
+                let mut runs = vec![(add_commas(f as i64), cp.dim), (" sat".to_string(), cp.faint)];
+                if rate > 0.0 {
+                    runs.push((format!("  \u{b7}  {} {}", fiat_cost(f as f64 / 1e8 * rate), ccy.to_lowercase()), cp.faint));
+                }
+                runs
+            }
+            None => vec![(NA.to_string(), cp.faint)],
+        };
+        facts = facts.push(
             container(
                 row![
                     text("network fee").size(ROW_KEY * scale).color(cp.dim),
                     Space::new().width(5.0 * scale),
-                    text(tier.map_or("", BtcFeeTier::label)).font(MONO).size(HINT * scale).color(cp.faint),
+                    text(state.btc_send_fee_tier.label()).font(MONO).size(HINT * scale).color(cp.faint),
                     Space::new().width(Length::Fill),
-                    compact::mono_runs(
-                        match display_fee {
-                            Some(f) => {
-                                let mut runs = vec![(format!("{f} sats"), cp.dim)];
-                                if rate > 0.0 {
-                                    runs.push((format!("  \u{b7}  {}", fiat_of(f)), cp.faint));
-                                }
-                                runs
-                            }
-                            None => vec![(NA.to_string(), cp.faint)],
-                        },
-                        grid::ROW_VALUE * scale,
-                    ),
+                    compact::mono_runs(fee_runs, grid::ROW_VALUE * scale),
                 ]
                 .align_y(Alignment::Center),
             )
             .width(Length::Fill)
-            .padding(Padding::new(0.0).top(2.0 * scale).bottom(3.0 * scale)).boxed(),
+            .padding(Padding::new(0.0).top(2.0 * scale).bottom(3.0 * scale))
+            .boxed(),
         );
-        let total = match (amount, display_fee) {
+        let total = match (amount, fee) {
             (Some(a), Some(f)) => {
-                let sum = a + f as f64 / 1e8;
-                let mut runs = vec![(format_token_amount(sum, 8), cp.text), (" btc".to_string(), cp.faint)];
+                let sum = a + f;
+                let mut runs = vec![(btc(sum), cp.text), (" btc".to_string(), cp.faint)];
                 if rate > 0.0 {
-                    runs.push((format!("  \u{b7}  {} {}", fiat_amount(sum * rate), ccy.to_lowercase()), cp.faint));
+                    runs.push((format!("  \u{b7}  {} {}", fiat_amount(sum as f64 / 1e8 * rate), ccy.to_lowercase()), cp.faint));
                 }
                 runs
             }
             _ => vec![(NA.to_string(), cp.faint)],
         };
-        review = review.push(group_rule(cp, scale)).push(
+        facts = facts.push(group_rule(cp, scale)).push(
             row![
                 text("total").size(ROW_KEY * scale).color(cp.dim),
                 Space::new().width(Length::Fill),
                 compact::mono_runs(total, ROW_TOTAL * scale),
             ]
-            .align_y(Alignment::Center).boxed(),
+            .align_y(Alignment::Center)
+            .boxed(),
         );
 
         let sign_msg = Message::BtcGrid(GridMsg::SendSign);
@@ -630,62 +732,173 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
             bip39_reveal: state.btc_send_bip39_reveal,
             on_submit: sign_msg.clone(),
         };
-        let live = valid && fields.can_submit();
+        let armed = match (amount, fee, spendable) {
+            (Some(a), Some(f), Some(s)) => a + f <= s && dust.is_none_or(|d| a >= d),
+            _ => false,
+        };
+        let buttons = grid::button_pair(
+            grid::quiet_button("Cancel", Message::BtcSendReviewCancelled, cp, scale),
+            grid::primary("Send payment", armed && fields.can_submit(), sign_msg, cp, scale),
+            scale,
+        );
         let sign = grid::sign_block(
             &fields,
             &state.btc_send_passphrase,
             &state.btc_send_seed_text,
             &state.btc_send_bip39,
-            valid,
-            grid::primary("Send payment", live, sign_msg, cp, scale),
+            armed,
+            buttons,
             inner,
             cp,
             scale,
         );
 
-        grid::scroller(
-            column![
-                recipient,
-                Space::new().height(8.0 * scale),
-                amount_sec,
-                Space::new().height(8.0 * scale),
-                fee_sec,
-                review,
-                sign,
-            ]
-            .width(Length::Fill)
-            .boxed(),
-            cp,
-            scale,
-        )
+        grid::scroller(column![facts, sign].width(Length::Fill).boxed(), cp, scale)
     })
     .boxed()
 }
 
+enum Caption {
+    Verdict(Verdict),
+    Warning(String),
+    Plain(&'static str),
+}
 
-fn chip<'a>(word: &str, selected: bool, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    button(
-        text(word.to_uppercase())
-            .font(MONO)
-            .size(STRIP * scale)
-            .width(Length::Fill)
-            .align_x(Alignment::Center)
-            .color(if selected { cp.text } else { cp.muted }),
-    )
-    .on_press(msg)
-    .width(Length::Fill)
-    .padding(Padding::new(0.0).top(3.0 * scale).bottom(3.0 * scale))
-    .style(move |_, status| {
-        let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-        button::Style {
-            background: Some(if selected || hot { cp.hover } else { Color::TRANSPARENT }.into()),
-            border: Border { color: cp.border_soft, width: 1.0, radius: (5.0 * scale).into() },
-            text_color: if selected { cp.text } else { cp.muted },
-            shadow: Shadow::default(),
-            snap: false,
+impl From<btcsend::CustomRead> for Caption {
+    fn from(read: btcsend::CustomRead) -> Self {
+        match read {
+            btcsend::CustomRead::Verdict(v) => Caption::Verdict(v),
+            btcsend::CustomRead::Warning(w) => Caption::Warning(w),
         }
-    })
+    }
+}
+
+enum RateCell<'a> {
+    Text(String),
+    Dash,
+    Empty,
+    Field(Element<'a, Message>),
+}
+
+enum Gutter {
+    Check(bool),
+    Chevron,
+}
+
+fn fee_cost(q: Option<FeeQuote>, price: f64, ccy: &str, cp: &'static CompactPalette) -> Vec<(String, Color)> {
+    let Some(f) = q else {
+        return vec![(" ".to_string(), cp.dim)];
+    };
+    let mut cost = vec![
+        (add_commas(f.fee as i64), cp.dim),
+        (" sat".to_string(), cp.muted),
+        (" \u{b7} ".to_string(), cp.faint),
+    ];
+    if price > 0.0 {
+        cost.push((fiat_cost(f.fee as f64 / 1e8 * price), cp.dim));
+        cost.push((format!(" {}", ccy.to_lowercase()), cp.muted));
+    } else {
+        cost.push((NA.to_string(), cp.faint));
+    }
+    cost
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fee_choice<'a>(
+    top: &str,
+    prefix: Option<&str>,
+    caption: Option<Caption>,
+    rate: RateCell<'a>,
+    cost: Vec<(String, Color)>,
+    gutter: Gutter,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
+    let mut left = column![text(top.to_string()).size(FEE_NAME * scale).color(cp.text)].spacing(2.0 * scale);
+    let (dot, word, ink) = match &caption {
+        Some(Caption::Verdict(v)) => (Some(v.colour(cp)), Some(v.word().to_string()), cp.dim),
+        Some(Caption::Warning(w)) => (Some(cp.red), Some(w.clone()), cp.red),
+        Some(Caption::Plain(p)) => (None, Some(p.to_string()), cp.dim),
+        None => (None, None, cp.dim),
+    };
+    let line: Vec<String> = [prefix.map(str::to_string), word].into_iter().flatten().collect();
+    if !line.is_empty() {
+        let mut caption_row: Row<Element<'_, Message>> = row![].spacing(5.0 * scale).align_y(Alignment::Center);
+        if let Some(d) = dot {
+            caption_row = caption_row.push(fee_dot(d, scale));
+        }
+        caption_row = caption_row.push(
+            text(line.join(" \u{b7} "))
+                .size(ROW_KEY * scale)
+                .color(ink)
+                .wrapping(Wrapping::None)
+                .ellipsis(Ellipsis::End)
+                .boxed(),
+        );
+        left = left.push(caption_row.boxed());
+    }
+    let rate_line: Element<'a, Message> = match rate {
+        RateCell::Text(r) => {
+            let spans: Vec<Span<'static, ()>> = vec![
+                span(r).font(MONO).size(ROW_TOTAL * scale).color(cp.text),
+                span(" sat/vB").font(MONO).size(STRIP * scale).color(cp.muted),
+            ];
+            rich_text(spans).wrapping(Wrapping::None).boxed()
+        }
+        RateCell::Field(f) => row![
+            f,
+            Space::new().width(4.0 * scale),
+            text("sat/vB").font(MONO).size(STRIP * scale).color(cp.muted),
+        ]
+        .align_y(Alignment::Center)
+        .boxed(),
+        RateCell::Dash => text(NA).font(MONO).size(ROW_TOTAL * scale).color(cp.faint).boxed(),
+        RateCell::Empty => Space::new().boxed(),
+    };
+    let mark: Element<'a, Message> = match gutter {
+        Gutter::Check(true) => text("\u{2713}").size(ROW_KEY * scale).color(cp.green).boxed(),
+        Gutter::Check(false) => Space::new().boxed(),
+        Gutter::Chevron => text("\u{203a}").font(MONO).size(ROW_KEY * scale).color(cp.faint).boxed(),
+    };
+    container(
+        row![
+            container(left).width(Length::Fill).clip(true),
+            column![rate_line, compact::mono_runs(cost, ROW_KEY * scale)]
+                .spacing(2.0 * scale)
+                .align_x(Alignment::End),
+            container(mark).width(Length::Fixed(GUTTER_W * scale)).align_x(Alignment::End),
+        ]
+        .spacing(10.0 * scale)
+        .align_y(Alignment::Center),
+    )
+    .width(Length::Fill)
+    .padding(Padding::new(0.0).top(4.0 * scale).bottom(4.0 * scale))
     .boxed()
+}
+
+fn choice_button<'a>(
+    body: Element<'a, Message>,
+    picked: bool,
+    msg: Option<Message>,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
+    let live = msg.is_some();
+    button(body)
+        .on_press_maybe(msg)
+        .width(Length::Fill)
+        .padding(Padding::new(0.0).left(4.0 * scale).right(4.0 * scale))
+        .style(move |_, status| {
+            let hot = live && matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: Some(if picked { cp.pill } else if hot { cp.hover } else { Color::TRANSPARENT }.into()),
+                border: Border { color: Color::TRANSPARENT, width: 0.0, radius: (5.0 * scale).into() },
+                text_color: cp.text,
+                shadow: Shadow::default(),
+                snap: false,
+            }
+        })
+        .boxed()
 }
 
 

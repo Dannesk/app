@@ -8,115 +8,10 @@ use crate::btc_script_type::BtcScriptType;
 use crate::channel::CHANNEL;
 use crate::controller::app_state::{AppState, BtcFeeTier};
 use crate::controller::message::Message;
+use crate::ui::managebtc::node::{rate_text, Verdict};
 use crate::utils::theme::CompactPalette;
-use crate::ws::commands::bitcoin_payment::{self, Utxo};
-pub use crate::ws::commands::bitcoin_payment::{kinds_of, tier_sats_at, vsize_for};
-
-
-fn change_spk_len() -> usize {
-    crate::btc_script_type::stored().spk_len()
-}
-
-
-fn eligible() -> Vec<Utxo> {
-    let (_, wallet, _, _) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
-    wallet
-        .and_then(|w| bitcoin_payment::eligible_utxos(&w).ok())
-        .unwrap_or_default()
-}
-
-
-pub fn available_btc() -> f64 {
-    available_sats() as f64 / 1e8
-}
-
-pub fn available_sats() -> u64 {
-    eligible().iter().map(|u| u.amount).sum::<u64>()
-}
-
-
-pub fn to_sats(btc: f64) -> u64 {
-    (btc * 1e8).round() as u64
-}
-
-pub fn fits(amount: f64, fee: u64) -> bool {
-    to_sats(amount).saturating_add(fee) <= available_sats()
-}
-
-
-fn recipient_spk_len(state: &AppState) -> usize {
-    dannesk_btc_codec::address::Address::parse(state.btc_send_recipient.trim())
-        .map(|a| a.script_pubkey().len())
-        .unwrap_or(22)
-}
-
-
-fn inputs_for_target(utxos: &[Utxo], target: u64) -> Option<usize> {
-    let mut total = 0u64;
-    for (i, u) in utxos.iter().enumerate() {
-        total += u.amount;
-        if total >= target {
-            return Some(i + 1);
-        }
-    }
-    None
-}
-
-
-pub fn quote_fee(rate: f32, state: &AppState) -> u64 {
-    let utxos = eligible();
-    let amount_sats = state
-        .btc_send_amount
-        .trim()
-        .parse::<f64>()
-        .ok()
-        .filter(|v| *v > 0.0)
-        .map(|v| (v * 1e8).round() as u64)
-        .unwrap_or(0);
-    let two_out = [recipient_spk_len(state), change_spk_len()];
-
-    let kinds = kinds_of(&utxos);
-    let own = crate::btc_script_type::stored();
-    let first = |n: usize| -> Vec<BtcScriptType> {
-        if kinds.is_empty() { vec![own; n] } else { kinds[..n.min(kinds.len())].to_vec() }
-    };
-
-    let mut n = 1usize;
-    let mut fee = tier_sats_at(rate, vsize_for(&first(n), &two_out));
-    for _ in 0..8 {
-        let needed = inputs_for_target(&utxos, amount_sats.saturating_add(fee))
-            .unwrap_or_else(|| utxos.len().max(1));
-        if needed == n {
-            break;
-        }
-        n = needed;
-        fee = tier_sats_at(rate, vsize_for(&first(n), &two_out));
-    }
-
-    let total: u64 = utxos.iter().map(|u| u.amount).sum();
-    if amount_sats > 0 && total > 0 && amount_sats.saturating_add(fee) > total {
-        let fee1 = tier_sats_at(rate, vsize_for(&kinds, &[recipient_spk_len(state)]));
-        if amount_sats.saturating_add(fee1) <= total {
-            return fee1;
-        }
-    }
-    fee
-}
-
-
-pub fn floor_sats(state: &AppState) -> u64 {
-    tier_quotes(state).map_or_else(|| quote_fee(1.0, state).max(1), |q| q[0].max(1))
-}
-
-pub fn tier_quotes(state: &AppState) -> Option<[u64; 4]> {
-    let tiers = CHANNEL.btc_node_rx.borrow().tiers?;
-    Some([
-        quote_fee(tiers[0], state),
-        quote_fee(tiers[1], state),
-        quote_fee(tiers[2], state),
-        quote_fee(tiers[3], state),
-    ])
-}
+pub use crate::utils::btc_send::{BtcSendDraft, BtcSendQuote, FeeQuote};
+pub use crate::ws::commands::bitcoin_payment::{tier_sats_at, vsize_for};
 
 
 pub fn typical_vsize() -> u64 {
@@ -129,34 +24,120 @@ pub fn typical_vsize() -> u64 {
 }
 
 
-pub fn tiers_all_at_floor(state: &AppState) -> bool {
-    tier_quotes(state).is_some_and(|q| q.iter().all(|s| *s == q[0]))
+pub fn draft(state: &AppState) -> BtcSendDraft {
+    let custom = if state.btc_send_custom_open {
+        Some(state.btc_send_fee.trim().to_string())
+    } else {
+        (!state.btc_send_custom.is_empty()).then(|| state.btc_send_custom.clone())
+    };
+    BtcSendDraft {
+        recipient: state.btc_send_recipient.trim().to_string(),
+        amount: state.btc_send_amount.trim().to_string(),
+        custom,
+    }
+}
+
+pub fn quote() -> Option<BtcSendQuote> {
+    CHANNEL.btc_send_quote_rx.borrow().clone()
+}
+
+pub fn live_quote(state: &AppState) -> Option<BtcSendQuote> {
+    quote().filter(|q| q.draft == draft(state))
+}
+
+pub fn in_use(state: &AppState, q: &BtcSendQuote) -> Option<FeeQuote> {
+    match state.btc_send_fee_tier {
+        BtcFeeTier::Custom if state.btc_send_custom_open => None,
+        BtcFeeTier::Custom => q.custom,
+        named => named.index().and_then(|i| q.tiers.map(|t| t[i])),
+    }
+}
+
+pub fn amount_sats(state: &AppState) -> Option<u64> {
+    state
+        .btc_send_amount
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|v| *v > 0.0)
+        .map(|v| (v * 100_000_000.0).round() as u64)
+        .filter(|s| *s > 0)
 }
 
 
-pub fn effective_tier(state: &AppState) -> Option<BtcFeeTier> {
-    match state.btc_send_fee_tier? {
-        BtcFeeTier::Custom => Some(BtcFeeTier::Custom),
-        named if tier_quotes(state).is_some() => Some(named),
-        _ => Some(BtcFeeTier::Custom),
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CustomRead {
+    Verdict(Verdict),
+    Warning(String),
+}
+
+pub(crate) fn custom_read(fee: u64, tiers: &[FeeQuote; 4]) -> CustomRead {
+    match (0..4).rev().find(|&i| fee >= tiers[i].fee) {
+        Some(reach) => CustomRead::Verdict(Verdict::of(&tiers.map(|t| t.rate), reach)),
+        None => CustomRead::Warning(format!("min {}", rate_text(tiers[0].rate))),
     }
 }
 
 
-pub fn resolved_fee(state: &AppState) -> Option<u64> {
-    match effective_tier(state)? {
-        BtcFeeTier::Custom => state.btc_send_fee.trim().parse::<u64>().ok(),
-        named => {
-            let i = named.index()?;
-            tier_quotes(state).map(|q| q[i])
-        }
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Gate {
+    pub insufficient: bool,
+    pub under_dust: bool,
+    pub blocked: bool,
+    pub ready: bool,
+}
+
+impl Gate {
+    pub fn red(self) -> bool {
+        self.insufficient || self.under_dust
     }
 }
 
-
-pub fn committed_fee(state: &AppState) -> u64 {
-    state.btc_send_fee.trim().parse().unwrap_or(0)
+pub fn gate(state: &AppState, q: Option<&BtcSendQuote>) -> Gate {
+    let amount = amount_sats(state);
+    let fee = q.and_then(|q| in_use(state, q));
+    let spendable = q.and_then(|q| q.spendable);
+    let insufficient = matches!((amount, fee, spendable), (Some(a), Some(f), Some(s)) if a.saturating_add(f.fee) > s);
+    let under_dust = matches!((amount, q.and_then(|q| q.dust)), (Some(a), Some(d)) if a < d);
+    let blocked = state.btc_send_fee_tier == BtcFeeTier::Custom
+        && matches!((fee, q.and_then(|q| q.tiers)), (Some(f), Some(t)) if f.fee < t[0].fee);
+    let addr = state.btc_send_recipient.trim();
+    let own = CHANNEL.bitcoin_wallet_rx.borrow().1.clone();
+    let addr_ok = is_valid(addr) && !own.as_deref().is_some_and(|o| same_address(o, addr));
+    let live = q.is_some_and(|q| q.draft == draft(state));
+    let ready = addr_ok
+        && amount.is_some()
+        && live
+        && fee.is_some()
+        && spendable.is_some()
+        && !insufficient
+        && !under_dust
+        && !blocked
+        && !state.btc_send_custom_open;
+    Gate { insufficient, under_dust, blocked, ready }
 }
+
+
+pub fn rate_accepts(candidate: &str) -> bool {
+    if !candidate.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        return false;
+    }
+    let mut parts = candidate.splitn(2, '.');
+    let whole = parts.next().unwrap_or("");
+    let decimals = parts.next();
+    if decimals.is_some_and(|d| d.contains('.')) || whole.len() > RATE_DIGITS {
+        return false;
+    }
+    let n: u32 = whole.parse().unwrap_or(0);
+    let places = if n < 10 { 2 } else if n < 100 { 1 } else { 0 };
+    match decimals {
+        None => true,
+        Some(_) if places == 0 => false,
+        Some(d) => d.len() <= places,
+    }
+}
+
+const RATE_DIGITS: usize = 5;
 
 
 pub fn is_valid(addr: &str) -> bool {
@@ -209,57 +190,14 @@ pub(crate) const SELF_ERROR: &str = "you cannot send to yourself";
 pub(crate) const PREFIX_ERROR: &str = "a bitcoin address starts with 1, 3 or bc1";
 
 pub(crate) const CHECKSUM_ERROR: &str = "that address fails its checksum";
-pub(crate) const NO_TIERS: &str = "no fee rates from the node yet \u{2014} set one yourself";
-pub(crate) const PICK_FEE: &str = "pick a fee, or set one yourself";
+pub(crate) const OWN_RATE: &str = "your own rate, in sat/vB";
 
-
-const UNPRICED: &str = "no estimate yet";
+pub(crate) fn dust_words(dust: u64) -> String {
+    format!("minimum {} sat", crate::utils::add_commas(dust as i64))
+}
 
 
 pub(crate) const BACK_OF_QUEUE: &str = "back of the queue";
-const WELL_UNDER: &str = "well under the going rate";
-const JUST_UNDER: &str = "just under the going rate";
-const GOING_RATE: &str = "around the going rate";
-const ABOVE_GOING: &str = "above the going rate";
-const NEXT_BLOCK: &str = "at the next-block rate";
-const OVER_THE_TOP: &str = "more than the next block needs";
-
-
-pub(crate) const QUIET: &str = "every tier costs the same";
-
-
-pub(crate) fn fee_outlook(state: &AppState, sats: u64) -> &'static str {
-    let Some(q) = tier_quotes(state) else {
-        return UNPRICED;
-    };
- 
-    let mid = |lo: u64, hi: u64| lo + hi.saturating_sub(lo) / 2;
-
-    if sats > q[3].saturating_mul(2) {
-        OVER_THE_TOP
-    } else if sats >= q[3] {
-        NEXT_BLOCK
-    } else if sats >= mid(q[2], q[3]) {
-        ABOVE_GOING
-    } else if sats >= q[2] {
-        GOING_RATE
-    } else if sats >= mid(q[1], q[2]) {
-        JUST_UNDER
-    } else if sats >= q[1] {
-        WELL_UNDER
-    } else {
-        BACK_OF_QUEUE
-    }
-}
-
-
-pub(crate) fn selected_colour(state: &AppState, sats: Option<u64>, cp: &'static CompactPalette) -> Color {
-    match (sats, tier_quotes(state)) {
-        (Some(f), Some(q)) if f >= q[2] => cp.green,
-        (Some(_), Some(_)) => cp.amber,
-        _ => cp.dim,
-    }
-}
 
 
 pub const FEE_BOX_W: f32 = 96.0;
@@ -326,7 +264,7 @@ mod tests {
     use super::*;
     use crate::ui::components::tui::MONO_ADVANCE;
 
-   
+
     const REAL: [&str; 5] = [
         "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",                                 // P2PKH
         "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy",                                 // P2SH
@@ -335,14 +273,19 @@ mod tests {
         "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0",     // Taproot, BECH32M
     ];
 
- 
+    fn tiers(fees: [u64; 4]) -> [FeeQuote; 4] {
+        let rates = [0.10, 0.13, 0.34, 1.09];
+        [0, 1, 2, 3].map(|i| FeeQuote { rate: rates[i], fee: fees[i], max: 0 })
+    }
+
+
     #[test]
     fn only_real_addresses_pass() {
         for addr in REAL {
             assert!(is_valid(addr), "{addr} is a real address and was refused");
             assert_eq!(recipient_fault(addr), None, "{addr} was painted red");
         }
-      
+
         let fake = "bc1qu5g2twq0udg5g09h2u03u54x2ve8zkcum7szm";
         assert!(!is_valid(fake), "a bad checksum still passes the gate");
         assert_eq!(recipient_fault(fake), Some(CHECKSUM_ERROR));
@@ -357,7 +300,7 @@ mod tests {
         }
     }
 
-    
+
     #[test]
     fn an_uppercase_bech32_address_is_payable() {
         let lower = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
@@ -369,7 +312,7 @@ mod tests {
         assert!(!is_valid(&mixed));
     }
 
-  
+
     #[test]
     fn the_self_check_folds_case_only_where_the_encoding_does() {
         let bech = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
@@ -381,7 +324,7 @@ mod tests {
         assert!(!same_address(bech, "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"));
     }
 
-  
+
     #[test]
     fn a_refused_address_is_never_silent() {
         let cases: Vec<(String, Option<&str>)> = vec![
@@ -390,14 +333,14 @@ mod tests {
             (format!("bc1{}", "q".repeat(90)), Some(CHECKSUM_ERROR)),
             ("1".repeat(40), Some(CHECKSUM_ERROR)),
             ("1".repeat(25), Some(CHECKSUM_ERROR)),
-         
+
             ("0xdeadbeef".to_string(), Some(PREFIX_ERROR)),
             ("tb1qw508d6qejxtdg4y5r3zarvaryvaxxpcs".to_string(), Some(PREFIX_ERROR)),
         ];
         for (addr, want) in cases {
             assert_eq!(recipient_fault(&addr), want, "{addr:?}");
         }
-     
+
         for addr in REAL {
             let floor = if is_bech32ish(addr) { BECH32_MIN } else { LEGACY_MIN };
             for n in 1..=addr.len() {
@@ -417,9 +360,10 @@ mod tests {
         }
     }
 
- 
+
     #[test]
     fn every_amount_round_trips_to_exact_sats() {
+        let to_sats = |btc: f64| (btc * 1e8).round() as u64;
         let cases: [(&str, u64); 9] = [
             ("1.00000000", 100_000_000),
             ("0.00000001", 1),
@@ -434,125 +378,37 @@ mod tests {
         for (text, sats) in cases {
             let parsed: f64 = text.parse().unwrap();
             assert_eq!(to_sats(parsed), sats, "{text}");
-            assert_eq!((parsed * 100_000_000.0).round() as u64, sats, "{text} in the blob");
             assert_eq!(to_sats(format!("{parsed:.8}").parse().unwrap()), sats, "{text} re-formatted");
         }
-       
+
         for sats in (0..10_000_000u64).step_by(7) {
             let text = format!("{:.8}", sats as f64 / 1e8);
             assert_eq!(to_sats(text.parse().unwrap()), sats, "{text}");
         }
     }
 
-   
     #[test]
-    fn input_counting_walks_first_fit() {
-        let coins: Vec<Utxo> = [30_000u64, 20_000, 5_000]
-            .iter()
-            .enumerate()
-            .map(|(i, s)| Utxo { txid: format!("t{i}"), vout: 0, amount: *s, address: String::new() })
-            .collect();
-        assert_eq!(inputs_for_target(&coins, 10_000), Some(1));
-        assert_eq!(inputs_for_target(&coins, 30_000), Some(1));
-        assert_eq!(inputs_for_target(&coins, 30_001), Some(2));
-        assert_eq!(inputs_for_target(&coins, 55_000), Some(3));
-        assert_eq!(inputs_for_target(&coins, 55_001), None);
-        assert_eq!(inputs_for_target(&[], 1), None);
-    }
-
-  
-    #[test]
-    fn the_ladder_moves_between_med_and_high() {
-        let q = [14u64, 40, 71, 444];
-        let mid = |lo: u64, hi: u64| lo + hi.saturating_sub(lo) / 2;
-        let rung = |sats: u64| -> &'static str {
-            if sats > q[3].saturating_mul(2) { OVER_THE_TOP }
-            else if sats >= q[3] { NEXT_BLOCK }
-            else if sats >= mid(q[2], q[3]) { ABOVE_GOING }
-            else if sats >= q[2] { GOING_RATE }
-            else if sats >= mid(q[1], q[2]) { JUST_UNDER }
-            else if sats >= q[1] { WELL_UNDER }
-            else { BACK_OF_QUEUE }
-        };
-        assert_eq!(rung(71), GOING_RATE);
-        assert_eq!(rung(300), ABOVE_GOING, "the med→high gap collapsed again");
-        assert_eq!(rung(444), NEXT_BLOCK);
-        assert_eq!(rung(20), BACK_OF_QUEUE);
-        assert_eq!(rung(45), WELL_UNDER);
-        assert_eq!(rung(60), JUST_UNDER);
-        // The rung that saves money: an extra zero on custom.
-        assert_eq!(rung(4440), OVER_THE_TOP);
-        // Every rung is reachable with these quotes.
-        let seen: std::collections::HashSet<_> =
-            (0..5000).step_by(7).map(rung).collect();
-        assert_eq!(seen.len(), 7, "a rung is unreachable: {seen:?}");
-    }
-
-  
-    #[test]
-    fn a_send_cannot_continue_until_a_fee_is_chosen() {
-        let mut state = AppState::default();
-        assert_eq!(effective_tier(&state), None);
-        assert_eq!(resolved_fee(&state), None);
-        state.btc_send_step = 1;
-        state.btc_send_recipient = REAL[0].to_string();
-        state.btc_send_amount = "0.001".to_string();
-        let _ = crate::controller::btc::handle(&mut state, crate::controller::message::Message::BtcSendContinueClicked);
-        assert_eq!(state.btc_send_step, 1);
-        assert_eq!(state.btc_send_error.as_deref(), Some(PICK_FEE));
+    fn a_custom_fee_rounds_down_to_the_tier_it_pays() {
+        let t = tiers([15, 19, 48, 154]);
+        assert_eq!(custom_read(71, &t), CustomRead::Verdict(Verdict::ThreeBlocks));
+        assert_eq!(custom_read(154, &t), CustomRead::Verdict(Verdict::NextBlock));
+        assert_eq!(custom_read(19, &t), CustomRead::Verdict(Verdict::SixBlocks));
+        assert_eq!(custom_read(15, &t), CustomRead::Verdict(Verdict::BackOfQueue));
+        assert_eq!(custom_read(14, &t), CustomRead::Warning("min 0.10".to_string()));
+        assert_eq!(custom_read(1_540, &t), CustomRead::Verdict(Verdict::NextBlock));
     }
 
     #[test]
-    fn a_click_stays_on_its_tier_when_two_tiers_cost_the_same() {
-        CHANNEL.btc_node_tx.send_modify(|n| n.tiers = Some([0.1, 0.12, 0.12, 0.121]));
-        let mut state = AppState::default();
-        for t in BtcFeeTier::ALL {
-            state.btc_send_fee_tier = Some(t);
-            assert_eq!(effective_tier(&state), Some(t));
+    fn the_rate_field_stops_where_the_rate_format_does() {
+        for ok in ["", "0", "0.", "0.5", "0.50", "9.99", "10.5", "99.9", "150", "12345"] {
+            assert!(rate_accepts(ok), "{ok:?} was refused");
         }
-        state.btc_send_fee_tier = Some(BtcFeeTier::Low);
-        let low = resolved_fee(&state);
-        state.btc_send_fee_tier = Some(BtcFeeTier::Med);
-        assert_eq!(resolved_fee(&state), low);
-    }
-
-    #[test]
-    fn collapsed_tiers_resolve_upward() {
-        let q = [14u64, 14, 71, 71];
-        let mid = |lo: u64, hi: u64| lo + hi.saturating_sub(lo) / 2;
-        let rung = |sats: u64| -> &'static str {
-            if sats > q[3].saturating_mul(2) { OVER_THE_TOP }
-            else if sats >= q[3] { NEXT_BLOCK }
-            else if sats >= mid(q[2], q[3]) { ABOVE_GOING }
-            else if sats >= q[2] { GOING_RATE }
-            else { BACK_OF_QUEUE }
-        };
-        assert_eq!(rung(71), NEXT_BLOCK);
-    }
-
-  
-    #[test]
-    fn every_advertised_format_validates() {
-      
-        for addr in REAL {
-            assert!(is_valid(addr), "{addr} is not accepted");
-        }
-        assert!(!is_valid(""));
-        assert!(!is_valid("xrp1qqqqqqqqqqqqqqqqqqqqqqqqq"));
-    }
-
-  
-    #[test]
-    fn a_partial_address_is_not_wrong() {
-        for prefix in ["b", "bc", "bc1", "bc1q", "bc1qu5g2twq", "1", "3A"] {
-            assert!(is_plausible(prefix), "{prefix:?} reads as wrong while still being typed");
-        }
-        for junk in ["r", "0x1234", "2N1"] {
-            assert!(!is_plausible(junk), "{junk:?} can still become an address");
+        for bad in ["0.505", "10.55", "150.", "123456", "1.2.3", "1,5", "-1"] {
+            assert!(!rate_accepts(bad), "{bad:?} was taken");
         }
     }
 
-   
+
     #[test]
     fn the_tier_row_fits_the_pane() {
         const PANE_CONTENT_W: f32 = 299.0 - 2.0 * crate::ui::components::grid::PANE_PAD_H;
@@ -562,17 +418,5 @@ mod tests {
             .sum();
         let widest = words + 4.0 * TIER_GAP;
         assert!(widest <= PANE_CONTENT_W, "the tier row is {widest}px");
-    }
-
-  
-    #[test]
-    fn the_total_needs_both_halves() {
-        let total = |a: Option<f64>, f: Option<u64>| match (a, f) {
-            (Some(a), Some(f)) => Some(a + f as f64 / 1e8),
-            _ => None,
-        };
-        assert_eq!(total(None, Some(500)), None);
-        assert_eq!(total(Some(0.5), None), None);
-        assert_eq!(total(Some(0.5), Some(100_000_000)), Some(1.5));
     }
 }

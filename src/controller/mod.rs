@@ -402,6 +402,12 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::BtcCopyTxid(_)
         | Message::BtcCopyTxidFeedback
         | Message::BtcSendFeeTierSelected(_)
+        | Message::BtcSendFeeFaceToggled
+        | Message::BtcSendSetFee
+        | Message::BtcSendMaxClicked
+        | Message::BtcSendAnchorToggled
+        | Message::BtcSendRecipientCleared
+        | Message::BtcSendReviewCancelled
         | Message::BtcSendContinueClicked
         | Message::BtcSendSubmitClicked
         | Message::BtcSendCompleted

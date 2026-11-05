@@ -837,14 +837,7 @@ pub fn handle(state: &mut AppState, chain: Chain, msg: GridMsg) -> Task<Message>
         }
         GridMsg::SendSign => match chain {
             Chain::Xrp => return crate::controller::xrp::handle(state, Message::SendSubmitClicked),
-            Chain::Btc => {
-                state.btc_send_step = 1;
-                let checked = crate::controller::btc::handle(state, Message::BtcSendContinueClicked);
-                if state.btc_send_step == 2 {
-                    return crate::controller::btc::handle(state, Message::BtcSendSubmitClicked);
-                }
-                return checked;
-            }
+            Chain::Btc => return crate::controller::btc::handle(state, Message::BtcSendSubmitClicked),
         },
         GridMsg::TicketSign => {
             if chain != Chain::Xrp {
