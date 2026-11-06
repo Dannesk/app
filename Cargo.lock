@@ -833,7 +833,7 @@ dependencies = [
 [[package]]
 name = "dannesk-core"
 version = "0.1.0"
-source = "git+https://github.com/Dannesk/dannesk-core?rev=a52c8163d1db68417674321541ab35c45ab83f85#a52c8163d1db68417674321541ab35c45ab83f85"
+source = "git+https://github.com/Dannesk/dannesk-core?rev=ecdd8f488215f5ff1b094a6ad3cee422c274d337#ecdd8f488215f5ff1b094a6ad3cee422c274d337"
 dependencies = [
  "aes-gcm",
  "argon2",

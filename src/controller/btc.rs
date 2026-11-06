@@ -403,7 +403,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
         }
         Message::BtcBumpSubmitClicked => {
             let Some(txid) = state.btc_bump_txid.clone() else { return Task::none() };
-            let Some(fee) = state.btc_bump_locked.map(|b| b.fee) else {
+            let Some((fee, vsize)) = state.btc_bump_locked.map(|b| (b.fee, b.vsize)) else {
                 return Task::none();
             };
             let (_, wallet_address, key_deleted, key_mode) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
@@ -434,6 +434,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                             bip39_pass: bip39,
                             txid,
                             fee: fee.to_string(),
+                            vsize,
                             wallet_address: address,
                             ws_tx,
                         },
