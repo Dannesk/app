@@ -139,7 +139,7 @@ fn cancel<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> E
         let live = armed && fields.can_submit();
         let buttons = button_pair(
             quiet_button("Keep it", Message::CancelDismissed, cp, scale),
-            primary("Cancel order", live, Message::CancelSubmitClicked, cp, scale),
+            primary("Sign & cancel", live, Message::CancelSubmitClicked, cp, scale),
             scale,
         );
         let sign = sign_block(

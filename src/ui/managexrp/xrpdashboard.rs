@@ -12,7 +12,7 @@ use crate::ui::components::orbit::{self, Middle, Node, Status};
 use crate::controller::app_state::{AppState, ChartPeriod, EnableInputMode, SendAnchor, XrpTokenTab};
 use crate::controller::message::{Message, PlainField, SecureField, TagPane};
 use crate::controller::panes::{Chain, GridMsg, LedgerBar, PaneKind};
-use crate::controller::xrp::{self, send_fits, send_fits_at, xrp_fee, xrp_reserve};
+use crate::controller::xrp::{self, send_fits, xrp_fee, xrp_reserve};
 use crate::ui::components::grid::{self, big_line, HERO_UNIT, ROW_KEY, ROW_TOTAL, ADDR, HINT};
 use crate::ui::components::send_screen::{self as screen};
 use crate::ui::components::signing::SignFields;
@@ -209,7 +209,7 @@ fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette
     let xrp_rate = price::cross("XRP", ccy);
     let mut total = (ready && xrp_rate > 0.0).then(|| xrp_amount * xrp_rate);
     for t in tokens::TOKENS {
-        let (bal, has, _) = CHANNEL.token(t.code);
+        let (bal, has, _, _) = CHANNEL.token(t.code);
         if has && bal > 0.0 {
             let rate = price::cross(t.rate_key, ccy);
             total = total.filter(|_| rate > 0.0).map(|sum| sum + bal * rate);
@@ -620,8 +620,8 @@ pub(crate) fn figure_input<'a>(
 fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     responsive(move |size: Size| {
         let inner = (size.width / scale).max(1.0);
-        let is_xrp = matches!(state.xrp_token_tab, XrpTokenTab::Xrp);
-        let unit = xrpsend::asset_display(&state.xrp_token_tab).to_lowercase();
+        let is_xrp = matches!(state.send_tab, XrpTokenTab::Xrp);
+        let unit = xrpsend::asset_display(&state.send_tab).to_lowercase();
         let ccy = state.base_currency.code();
         let (_, _, key_deleted, key_mode) = CHANNEL.wallet_balance_rx.borrow().clone();
         let addr = state.send_recipient.trim();
@@ -646,14 +646,14 @@ fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
         facts = facts.push(drow(
             "amount",
             match amount {
-                Some(a) => vec![(format_token_amount(a, 6), cp.text), (format!(" {unit}"), cp.faint)],
+                Some(_) => vec![(state.send_amount.trim().to_string(), cp.text), (format!(" {unit}"), cp.faint)],
                 None => vec![(NA.to_string(), cp.faint)],
             },
             2.0,
             cp,
             scale,
         ));
-        if let XrpTokenTab::Token(code) = state.xrp_token_tab
+        if let XrpTokenTab::Token(code) = state.send_tab
             && let Some(t) = tokens::by_code(code)
         {
             facts = facts.push(drow(
@@ -710,10 +710,10 @@ fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
             bip39_reveal: state.send_bip39_reveal,
             on_submit: sign_msg.clone(),
         };
-        let armed = resolved.is_some() && fee_drops.is_some() && amount.is_some_and(|a| send_fits_at(state, a, fee));
+        let armed = resolved.is_some() && fee_drops.is_some() && amount.is_some_and(|a| xrp::send_fits_for(&state.send_tab, a, fee));
         let buttons = grid::button_pair(
             grid::quiet_button("Cancel", Message::SendReviewCancelled, cp, scale),
-            grid::primary("Send payment", armed && fields.can_submit(), sign_msg, cp, scale),
+            grid::primary("Sign & send", armed && fields.can_submit(), sign_msg, cp, scale),
             scale,
         );
         let sign = grid::sign_block(

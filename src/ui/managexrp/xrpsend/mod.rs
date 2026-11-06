@@ -75,7 +75,7 @@ pub(crate) fn holdings() -> Vec<Holding> {
         rate_key: "XRP",
     }];
     for t in tokens::TOKENS.iter() {
-        let (balance, held, _) = CHANNEL.token(t.code);
+        let (balance, held, _, _) = CHANNEL.token(t.code);
         if held && balance > 0.0 {
             out.push(Holding {
                 tab: XrpTokenTab::Token(t.code),

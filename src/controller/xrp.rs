@@ -413,7 +413,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                     let max = xrp_available().map_or(0.0, |s| (s - xrp_fee()).max(0.0));
                     crate::utils::format_token_amount(max, 6)
                 }
-                XrpTokenTab::Token(code) => exact_amount(CHANNEL.token(code).0),
+                XrpTokenTab::Token(code) => CHANNEL.token(code).3,
             };
             after_plain_edit(state, PlainField::XrpSendAmount);
         }
@@ -427,7 +427,12 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                 state.send_error = Some("ERR: WS_NOT_READY".to_string());
                 return Task::none();
             };
-            let asset = match state.xrp_token_tab {
+            let fee_xrp = state.send_fee.map_or(0.0, |d| d as f64 / 1e6);
+            let fits = state.send_amount.trim().parse::<f64>().ok().is_some_and(|a| send_fits_for(&state.send_tab, a, fee_xrp));
+            if state.send_step != 2 || state.send_fee.is_none() || !fits {
+                return Task::none();
+            }
+            let asset = match state.send_tab {
                 XrpTokenTab::Xrp => "XRP".to_string(),
                 XrpTokenTab::Token(code) => code.to_string(),
             };
@@ -513,9 +518,14 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                 return Task::none();
             }
             state.send_recipient = addr;
-            state.send_amount = crate::utils::format_token_amount(amount, 6);
+            state.send_amount = match state.xrp_token_tab {
+                XrpTokenTab::Token(code) if state.send_amount.trim() == CHANNEL.token(code).3 => CHANNEL.token(code).3,
+                XrpTokenTab::Token(_) => crate::utils::format_token_amount(crate::utils::orderbook::floor_to(amount, 6), 6),
+                XrpTokenTab::Xrp => crate::utils::format_token_amount(amount, 6),
+            };
             state.send_error = None;
             state.send_fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
+            state.send_tab = state.xrp_token_tab.clone();
             state.send_step = 2;
         }
         Message::SendAnchorToggled => {
@@ -555,7 +565,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             if let Some(m) = max {
                 let (base, _) = trade_market_pair(state);
                 state.trade_amount = if state.trade_side == TradeSide::Sell && base != "XRP" {
-                    exact_amount(m)
+                    CHANNEL.token(base).3
                 } else {
                     crate::utils::format_token_amount(m, SIGN_PLACES)
                 };
@@ -1105,8 +1115,12 @@ pub fn send_fits(state: &AppState, amount: f64) -> bool {
 }
 
 pub fn send_fits_at(state: &AppState, amount: f64, fee: f64) -> bool {
+    send_fits_for(&state.xrp_token_tab, amount, fee)
+}
+
+pub fn send_fits_for(tab: &XrpTokenTab, amount: f64, fee: f64) -> bool {
     let Some(available) = xrp_available() else { return false };
-    match state.xrp_token_tab {
+    match *tab {
         XrpTokenTab::Xrp => amount + fee <= available,
         XrpTokenTab::Token(code) => amount <= CHANNEL.token(code).0 && fee <= available,
     }
@@ -1136,6 +1150,9 @@ fn derive_send_amount(state: &mut AppState, rate: f64) {
 }
 
 pub fn resync_send_twin(state: &mut AppState) {
+    if state.send_step == 2 {
+        return;
+    }
     let rate = send_rate(state);
     if rate <= 0.0 {
         return;
@@ -1292,7 +1309,6 @@ pub(crate) fn clear_reimport_form(state: &mut AppState) {
     state.reimport_spinning = false;
 }
 
-pub use crate::utils::formatting::exact_amount;
 
 pub(crate) fn clear_enable_form(state: &mut AppState) {
     state.enable_fee = None;
@@ -1334,13 +1350,6 @@ mod tests {
     use super::*;
     use crate::controller::panes::PaneKind;
     use crate::utils::trade::{TradeQuote, TradeTicket, Verdict};
-
-    #[test]
-    fn exact_amount_round_trips_the_ledger_string() {
-        for s in ["0", "1", "10.5", "10.1234567", "0.000000789", "123456789012345", "0.00000000000001", "1000000.005"] {
-            assert_eq!(exact_amount(s.parse::<f64>().unwrap()), s, "{s}");
-        }
-    }
 
     fn frozen_quote() -> TradeQuote {
         TradeQuote {

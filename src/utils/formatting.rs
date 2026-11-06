@@ -14,11 +14,6 @@ pub fn add_commas(num: i64) -> String {
     }
 }
 
-pub fn exact_amount(v: f64) -> String {
-    let s = format!("{}", v);
-    s.strip_suffix(".0").map(str::to_string).unwrap_or(s)
-}
-
 pub fn format_token_amount(val: f64, decimals: usize) -> String {
     let s = format!("{:.1$}", val, decimals);
     if let Some(dot_idx) = s.find('.') {

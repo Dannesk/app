@@ -399,8 +399,8 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::BtcBalanceUnitToggled
         | Message::BtcCopyMasterAddress
         | Message::BtcCopyMasterAddressFeedback
-        | Message::BtcCopyTxid(_)
-        | Message::BtcCopyTxidFeedback
+        | Message::BtcCopyDetail(_)
+        | Message::BtcCopyDetailFeedback
         | Message::BtcSendFeeTierSelected(_)
         | Message::BtcSendFeeFaceToggled
         | Message::BtcSendSetFee
@@ -416,6 +416,8 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::BtcBumpClicked(_)
         | Message::BtcBumpDismissed
         | Message::BtcBumpFeeTierSelected(_)
+        | Message::BtcBumpReviewClicked
+        | Message::BtcBumpBack
         | Message::BtcBumpSubmitClicked
         | Message::BtcBumpCompleted
         | Message::BtcBumpFailed(_)

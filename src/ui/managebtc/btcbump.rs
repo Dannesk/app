@@ -1,213 +1,305 @@
-
-
-use iced::widget::Row;
+use iced::widget::Column;
 use iced::Widget as _;
-use iced::widget::{column, row, text, Space};
-use iced::{Alignment, Color, Element, Length};
+use iced::widget::{column, container, responsive, row, text, Space};
+use iced::{Alignment, Element, Length, Padding, Size};
 
-use crate::channel::{BtcRbfInfo, CHANNEL};
-use crate::controller::app_state::{AppState, BtcFeeTier};
-use crate::controller::message::{Message, PlainField};
+use crate::channel::CHANNEL;
+use crate::controller::app_state::{AppState, BtcFeeTier, EnableInputMode};
+use crate::controller::message::{Message, PlainField, SecureField};
+use crate::ui::components::grid::{self, drow, group_rule, FIELD_VALUE, HINT, NA, ROW_KEY, ROW_TOTAL};
+use crate::ui::components::send_screen as screen;
+use crate::ui::components::signing::SignFields;
 use crate::ui::components::compact;
-use crate::ui::components::send_screen::{self as screen, READOUT};
-use crate::ui::managebtc::btcsend::{tier_cell, FEE_BOX_W, TIER_GAP};
-use crate::ui::managexrp::xrptrade::{NOTE, ROW};
+use crate::ui::managebtc::btcdashboard::{choice_button, fee_choice, sats_cost, Caption, Gutter, RateCell, TAIL};
+use crate::ui::managebtc::btcsend;
+use crate::ui::managebtc::btctransactions::{self as tx, btc};
+use crate::ui::managebtc::node::{rate_text, Verdict};
 use crate::utils::fonts::MONO;
-use crate::utils::format_usd;
 use crate::utils::theme::CompactPalette;
-use crate::ws::commands::bitcoin_payment::{self, ReplacementPlan, Utxo};
+use crate::utils::{add_commas, fiat_amount, fiat_cost, price};
+pub use crate::utils::btc_bump::{BtcBumpDraft, BtcBumpQuote, BumpFee};
 
+const NO_QUOTE: &str = "waiting for this send\u{2019}s details and today\u{2019}s rates";
 
-const NO_BODY: &str = "no details on record for this transaction";
-const NO_TIERS: &str = "no fee rates from the node yet \u{2014} set one yourself";
-
-
-fn quote(state: &AppState) -> Option<BtcRbfInfo> {
-    bitcoin_payment::rbf_info_for(state.btc_bump_txid.as_deref()?)
+pub fn draft(state: &AppState) -> Option<BtcBumpDraft> {
+    let txid = state.btc_bump_txid.clone()?;
+    let custom = state
+        .btc_bump_custom_open
+        .then(|| state.btc_bump_fee.trim().to_string())
+        .filter(|s| !s.is_empty());
+    Some(BtcBumpDraft { txid, custom })
 }
 
-struct Pricing {
-    info: BtcRbfInfo,
-    own: String,
-    spare: Option<Utxo>,
+pub fn quote(state: &AppState) -> Option<BtcBumpQuote> {
+    let txid = state.btc_bump_txid.as_deref()?;
+    CHANNEL.btc_bump_quote_rx.borrow().clone().filter(|q| q.draft.txid == txid)
 }
 
-fn pricing(state: &AppState) -> Option<Pricing> {
-    let own = CHANNEL.bitcoin_wallet_rx.borrow().1.clone()?;
-    let info = quote(state)?;
-    let spare = bitcoin_payment::spare_coin(&own, &info);
-    Some(Pricing { info, own, spare })
+pub fn live_quote(state: &AppState) -> Option<BtcBumpQuote> {
+    let draft = draft(state)?;
+    quote(state).filter(|q| q.draft == draft)
 }
 
-
-fn tier_plans(p: &Pricing) -> Option<[Result<ReplacementPlan, String>; 4]> {
-    let tiers = CHANNEL.btc_node_rx.borrow().tiers?;
-    Some(tiers.map(|rate| bitcoin_payment::quote_replacement(&p.info, &p.own, p.spare.as_ref(), rate)))
+pub fn custom_ready(state: &AppState) -> Option<BumpFee> {
+    if !state.btc_bump_custom_open {
+        return None;
+    }
+    let q = live_quote(state)?;
+    q.custom.filter(|c| c.rate >= q.min_rate)
 }
 
-fn effective_tier(state: &AppState, plans: &Option<[Result<ReplacementPlan, String>; 4]>) -> BtcFeeTier {
-    match state.btc_bump_fee_tier {
-        BtcFeeTier::Custom => BtcFeeTier::Custom,
-        named if plans.is_some() => named,
-        _ => BtcFeeTier::Custom,
+fn custom_caption(q: &BtcBumpQuote, custom: Option<BumpFee>, tiers: Option<[f32; 4]>) -> Caption {
+    let least = || Caption::Note(format!("at least {} sat/vB", rate_text(q.min_rate)));
+    match custom {
+        Some(c) if c.rate < q.min_rate => Caption::Warning(format!("below the {} minimum", rate_text(q.min_rate))),
+        Some(c) => tiers.map_or_else(least, |t| Caption::Verdict(tx::wait(c.rate, &t))),
+        None => least(),
     }
 }
 
-fn resolved_plan(
-    state: &AppState,
-    p: &Pricing,
-    plans: &Option<[Result<ReplacementPlan, String>; 4]>,
-) -> Result<ReplacementPlan, String> {
-    match effective_tier(state, plans) {
-        BtcFeeTier::Custom => {
-            let fee: u64 = state
-                .btc_bump_fee
-                .trim()
-                .parse()
-                .map_err(|_| String::new())?;
-            bitcoin_payment::plan_replacement(&p.info, &p.own, p.spare.as_ref(), fee)
-        }
-        named => {
-            let i = named.index().ok_or_else(String::new)?;
-            plans.as_ref().ok_or_else(|| NO_TIERS.to_string())?[i].clone()
-        }
-    }
-}
-
-
-pub fn fee_to_sign(state: &AppState) -> Option<u64> {
-    let p = pricing(state)?;
-    let plans = tier_plans(&p);
-    resolved_plan(state, &p, &plans).ok().map(|plan| plan.fee)
-}
-
-
-fn short(txid: &str) -> String {
-    let n = txid.chars().count();
-    if n <= 8 {
-        return txid.to_string();
-    }
-    let head: String = txid.chars().take(4).collect();
-    let tail: String = txid.chars().skip(n - 4).collect();
-    format!("{head}\u{2026}{tail}")
-}
-
-
-pub(crate) fn lead<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> (Element<'a, Message>, bool) {
-    let txid = state.btc_bump_txid.as_deref().unwrap_or("");
-    let title = text(format!("Modify fee \u{b7} {}", short(txid)))
-        .font(MONO)
-        .size(ROW * scale)
-        .color(cp.text);
-    let mut col = column![title].width(Length::Fill);
-
-    let Some(p) = pricing(state) else {
-        col = col.push(Space::new().height(4.0 * scale).boxed()).push(note(NO_BODY, cp.muted, scale));
-        return (col.boxed(), false);
-    };
-
-    let paying = format!(
-        "paying {} sats \u{b7} {:.1} sat/vB",
-        p.info.fee_sats,
-        p.info.fee_sats as f64 / p.info.vsize.max(1) as f64
-    );
-    col = col.push(Space::new().height(4.0 * scale).boxed()).push(note(&paying, cp.dim, scale));
-
-    let plans = tier_plans(&p);
-    let tier = effective_tier(state, &plans);
-    let plan = resolved_plan(state, &p, &plans);
-
-    let going = plans
-        .as_ref()
-        .and_then(|ps| ps[2].as_ref().ok().map(|x| x.rate_sat_vb()));
-    let colour: Color = match (&plan, going) {
-        (Ok(x), Some(g)) if x.rate_sat_vb() >= g => cp.green,
-        (Ok(_), _) => cp.amber,
-        _ => cp.dim,
-    };
-
-    let mut tiers_row: Row<Element<'_, Message>> = row![].align_y(Alignment::Center);
-    for (i, t) in BtcFeeTier::ALL.into_iter().enumerate() {
-        if i > 0 {
-            tiers_row = tiers_row.push(Space::new().width(TIER_GAP * scale).boxed());
-        }
-        let offered = match t.index() {
-            None => true,
-            Some(idx) => plans.as_ref().is_some_and(|ps| ps[idx].is_ok()),
-        };
-        tiers_row = tiers_row.push(tier_cell(
-            t, t == tier, offered, colour, Message::BtcBumpFeeTierSelected, cp, scale,
-        ));
-    }
-
+pub(crate) fn rates<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     let ccy = state.base_currency.code();
-    let sym = state.base_currency.symbol();
-    let rate = crate::utils::price::cross("BTC", ccy);
-    let readout = |x: &ReplacementPlan, lead_with_fee: bool| -> Element<'a, Message> {
-        let mut runs: Vec<(String, Color)> = Vec::new();
-        if lead_with_fee {
-            runs.push((format!("{} sats", x.fee), colour));
-            runs.push((" \u{b7} ".to_string(), cp.faint));
-        } else {
-            runs.push(("\u{b7} ".to_string(), cp.faint));
-        }
-        if rate > 0.0 {
-            runs.push((format!("\u{2248} {sym}{}", format_usd(x.fee as f64 / 1e8 * rate)), cp.muted));
-            runs.push((" \u{b7} ".to_string(), cp.faint));
-        }
-        runs.push((format!("{:.1} sat/vB", x.rate_sat_vb()), cp.muted));
-        if x.added_input {
-            runs.push((" \u{b7} adds a coin".to_string(), cp.muted));
-        }
-        screen::mono_line(runs, READOUT, scale)
-    };
+    let fx = price::cross("BTC", ccy);
+    let tiers = CHANNEL.btc_node_rx.borrow().tiers;
+    let open = state.btc_bump_custom_open;
+    let mut col: Column<Element<'_, Message>> = column![].width(Length::Fill);
 
-    let output: Element<'a, Message> = if tier == BtcFeeTier::Custom {
-        let least = bitcoin_payment::min_replacement_fee(&p.info, p.info.vsize);
-        let side: Element<'a, Message> = match (&plan, state.btc_bump_fee.trim().is_empty()) {
-            (Ok(x), _) => readout(x, false),
-            (Err(_), true) => screen::mono_line(vec![(format!("at least {least}"), cp.muted)], READOUT, scale),
-            (Err(e), false) => screen::mono_line(vec![(e.clone(), cp.red)], READOUT, scale),
-        };
-        row![
-            screen::boxed_plain(
-                PlainField::BtcBumpFee,
-                &state.btc_bump_fee,
-                "0",
-                FEE_BOX_W,
-                compact::FIELD,
-                false,
+    let ready = custom_ready(state).is_some();
+    match quote(state) {
+        None => {
+            col = col.push(text(NO_QUOTE).size(ROW_KEY * scale).color(cp.muted).boxed());
+        }
+        Some(q) => {
+            let now = fee_choice(
+                "now",
                 None,
-                0.0,
-                Some(screen::unit("sats", cp, scale)),
-                29.0,
-                Some(Message::BtcBumpSubmitClicked),
+                tiers.map(|t| Caption::Verdict(tx::wait(q.now.rate, &t))),
+                RateCell::Text(rate_text(q.now.rate), q.now.vsize),
+                sats_cost(Some(q.now.fee), fx, ccy, cp),
+                Gutter::Check(true),
                 cp,
                 scale,
-            ),
-            Space::new().width(8.0 * scale),
-            side,
-        ]
-        .align_y(Alignment::Center)
-        .boxed()
-    } else {
-        match &plan {
-            Ok(x) => readout(x, true),
-            Err(_) if plans.is_none() => note(NO_TIERS, cp.muted, scale),
-            Err(e) => note(e, cp.muted, scale),
+            );
+            col = col.push(choice_button(now, !open, None, cp, scale));
+            for (i, t) in [BtcFeeTier::Minimum, BtcFeeTier::Low, BtcFeeTier::Med, BtcFeeTier::High].into_iter().enumerate() {
+                let Some(b) = q.tiers[i] else { continue };
+                let body = fee_choice(
+                    t.label(),
+                    None,
+                    tiers.map(|ts| Caption::Verdict(Verdict::of(&ts, i))),
+                    RateCell::Text(rate_text(b.rate), b.vsize),
+                    sats_cost(Some(b.fee), fx, ccy, cp),
+                    Gutter::Check(false),
+                    cp,
+                    scale,
+                );
+                col = col.push(compact::hairline(cp.rule));
+                col = col.push(choice_button(body, false, Some(Message::BtcBumpFeeTierSelected(t)), cp, scale));
+            }
+            col = col.push(compact::hairline(cp.rule));
+            let custom_row = if open {
+                let typed = live_quote(state).and_then(|lq| lq.custom);
+                let field = screen::boxed_plain(
+                    PlainField::BtcBumpFee,
+                    &state.btc_bump_fee,
+                    "0.00",
+                    btcsend::FEE_BOX_W,
+                    FIELD_VALUE,
+                    false,
+                    None,
+                    0.0,
+                    None,
+                    0.0,
+                    ready.then_some(Message::BtcBumpReviewClicked),
+                    cp,
+                    scale,
+                );
+                let body = fee_choice(
+                    "custom",
+                    None,
+                    Some(custom_caption(&q, typed, tiers)),
+                    RateCell::Field(field),
+                    sats_cost(typed.map(|c| c.fee), fx, ccy, cp),
+                    Gutter::Check(false),
+                    cp,
+                    scale,
+                );
+                choice_button(body, true, None, cp, scale)
+            } else {
+                let body = fee_choice(
+                    "custom",
+                    None,
+                    Some(custom_caption(&q, None, tiers)),
+                    RateCell::Empty,
+                    Vec::new(),
+                    Gutter::Chevron,
+                    cp,
+                    scale,
+                );
+                choice_button(body, false, Some(Message::BtcBumpFeeTierSelected(BtcFeeTier::Custom)), cp, scale)
+            };
+            col = col.push(custom_row);
         }
+    }
+
+    let buttons = if open {
+        grid::button_pair(
+            grid::quiet_button("Back", Message::BtcBumpBack, cp, scale),
+            grid::primary("Review", ready, Message::BtcBumpReviewClicked, cp, scale),
+            scale,
+        )
+    } else {
+        grid::quiet_button("Back", Message::BtcBumpBack, cp, scale)
     };
-
-    col = col
-        .push(Space::new().height(10.0 * scale).boxed())
-        .push(compact::eyebrow("new fee", tier.label(), cp, scale))
-        .push(tiers_row.boxed())
-        .push(Space::new().height(3.0 * scale).boxed())
-        .push(output);
-
-    (col.boxed(), plan.is_ok())
+    column![grid::scroller(col.boxed(), cp, scale), Space::new().height(12.0 * scale), buttons]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .boxed()
 }
 
-fn note<'a>(s: &str, color: Color, scale: f32) -> Element<'a, Message> {
-    text(s.to_string()).font(MONO).size(NOTE * scale).color(color).boxed()
+pub(crate) fn remark(fee: &BumpFee) -> String {
+    let extra = add_commas(fee.extra as i64);
+    if fee.adds_coin {
+        format!("It replaces the pending send: same amount and recipient, and one more of your coins pays the extra {extra} sat.")
+    } else {
+        format!("It replaces the pending send: same amount and recipient, and the extra {extra} sat comes out of what returns to your address.")
+    }
+}
+
+pub(crate) fn sign<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    responsive(move |size: Size| {
+        let inner = (size.width / scale).max(1.0);
+        let ccy = state.base_currency.code();
+        let fx = price::cross("BTC", ccy);
+        let (_, _, key_deleted, key_mode) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
+        let ours: Vec<String> = crate::wallet::btc_address().into_iter().collect();
+        let send = state.btc_bump_txid.as_deref().and_then(|id| {
+            CHANNEL.btc_transactions_rx.borrow().transactions.get(id).map(|t| tx::Tx::from(t, &ours))
+        });
+        let locked = state.btc_bump_locked;
+        let with_fiat = |sats: u64, value: String| -> Vec<(String, iced::Color)> {
+            let mut runs = vec![(value, cp.text), (" btc".to_string(), cp.faint)];
+            if fx > 0.0 {
+                runs.push((format!("  \u{b7}  {} {}", fiat_cost(sats as f64 / 1e8 * fx), ccy.to_lowercase()), cp.faint));
+            }
+            runs
+        };
+
+        let mut facts: Column<Element<'_, Message>> = column![
+            screen::address_block(send.as_ref().and_then(|t| t.to.as_deref()), TAIL, cp, scale),
+            Space::new().height(7.0 * scale),
+        ]
+        .width(Length::Fill);
+        let amount = send.as_ref().map(|t| t.sats());
+        facts = facts.push(drow(
+            "amount",
+            amount.map_or(vec![(NA.to_string(), cp.faint)], |a| vec![(btc(a), cp.text), (" btc".to_string(), cp.faint)]),
+            2.0,
+            cp,
+            scale,
+        ));
+        let new_fee = locked.map_or(vec![(NA.to_string(), cp.faint)], |f| with_fiat(f.fee, btc(f.fee)));
+        facts = facts.push(
+            container(
+                row![
+                    text("new fee").size(ROW_KEY * scale).color(cp.dim),
+                    Space::new().width(5.0 * scale),
+                    text(state.btc_bump_fee_tier.label()).font(MONO).size(HINT * scale).color(cp.faint),
+                    Space::new().width(Length::Fill),
+                    compact::mono_runs(new_fee, grid::ROW_VALUE * scale),
+                ]
+                .align_y(Alignment::Center),
+            )
+            .width(Length::Fill)
+            .padding(Padding::new(0.0).top(2.0 * scale).bottom(3.0 * scale))
+            .boxed(),
+        );
+        facts = facts.push(drow(
+            "fee now",
+            locked.map_or(vec![(NA.to_string(), cp.faint)], |f| {
+                vec![(btc(f.fee - f.extra), cp.dim), (" btc".to_string(), cp.faint)]
+            }),
+            2.0,
+            cp,
+            scale,
+        ));
+        let total = match (amount, locked) {
+            (Some(a), Some(f)) => {
+                let mut runs = vec![(btc(a + f.fee), cp.text), (" btc".to_string(), cp.faint)];
+                if fx > 0.0 {
+                    runs.push((format!("  \u{b7}  {} {}", fiat_amount((a + f.fee) as f64 / 1e8 * fx), ccy.to_lowercase()), cp.faint));
+                }
+                runs
+            }
+            _ => vec![(NA.to_string(), cp.faint)],
+        };
+        facts = facts.push(group_rule(cp, scale)).push(
+            row![
+                text("total").size(ROW_KEY * scale).color(cp.dim),
+                Space::new().width(Length::Fill),
+                compact::mono_runs(total, ROW_TOTAL * scale),
+            ]
+            .align_y(Alignment::Center)
+            .boxed(),
+        );
+        if let Some(f) = &locked {
+            facts = facts.push(
+                container(text(remark(f)).size(ROW_KEY * scale).color(cp.dim))
+                    .width(Length::Fill)
+                    .padding(Padding::new(0.0).top(10.0 * scale))
+                    .boxed(),
+            );
+        }
+
+        let fields = SignFields {
+            mode: EnableInputMode::detect(key_deleted, key_mode),
+            secret: SecureField::BtcBumpPassphrase,
+            secret_buf: &state.btc_bump_passphrase,
+            secret_reveal: state.btc_bump_passphrase_reveal,
+            phrase: SecureField::BtcBumpSeed,
+            phrase_buf: &state.btc_bump_seed_text,
+            phrase_reveal: state.btc_bump_seed_reveal,
+            bip39: SecureField::BtcBumpBip39,
+            bip39_buf: &state.btc_bump_bip39,
+            bip39_reveal: state.btc_bump_bip39_reveal,
+            on_submit: Message::BtcBumpSubmitClicked,
+        };
+        let armed = locked.is_some() && send.as_ref().is_some_and(|t| t.can_bump());
+        let buttons = grid::button_pair(
+            grid::quiet_button("Back", Message::BtcBumpBack, cp, scale),
+            grid::primary("Sign & send", armed && fields.can_submit(), Message::BtcBumpSubmitClicked, cp, scale),
+            scale,
+        );
+        let sign = grid::sign_block(
+            &fields,
+            &state.btc_bump_passphrase,
+            &state.btc_bump_seed_text,
+            &state.btc_bump_bip39,
+            armed,
+            buttons,
+            inner,
+            cp,
+            scale,
+        );
+        grid::scroller(column![facts, sign].width(Length::Fill).boxed(), cp, scale)
+    })
+    .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fee(extra: u64, adds_coin: bool) -> BumpFee {
+        BumpFee { rate: 0.52, fee: 48 + extra, vsize: 141, extra, adds_coin }
+    }
+
+    #[test]
+    fn the_remark_says_where_the_extra_comes_from_without_saying_change() {
+        let kept = remark(&fee(26, false));
+        assert!(kept.contains("extra 26 sat comes out of what returns to your address"), "{kept}");
+        let coin = remark(&fee(1_200, true));
+        assert!(coin.contains("one more of your coins pays the extra 1,200 sat"), "{coin}");
+        assert!(!kept.contains("change") && !coin.contains("change"));
+    }
 }

@@ -5,6 +5,7 @@ use crate::controller::message::{Message, PlainField, SecureField};
 use crate::controller::app_state::{
     AppState, BtcFeeTier, BtcView, EnableInputMode, ImportMode, SendAnchor,
 };
+use crate::ui::managebtc::btcbump;
 use crate::ui::managebtc::btcsend::{self, FeeQuote};
 use crate::secure::SecureString;
 use crate::channel::CHANNEL;
@@ -138,18 +139,18 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             state.btc_tx_selected =
                 if state.btc_tx_selected.as_deref() == Some(txid.as_str()) { None } else { Some(txid) };
         }
-        Message::BtcCopyTxid(txid) => {
-            state.btc_txid_copied = Some(txid.clone());
+        Message::BtcCopyDetail(txid) => {
+            state.btc_detail_copied = Some(txid.clone());
             return Task::batch([
                 iced::clipboard::write(txid).discard(),
                 Task::perform(
                     async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
-                    |_| Message::BtcCopyTxidFeedback,
+                    |_| Message::BtcCopyDetailFeedback,
                 ),
             ]);
         }
-        Message::BtcCopyTxidFeedback => {
-            state.btc_txid_copied = None;
+        Message::BtcCopyDetailFeedback => {
+            state.btc_detail_copied = None;
         }
         Message::BtcBackClicked => {
             close_setup(state);
@@ -273,6 +274,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                 SendAnchor::Fiat => SendAnchor::Amount,
             };
             state.btc_send_max_on = false;
+            push_send_draft(state);
         }
         Message::BtcSendRecipientCleared => {
             state.btc_send_recipient.clear();
@@ -285,12 +287,14 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             if let (true, Some(f)) = (gate.ready, fee) {
                 state.btc_send_recipient = state.btc_send_recipient.trim().to_string();
                 state.btc_send_locked = Some(f.fee);
+                state.btc_send_locked_vsize = Some(f.vsize);
                 state.btc_send_step = 2;
             }
         }
         Message::BtcSendReviewCancelled => {
             state.btc_send_step = 0;
             state.btc_send_locked = None;
+            state.btc_send_locked_vsize = None;
             state.btc_send_passphrase.clear();
             state.btc_send_passphrase_reveal = false;
             state.btc_send_bip39.clear();
@@ -302,7 +306,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             if state.btc_send_step != 2 {
                 return Task::none();
             }
-            let (Some(locked), Some(sats)) = (state.btc_send_locked, btcsend::amount_sats(state)) else {
+            let (Some(locked), Some(vsize), Some(sats)) = (state.btc_send_locked, state.btc_send_locked_vsize, btcsend::amount_sats(state)) else {
                 return Task::none();
             };
             let (_, wallet_address, key_deleted, key_mode) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
@@ -325,9 +329,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             let recipient = state.btc_send_recipient.trim().to_string();
             let amount = format!("{}.{:08}", sats / 100_000_000, sats % 100_000_000);
             let fee = locked.to_string();
-            state.btc_send_passphrase_reveal = false;
-            state.btc_send_seed_reveal = false;
-            state.btc_send_bip39_reveal = false;
+            clear_btc_send_form(state);
             return Task::perform(
                 async move {
                     crate::bridge::btc_send_logic::BtcSendLogic::process(
@@ -339,6 +341,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                             recipient,
                             amount,
                             fee,
+                            vsize,
                             wallet_address: address,
                             asset: "BTC".to_string(),
                             ws_tx,
@@ -366,16 +369,41 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
         Message::BtcBumpClicked(txid) => {
             clear_btc_bump_form(state);
             state.btc_bump_txid = Some(txid);
+            push_bump_draft(state);
         }
         Message::BtcBumpDismissed => {
             clear_btc_bump_form(state);
         }
-        Message::BtcBumpFeeTierSelected(t) => {
-            state.btc_bump_fee_tier = t;
+        Message::BtcBumpFeeTierSelected(BtcFeeTier::Custom) => {
+            if state.btc_bump_locked.is_none() && !state.btc_bump_custom_open {
+                state.btc_bump_custom_open = true;
+                push_bump_draft(state);
+            }
+        }
+        Message::BtcBumpFeeTierSelected(named) => {
+            let picked = btcbump::live_quote(state).and_then(|q| named.index().and_then(|i| q.tiers[i]));
+            if let Some(fee) = picked.filter(|_| state.btc_bump_locked.is_none()) {
+                state.btc_bump_fee_tier = named;
+                state.btc_bump_locked = Some(fee);
+            }
+        }
+        Message::BtcBumpReviewClicked => {
+            if let Some(fee) = btcbump::custom_ready(state) {
+                state.btc_bump_fee_tier = BtcFeeTier::Custom;
+                state.btc_bump_locked = Some(fee);
+            }
+        }
+        Message::BtcBumpBack => {
+            if state.btc_bump_locked.is_some() {
+                state.btc_bump_locked = None;
+                clear_bump_key(state);
+            } else {
+                clear_btc_bump_form(state);
+            }
         }
         Message::BtcBumpSubmitClicked => {
             let Some(txid) = state.btc_bump_txid.clone() else { return Task::none() };
-            let Some(fee) = crate::ui::managebtc::btcbump::fee_to_sign(state) else {
+            let Some(fee) = state.btc_bump_locked.map(|b| b.fee) else {
                 return Task::none();
             };
             let (_, wallet_address, key_deleted, key_mode) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
@@ -395,9 +423,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             let passphrase = state.btc_bump_passphrase.take_trimmed();
             let mnemonic = state.btc_bump_seed_text.take();
             let bip39 = state.btc_bump_bip39.take_trimmed();
-            state.btc_bump_passphrase_reveal = false;
-            state.btc_bump_seed_reveal = false;
-            state.btc_bump_bip39_reveal = false;
+            clear_btc_bump_form(state);
             return Task::perform(
                 async move {
                     crate::bridge::btc_bump_logic::BtcBumpLogic::process(
@@ -545,10 +571,25 @@ pub fn after_plain_edit(state: &mut AppState, field: PlainField) {
             state.btc_send_max_on = false;
             sync_amount_from_fiat(state);
         }
-        PlainField::BtcBumpFee => state.btc_bump_fee_tier = BtcFeeTier::Custom,
+        PlainField::BtcBumpFee => {
+            push_bump_draft(state);
+            return;
+        }
         _ => {}
     }
     push_send_draft(state);
+}
+
+pub fn push_bump_draft(state: &AppState) {
+    let draft = btcbump::draft(state);
+    CHANNEL.btc_bump_draft_tx.send_if_modified(|d| {
+        if *d == draft {
+            false
+        } else {
+            *d = draft;
+            true
+        }
+    });
 }
 
 pub fn push_send_draft(state: &AppState) {
@@ -607,6 +648,9 @@ fn sync_amount_from_fiat(state: &mut AppState) {
 }
 
 pub fn resync_send_twin(state: &mut AppState) {
+    if state.btc_send_step == 2 {
+        return;
+    }
     if crate::utils::price::cross("BTC", state.base_currency.code()) > 0.0 {
         match state.btc_send_anchor {
             SendAnchor::Amount => sync_fiat_from_amount(state),
@@ -617,16 +661,23 @@ pub fn resync_send_twin(state: &mut AppState) {
     push_send_draft(state);
 }
 
-pub(crate) fn clear_btc_bump_form(state: &mut AppState) {
-    state.btc_bump_txid = None;
-    state.btc_bump_fee_tier = BtcFeeTier::default();
-    state.btc_bump_fee = String::new();
+fn clear_bump_key(state: &mut AppState) {
     state.btc_bump_passphrase.clear();
     state.btc_bump_passphrase_reveal = false;
     state.btc_bump_bip39.clear();
     state.btc_bump_bip39_reveal = false;
     state.btc_bump_seed_text.clear();
     state.btc_bump_seed_reveal = false;
+}
+
+pub(crate) fn clear_btc_bump_form(state: &mut AppState) {
+    state.btc_bump_txid = None;
+    state.btc_bump_fee_tier = BtcFeeTier::default();
+    state.btc_bump_fee = String::new();
+    state.btc_bump_custom_open = false;
+    state.btc_bump_locked = None;
+    clear_bump_key(state);
+    push_bump_draft(state);
 }
 
 pub(crate) fn clear_btc_send_form(state: &mut AppState) {
@@ -641,6 +692,7 @@ pub(crate) fn clear_btc_send_form(state: &mut AppState) {
     state.btc_send_custom_open = false;
     state.btc_send_fee_face = false;
     state.btc_send_locked = None;
+    state.btc_send_locked_vsize = None;
     state.btc_send_max_on = false;
     state.btc_send_passphrase.clear();
     state.btc_send_passphrase_reveal = false;

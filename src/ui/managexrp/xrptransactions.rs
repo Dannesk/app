@@ -269,11 +269,9 @@ pub(crate) fn id_line(tx: &Tx, copied: Option<&str>) -> IdLine {
 pub(crate) fn detail_lines(tx: &Tx, p: &'static CompactPalette) -> Vec<Line> {
     let mut rows: Vec<Line> = Vec::new();
 
-    rows.push((
-        "fee",
-        if tx.kind == Kind::Payment && tx.incoming {
-            vec![Seg::word("paid by the sender", p.muted)]
-        } else {
+    if !(tx.kind == Kind::Payment && tx.incoming) {
+        rows.push((
+            "fee",
             match tx.fee_drops {
                 Some(d) => vec![
                     Seg::mono(format!("{d} drops"), p.amber),
@@ -281,9 +279,9 @@ pub(crate) fn detail_lines(tx: &Tx, p: &'static CompactPalette) -> Vec<Line> {
                     Seg::mono(format!("{:.6} XRP", d as f64 / DROPS), p.muted),
                 ],
                 None => vec![Seg::mono(NA, p.muted)],
-            }
-        },
-    ));
+            },
+        ));
+    }
 
     match tx.kind {
         Kind::Offer => {
@@ -555,10 +553,11 @@ mod tests {
     }
 
     #[test]
-    fn an_incoming_payment_does_not_bill_the_fee() {
+    fn an_incoming_payment_has_no_fee_line() {
         let inc = Tx::from(&tx("payment", TransactionStatus::Success, THEM, OWN, "1", "XRP"), OWN);
-        let d = flat(&detail_lines(&inc, P));
-        assert!(d.contains("paid by the sender"), "{d}");
+        let lines = detail_lines(&inc, P);
+        assert!(lines.iter().all(|(k, _)| *k != "fee"));
+        let d = flat(&lines);
         assert!(d.contains("from") && d.contains("to"), "{d}");
         assert!(!d.contains("wallet"), "{d}");
 

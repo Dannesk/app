@@ -239,6 +239,8 @@ pub enum Message {
     BtcBumpClicked(String),
     BtcBumpDismissed,
     BtcBumpFeeTierSelected(BtcFeeTier),
+    BtcBumpReviewClicked,
+    BtcBumpBack,
     BtcBumpSubmitClicked,
     BtcBumpCompleted,
     BtcBumpFailed(String),
@@ -284,6 +286,6 @@ pub enum Message {
     BtcReimportSuccess,
     BtcReimportFailed(String),
     BtcTxSelected(String),
-    BtcCopyTxid(String),
-    BtcCopyTxidFeedback,
+    BtcCopyDetail(String),
+    BtcCopyDetailFeedback,
 }

@@ -1,22 +1,23 @@
-
-
 use iced::widget::Column;
+use iced::widget::Row;
 use iced::Widget as _;
 use iced::widget::text::Wrapping;
-use iced::widget::{button, column, container, responsive, row, text, Space};
-use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow, Size};
+use iced::widget::{button, column, container, row, text, Space};
+use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow};
 
 use crate::channel::{CHANNEL, HistoryList};
-use crate::controller::app_state::{AppState, EnableInputMode};
-use crate::controller::message::{Message, SecureField};
-use crate::ui::components::signing::SignFields;
-use crate::ui::components::tx_panel::{Detail, Seg};
+use crate::controller::app_state::AppState;
+use crate::controller::message::Message;
+use crate::ui::components::{compact, grid};
 use crate::ui::managebtc::btcbump;
-use crate::ui::managebtc::btctransactions::{self as tx, Ctx, Tx};
-use crate::ui::managexrp::panes::{button_pair, detail_block, empty, end_row, inset_rule, primary, quiet_button, runs, scroller, sign_block};
+use crate::ui::managebtc::btcdashboard::fee_dot;
+use crate::ui::managebtc::btctransactions::{self as tx, Fact, Tx};
+use crate::ui::managexrp::panes::{
+    empty, end_row, group_head, inset_rule, link, runs, scroller, DETAIL_INDENT, DETAIL_ROW_PAD_V, KEY, KEY_W,
+    TOKEN_ROW_PAD_H, VALUE,
+};
 use crate::utils::fonts::MONO;
 use crate::utils::theme::CompactPalette;
-
 
 const CARET: f32 = 8.0;
 const CARET_W: f32 = 6.0;
@@ -30,40 +31,55 @@ const ROW_PAD_V: f32 = 6.0;
 const ROW_PAD_H: f32 = 11.0;
 
 pub fn title(state: &AppState) -> &'static str {
-    if state.btc_bump_txid.is_some() { "modify fee" } else { "transactions" }
+    if state.btc_bump_txid.is_some() { "bump fee" } else { "transactions" }
 }
 
 pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     if state.btc_bump_txid.is_some() {
-        return bump(state, cp, scale);
+        return if state.btc_bump_locked.is_some() {
+            btcbump::sign(state, cp, scale)
+        } else {
+            btcbump::rates(state, cp, scale)
+        };
     }
 
-    
     let ours: Vec<String> = crate::wallet::btc_address().into_iter().collect();
     let (pending, settled) = tx::split(&ours);
     if pending.is_empty() && settled.is_empty() {
         return empty("No transactions to show", cp, scale);
     }
 
-    let ccy = state.base_currency.code();
-    let ctx = Ctx { btc_rate: crate::utils::price::cross("BTC", ccy), ccy, tip: CHANNEL.btc_node_rx.borrow().tip_height, p: cp };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let (tiers, tip) = {
+        let node = CHANNEL.btc_node_rx.borrow();
+        (node.tiers, node.tip_height)
+    };
     let selected = state.btc_tx_selected.as_deref();
+    let copied = state.btc_detail_copied.as_deref();
+    let row_of = |t: &Tx, rule: bool| -> Element<'static, Message> {
+        let detail = (selected == Some(t.txid.as_str())).then(|| {
+            let bump = t.can_bump().then(|| Message::BtcBumpClicked(t.txid.clone()));
+            detail(tx::facts(t, tiers, tip, cp), bump, copied, rule, cp, scale)
+        });
+        tx_row(t, detail, rule, cp, scale)
+    };
 
     let mut list: Column<Element<'_, Message>> = column![].width(Length::Fill);
-    for t in pending.iter().chain(settled.iter()) {
-        let detail = (selected == Some(t.txid.as_str()))
-            .then(|| Detail {
-                id: tx::id_line(t, state.btc_txid_copied.as_deref()),
-                lines: tx::detail_lines(t, &ctx),
-                tail: tx::tail(t, cp),
-            });
-        list = list.push(tx_row(t, tx::time_label(t, now), detail, cp, scale));
+    if !pending.is_empty() {
+        let mut band: Column<Element<'_, Message>> = column![group_head("pending", cp, scale)].width(Length::Fill);
+        for (i, t) in pending.iter().enumerate() {
+            band = band.push(row_of(t, i + 1 < pending.len()));
+        }
+        list = list.push(
+            container(band)
+                .width(Length::Fill)
+                .style(move |_| container::Style { background: Some(cp.panel.into()), ..Default::default() })
+                .boxed(),
+        );
+        list = list.push(group_head("history", cp, scale));
     }
- 
+    for t in &settled {
+        list = list.push(row_of(t, true));
+    }
     let end = {
         let txs = CHANNEL.btc_transactions_rx.borrow();
         end_row(&txs.page, txs.held(), HistoryList::BtcTransactions, cp, scale)
@@ -74,12 +90,10 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
     scroller(list.boxed(), cp, scale)
 }
 
-
-fn tx_row(t: &Tx, time: String, detail: Option<Detail>, cp: &'static CompactPalette, scale: f32) -> Element<'static, Message> {
+fn tx_row(t: &Tx, detail: Option<Element<'static, Message>>, rule: bool, cp: &'static CompactPalette, scale: f32) -> Element<'static, Message> {
     let open = detail.is_some();
     let quiet = if open { cp.dim } else { cp.faint };
     let time_ink = if open { cp.dim } else { cp.muted };
-    let (status, status_ink) = (t.state_label(), t.state_color(cp));
 
     let cell = |el: Element<'static, Message>, w: f32, align: Alignment| -> Element<'static, Message> {
         container(el).width(Length::Fixed(w * scale)).align_x(align).boxed()
@@ -88,11 +102,11 @@ fn tx_row(t: &Tx, time: String, detail: Option<Detail>, cp: &'static CompactPale
     let line = row![
         cell(text(if open { "\u{25be}" } else { "\u{25b8}" }).font(MONO).size(CARET * scale).color(quiet).boxed(), CARET_W, Alignment::Start),
         cell(text(t.direction_word()).size(TYPE * scale).color(cp.text).wrapping(Wrapping::None).boxed(), TYPE_W, Alignment::Start),
-        container(runs(vec![Seg::mono(t.amount_str(), cp.text)], CELL * scale, CELL * scale))
+        container(text(t.amount_str()).font(MONO).size(CELL * scale).color(cp.text).wrapping(Wrapping::None))
             .width(Length::Fill)
             .align_x(Alignment::End),
-        cell(text(status).font(MONO).size(CELL * scale).color(status_ink).wrapping(Wrapping::None).boxed(), STATUS_W, Alignment::Start),
-        cell(text(time).font(MONO).size(CELL * scale).color(time_ink).wrapping(Wrapping::None).boxed(), TIME_W, Alignment::End),
+        cell(text(t.state_label()).font(MONO).size(CELL * scale).color(t.state_color(cp)).wrapping(Wrapping::None).boxed(), STATUS_W, Alignment::Start),
+        cell(text(tx::stamp_of(t)).font(MONO).size(CELL * scale).color(time_ink).wrapping(Wrapping::None).boxed(), TIME_W, Alignment::End),
     ]
     .spacing(ROW_GAP * scale)
     .align_y(Alignment::Center);
@@ -103,6 +117,7 @@ fn tx_row(t: &Tx, time: String, detail: Option<Detail>, cp: &'static CompactPale
         .style(move |_, status| button::Style {
             background: Some(match status {
                 button::Status::Hovered | button::Status::Pressed => cp.hover,
+                _ if open => cp.hover,
                 _ => Color::TRANSPARENT,
             }
             .into()),
@@ -114,54 +129,60 @@ fn tx_row(t: &Tx, time: String, detail: Option<Detail>, cp: &'static CompactPale
         .on_press(Message::BtcTxSelected(t.txid.clone()));
 
     let mut col = column![hit].width(Length::Fill);
-    col = match detail {
-        Some(d) => col.push(detail_block(d, cp, scale)),
-        None => col.push(inset_rule(cp, scale)),
-    };
+    if let Some(d) = detail {
+        col = col.push(d);
+    } else if rule {
+        col = col.push(inset_rule(cp, scale));
+    }
     col.boxed()
 }
 
-
-fn bump<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    responsive(move |size: Size| {
-        let inner = (size.width / scale).max(1.0);
-        let (lead, armed) = btcbump::lead(state, cp, scale);
-        let mode = {
-            let w = CHANNEL.bitcoin_wallet_rx.borrow();
-            EnableInputMode::detect(w.2, w.3)
-        };
-        let fields = SignFields {
-            mode,
-            secret: SecureField::BtcBumpPassphrase,
-            secret_buf: &state.btc_bump_passphrase,
-            secret_reveal: state.btc_bump_passphrase_reveal,
-            phrase: SecureField::BtcBumpSeed,
-            phrase_buf: &state.btc_bump_seed_text,
-            phrase_reveal: state.btc_bump_seed_reveal,
-            bip39: SecureField::BtcBumpBip39,
-            bip39_buf: &state.btc_bump_bip39,
-            bip39_reveal: state.btc_bump_bip39_reveal,
-            on_submit: Message::BtcBumpSubmitClicked,
-        };
-        let live = armed && fields.can_submit();
-        let buttons = button_pair(
-            quiet_button("Keep it", Message::BtcBumpDismissed, cp, scale),
-            primary("Modify fee", live, Message::BtcBumpSubmitClicked, cp, scale),
-            scale,
+fn detail(
+    facts: Vec<Fact>,
+    bump: Option<Message>,
+    copied: Option<&str>,
+    rule: bool,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'static, Message> {
+    let mut col: Column<Element<'static, Message>> = column![].width(Length::Fill);
+    for f in facts {
+        let mut value: Row<Element<'static, Message>> = row![].spacing(5.0 * scale).align_y(Alignment::Center);
+        if let Some(c) = f.dot {
+            value = value.push(fee_dot(c, scale));
+        }
+        value = value.push(runs(f.segs, VALUE * scale, KEY * scale));
+        if let Some(full) = f.copy {
+            let done = copied == Some(full.as_str());
+            value = value.push(Space::new().width(5.0 * scale).boxed()).push(grid::copy_glyph(done, Message::BtcCopyDetail(full), cp, scale));
+        }
+        col = col.push(
+            row![
+                container(text(f.key).size(KEY * scale).color(cp.dim).wrapping(Wrapping::None)).width(Length::Fixed(KEY_W * scale)),
+                container(value).width(Length::Fill),
+            ]
+            .spacing(10.0 * scale)
+            .align_y(Alignment::Center)
+            .padding(Padding::new(0.0).top(DETAIL_ROW_PAD_V * scale).bottom(DETAIL_ROW_PAD_V * scale).left(DETAIL_INDENT * scale))
+            .boxed(),
         );
-        let sign = sign_block(
-            &fields,
-            &state.btc_bump_passphrase,
-            &state.btc_bump_seed_text,
-            &state.btc_bump_bip39,
-            armed,
-            buttons,
-            inner,
-            cp,
-            scale,
+    }
+    if let Some(msg) = bump {
+        col = col.push(container(link("bump fee", cp.dim, msg, cp, scale)).padding(Padding::new(0.0).top(7.0 * scale).left(DETAIL_INDENT * scale)).boxed());
+    }
+    let mut block = column![
+        container(col)
+            .width(Length::Fill)
+            .padding(Padding::new(0.0).bottom(9.0 * scale).left(TOKEN_ROW_PAD_H * scale).right(TOKEN_ROW_PAD_H * scale)),
+    ]
+    .width(Length::Fill);
+    if rule {
+        block = block.push(
+            container(compact::hairline(cp.rule))
+                .width(Length::Fill)
+                .padding(Padding::new(0.0).left(TOKEN_ROW_PAD_H * scale).right(TOKEN_ROW_PAD_H * scale))
+                .boxed(),
         );
-        let body = column![lead, sign, Space::new().height(2.0 * scale)].width(Length::Fill);
-        scroller(body.boxed(), cp, scale)
-    })
-    .boxed()
+    }
+    block.boxed()
 }

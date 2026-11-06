@@ -278,7 +278,7 @@ pub struct AppState {
     pub btc_key_purge_requested: bool,
 
     pub btc_tx_selected: Option<String>,
-    pub btc_txid_copied: Option<String>,
+    pub btc_detail_copied: Option<String>,
 
     pub remove_wallet_requested: bool,
     pub btc_remove_wallet_requested: bool,
@@ -291,6 +291,7 @@ pub struct AppState {
     pub xrp_bip39_reveal: bool,
     pub xrp_word25: bool,
     pub send_step: u8,
+    pub send_tab: XrpTokenTab,
     pub send_fee: Option<u64>,
     pub send_recipient: String,
  
@@ -344,6 +345,7 @@ pub struct AppState {
     pub btc_send_custom_open: bool,
     pub btc_send_fee_face: bool,
     pub btc_send_locked: Option<u64>,
+    pub btc_send_locked_vsize: Option<u64>,
     pub btc_send_max_on: bool,
     pub btc_send_passphrase: SecureString,
     pub btc_send_passphrase_reveal: bool,
@@ -355,6 +357,8 @@ pub struct AppState {
     pub btc_bump_txid: Option<String>,
     pub btc_bump_fee_tier: BtcFeeTier,
     pub btc_bump_fee: String,
+    pub btc_bump_custom_open: bool,
+    pub btc_bump_locked: Option<crate::utils::btc_bump::BumpFee>,
     pub btc_bump_passphrase: SecureString,
     pub btc_bump_passphrase_reveal: bool,
     pub btc_bump_bip39: SecureString,
@@ -529,14 +533,13 @@ impl AppState {
     pub fn apply_plain_edit(&mut self, field: PlainField, op: SecureOp) -> bool {
         let accepts = |s: &str, at: usize, add: &str| -> bool {
             match field {
-                PlainField::BtcSendFee => {
+                PlainField::BtcSendFee | PlainField::BtcBumpFee => {
                     let mut candidate: String = s.chars().take(at).collect();
                     candidate.push_str(add);
                     candidate.extend(s.chars().skip(at));
                     crate::ui::managebtc::btcsend::rate_accepts(&candidate)
                 }
-                PlainField::BtcBumpFee
-                | PlainField::XrpSendTag
+                PlainField::XrpSendTag
                 | PlainField::XrpReceiveTag => {
                     add.chars().all(|c| c.is_ascii_digit())
                 }
@@ -728,7 +731,7 @@ impl Default for AppState {
             key_purge_requested: false,
             btc_key_purge_requested: false,
             btc_tx_selected: None,
-            btc_txid_copied: None,
+            btc_detail_copied: None,
             remove_wallet_requested: false,
             btc_remove_wallet_requested: false,
             xrp_seed_text: SecureString::input(),
@@ -740,6 +743,7 @@ impl Default for AppState {
             xrp_bip39_reveal: false,
             xrp_word25: false,
             send_step: 0,
+            send_tab: XrpTokenTab::Xrp,
             send_fee: None,
             send_recipient: String::new(),
             send_destination_tag: String::new(),
@@ -785,12 +789,15 @@ impl Default for AppState {
             btc_send_custom_open: false,
             btc_send_fee_face: false,
             btc_send_locked: None,
+            btc_send_locked_vsize: None,
             btc_send_max_on: false,
             btc_send_passphrase: SecureString::input(),
             btc_send_passphrase_reveal: false,
             btc_bump_txid: None,
             btc_bump_fee_tier: BtcFeeTier::default(),
             btc_bump_fee: String::new(),
+            btc_bump_custom_open: false,
+            btc_bump_locked: None,
             btc_bump_passphrase: SecureString::input(),
             btc_bump_passphrase_reveal: false,
             btc_bump_bip39: SecureString::input(),

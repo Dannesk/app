@@ -43,7 +43,7 @@ const CARD_HEIGHT: f32 = 9.0;
 const CARD_AGE: f32 = 7.5;
 const TRAIN_CARDS: usize = 5;
 
-const TAIL: usize = 5;
+pub(crate) const TAIL: usize = 5;
 
 
 pub fn view(state: &AppState) -> Element<'_, Message> {
@@ -272,7 +272,7 @@ fn fees_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
                 } else {
                     cost.push((NA.to_string(), cp.faint));
                 }
-                fee_row(name, Some(rate_text(t[i])), cost, (!quiet).then(|| Verdict::of(&t, i)), cp, scale)
+                fee_row(name, Some((rate_text(t[i]), vsize)), cost, (!quiet).then(|| Verdict::of(&t, i)), cp, scale)
             }
             None => fee_row(name, None, vec![(" ".to_string(), cp.dim)], None, cp, scale),
         };
@@ -286,7 +286,7 @@ fn fees_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
 
 fn fee_row<'a>(
     name: &str,
-    rate: Option<String>,
+    rate: Option<(String, u64)>,
     cost: Vec<(String, Color)>,
     verdict: Option<Verdict>,
     cp: &'static CompactPalette,
@@ -309,13 +309,7 @@ fn fee_row<'a>(
         );
     }
     let rate_line: Element<'a, Message> = match rate {
-        Some(r) => {
-            let spans: Vec<Span<'static, ()>> = vec![
-                span(r).font(MONO).size(ROW_TOTAL * scale).color(cp.text),
-                span(" sat/vB").font(MONO).size(STRIP * scale).color(cp.muted),
-            ];
-            rich_text(spans).wrapping(Wrapping::None).boxed()
-        }
+        Some((r, vsize)) => rate_and_size(r, vsize, cp, scale),
         None => text(NA).font(MONO).size(ROW_TOTAL * scale).color(cp.faint).boxed(),
     };
     container(
@@ -331,6 +325,17 @@ fn fee_row<'a>(
     .width(Length::Fill)
     .padding(Padding::new(0.0).top(4.0 * scale).bottom(4.0 * scale))
     .boxed()
+}
+
+pub(crate) fn rate_and_size<'a>(rate: String, vsize: u64, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let spans: Vec<Span<'static, ()>> = vec![
+        span(rate).font(MONO).size(ROW_TOTAL * scale).color(cp.text),
+        span(" sat/vB").font(MONO).size(STRIP * scale).color(cp.muted),
+        span(" \u{b7} ").font(MONO).size(STRIP * scale).color(cp.faint),
+        span(add_commas(vsize as i64)).font(MONO).size(STRIP * scale).color(cp.dim),
+        span(" vB").font(MONO).size(STRIP * scale).color(cp.muted),
+    ];
+    rich_text(spans).wrapping(Wrapping::None).boxed()
 }
 
 fn quiet_line<'a>(cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -349,7 +354,7 @@ fn quiet_line<'a>(cp: &'static CompactPalette, scale: f32) -> Element<'a, Messag
     .boxed()
 }
 
-fn fee_dot<'a>(colour: Color, scale: f32) -> Element<'a, Message> {
+pub(crate) fn fee_dot<'a>(colour: Color, scale: f32) -> Element<'a, Message> {
     let size = FEE_DOT * scale;
     container(Space::new().width(size).height(size))
         .style(move |_| container::Style {
@@ -374,7 +379,7 @@ fn send_title(state: &AppState) -> &'static str {
     if state.btc_send_step == 2 {
         "review"
     } else if state.btc_send_fee_face {
-        "network fee"
+        "select fee"
     } else {
         "send"
     }
@@ -393,7 +398,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
 const STAGE_MIN: f32 = 104.0;
 const STAGE_PAD: f32 = 12.0;
 const FEE_ROW_H: f32 = 40.0;
-const GUTTER_W: f32 = 9.0;
+pub(crate) const GUTTER_W: f32 = 9.0;
 
 fn recipient_hint(state: &AppState) -> Option<&'static str> {
     let addr = state.btc_send_recipient.trim();
@@ -462,7 +467,7 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
             "network fee",
             Some(state.btc_send_fee_tier.label()),
             caption,
-            fee.map_or(RateCell::Dash, |f| RateCell::Text(rate_text(f.rate))),
+            fee.map_or(RateCell::Dash, |f| RateCell::Text(rate_text(f.rate), f.vsize)),
             fee_cost(fee, rate, ccy, cp),
             Gutter::Chevron,
             cp,
@@ -582,7 +587,7 @@ fn fee_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
             t.label(),
             None,
             caption,
-            q.map_or(RateCell::Dash, |f| RateCell::Text(rate_text(f.rate))),
+            q.map_or(RateCell::Dash, |f| RateCell::Text(rate_text(f.rate), f.vsize)),
             fee_cost(q, price, ccy, cp),
             Gutter::Check(picked),
             cp,
@@ -620,7 +625,7 @@ fn fee_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         choice_button(body, true, None, cp, scale)
     } else if let (BtcFeeTier::Custom, Some(f)) = (state.btc_send_fee_tier, quote.as_ref().and_then(|q| q.custom)) {
         let caption = tiers.map(|t| Caption::from(btcsend::custom_read(f.fee, &t)));
-        let body = fee_choice("custom", None, caption, RateCell::Text(rate_text(f.rate)), fee_cost(Some(f), price, ccy, cp), Gutter::Check(true), cp, scale);
+        let body = fee_choice("custom", None, caption, RateCell::Text(rate_text(f.rate), f.vsize), fee_cost(Some(f), price, ccy, cp), Gutter::Check(true), cp, scale);
         choice_button(body, true, Some(Message::BtcSendFeeTierSelected(BtcFeeTier::Custom)), cp, scale)
     } else {
         let body = fee_choice("custom", None, Some(Caption::Plain(btcsend::OWN_RATE)), RateCell::Empty, Vec::new(), Gutter::Chevron, cp, scale);
@@ -738,7 +743,7 @@ fn send_review<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
         };
         let buttons = grid::button_pair(
             grid::quiet_button("Cancel", Message::BtcSendReviewCancelled, cp, scale),
-            grid::primary("Send payment", armed && fields.can_submit(), sign_msg, cp, scale),
+            grid::primary("Sign & send", armed && fields.can_submit(), sign_msg, cp, scale),
             scale,
         );
         let sign = grid::sign_block(
@@ -758,10 +763,11 @@ fn send_review<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
     .boxed()
 }
 
-enum Caption {
+pub(crate) enum Caption {
     Verdict(Verdict),
     Warning(String),
     Plain(&'static str),
+    Note(String),
 }
 
 impl From<btcsend::CustomRead> for Caption {
@@ -773,29 +779,33 @@ impl From<btcsend::CustomRead> for Caption {
     }
 }
 
-enum RateCell<'a> {
-    Text(String),
+pub(crate) enum RateCell<'a> {
+    Text(String, u64),
     Dash,
     Empty,
     Field(Element<'a, Message>),
 }
 
-enum Gutter {
+pub(crate) enum Gutter {
     Check(bool),
     Chevron,
 }
 
 fn fee_cost(q: Option<FeeQuote>, price: f64, ccy: &str, cp: &'static CompactPalette) -> Vec<(String, Color)> {
-    let Some(f) = q else {
+    sats_cost(q.map(|f| f.fee), price, ccy, cp)
+}
+
+pub(crate) fn sats_cost(sats: Option<u64>, price: f64, ccy: &str, cp: &'static CompactPalette) -> Vec<(String, Color)> {
+    let Some(fee) = sats else {
         return vec![(" ".to_string(), cp.dim)];
     };
     let mut cost = vec![
-        (add_commas(f.fee as i64), cp.dim),
+        (add_commas(fee as i64), cp.dim),
         (" sat".to_string(), cp.muted),
         (" \u{b7} ".to_string(), cp.faint),
     ];
     if price > 0.0 {
-        cost.push((fiat_cost(f.fee as f64 / 1e8 * price), cp.dim));
+        cost.push((fiat_cost(fee as f64 / 1e8 * price), cp.dim));
         cost.push((format!(" {}", ccy.to_lowercase()), cp.muted));
     } else {
         cost.push((NA.to_string(), cp.faint));
@@ -804,7 +814,7 @@ fn fee_cost(q: Option<FeeQuote>, price: f64, ccy: &str, cp: &'static CompactPale
 }
 
 #[allow(clippy::too_many_arguments)]
-fn fee_choice<'a>(
+pub(crate) fn fee_choice<'a>(
     top: &str,
     prefix: Option<&str>,
     caption: Option<Caption>,
@@ -819,6 +829,7 @@ fn fee_choice<'a>(
         Some(Caption::Verdict(v)) => (Some(v.colour(cp)), Some(v.word().to_string()), cp.dim),
         Some(Caption::Warning(w)) => (Some(cp.red), Some(w.clone()), cp.red),
         Some(Caption::Plain(p)) => (None, Some(p.to_string()), cp.dim),
+        Some(Caption::Note(n)) => (None, Some(n.clone()), cp.dim),
         None => (None, None, cp.dim),
     };
     let line: Vec<String> = [prefix.map(str::to_string), word].into_iter().flatten().collect();
@@ -838,13 +849,7 @@ fn fee_choice<'a>(
         left = left.push(caption_row.boxed());
     }
     let rate_line: Element<'a, Message> = match rate {
-        RateCell::Text(r) => {
-            let spans: Vec<Span<'static, ()>> = vec![
-                span(r).font(MONO).size(ROW_TOTAL * scale).color(cp.text),
-                span(" sat/vB").font(MONO).size(STRIP * scale).color(cp.muted),
-            ];
-            rich_text(spans).wrapping(Wrapping::None).boxed()
-        }
+        RateCell::Text(r, vsize) => rate_and_size(r, vsize, cp, scale),
         RateCell::Field(f) => row![
             f,
             Space::new().width(4.0 * scale),
@@ -876,7 +881,7 @@ fn fee_choice<'a>(
     .boxed()
 }
 
-fn choice_button<'a>(
+pub(crate) fn choice_button<'a>(
     body: Element<'a, Message>,
     picked: bool,
     msg: Option<Message>,

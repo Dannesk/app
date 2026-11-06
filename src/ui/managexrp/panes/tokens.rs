@@ -141,7 +141,7 @@ fn enable_face<'a>(state: &'a AppState, t: &'static tokens::TokenDef, cp: &'stat
         let armed = state.enable_fee.is_some();
         let buttons = button_pair(
             quiet_button("Cancel", Message::EnableDismissed, cp, scale),
-            primary("Enable trustline", armed && fields.can_submit(), Message::EnableSubmitClicked, cp, scale),
+            primary("Sign & enable", armed && fields.can_submit(), Message::EnableSubmitClicked, cp, scale),
             scale,
         );
         let sign = sign_block(&fields, &state.enable_passphrase, &state.enable_seed_text, &state.enable_bip39, armed, buttons, inner, cp, scale);
@@ -177,7 +177,7 @@ fn remove_face<'a>(state: &'a AppState, t: &'static tokens::TokenDef, cp: &'stat
         let armed = CHANNEL.token(t.code).0 == 0.0 && state.disable_fee.is_some();
         let buttons = button_pair(
             quiet_button("Cancel", Message::DisableDismissed, cp, scale),
-            danger_button("Remove trustline", armed && fields.can_submit(), Message::DisableSubmitClicked, cp, scale),
+            danger_button("Sign & remove", armed && fields.can_submit(), Message::DisableSubmitClicked, cp, scale),
             scale,
         );
         let sign = sign_block(&fields, &state.disable_passphrase, &state.disable_seed_text, &state.disable_bip39, armed, buttons, inner, cp, scale);
@@ -197,7 +197,7 @@ fn remove_face<'a>(state: &'a AppState, t: &'static tokens::TokenDef, cp: &'stat
 fn details_face<'a>(state: &'a AppState, t: &'static tokens::TokenDef, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     let ccy = state.base_currency.code();
     let hide = state.hide_balance;
-    let (balance, _, limit) = CHANNEL.token(t.code);
+    let (balance, _, limit, _) = CHANNEL.token(t.code);
     let rate = price::cross(t.rate_key, ccy);
     let bal_str = if hide { MASK.to_string() } else { format_token_amount(balance, 6) };
     let fiat_str = if hide {

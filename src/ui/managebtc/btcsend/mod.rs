@@ -34,6 +34,7 @@ pub fn draft(state: &AppState) -> BtcSendDraft {
         recipient: state.btc_send_recipient.trim().to_string(),
         amount: state.btc_send_amount.trim().to_string(),
         custom,
+        max: state.btc_send_max_on,
     }
 }
 
@@ -275,7 +276,7 @@ mod tests {
 
     fn tiers(fees: [u64; 4]) -> [FeeQuote; 4] {
         let rates = [0.10, 0.13, 0.34, 1.09];
-        [0, 1, 2, 3].map(|i| FeeQuote { rate: rates[i], fee: fees[i], max: 0 })
+        [0, 1, 2, 3].map(|i| FeeQuote { rate: rates[i], fee: fees[i], vsize: 141, max: 0 })
     }
 
 
