@@ -1,6 +1,6 @@
 
 
-use iced::widget::Row;
+use iced::widget::{Column, Row};
 use iced::Widget as _;
 use std::sync::LazyLock;
 
@@ -34,7 +34,7 @@ pub const TITLE: f32 = 12.5;
 pub const BAR_BUTTON: f32 = 9.0;
 pub const STRIP: f32 = 8.5;
 pub const PILL: f32 = 8.0;
-pub const HERO: f32 = 28.0;
+pub const HERO: f32 = 20.0;
 pub const HERO_UNIT: f32 = 9.0;
 pub const ROW_KEY: f32 = 9.5;
 pub const ROW_VALUE: f32 = 10.0;
@@ -45,6 +45,7 @@ pub const FIELD_VALUE: f32 = 11.5;
 pub const ADDR: f32 = 11.0;
 pub const HINT: f32 = 8.5;
 pub const RECEIVE_ADDR: f32 = 10.0;
+const RECEIVE_ADDR_MARGIN: f32 = 24.0;
 pub const BUTTON: f32 = 11.0;
 pub const BUTTON_H: f32 = BUTTON * 1.3 + 10.0;
 const MENU_ITEM: f32 = 12.5;
@@ -946,6 +947,17 @@ impl<Message> canvas::Program<Message> for PaneChart {
 const COPY_GLYPH: f32 = 12.0;
 
 
+pub fn hero<'a>(figure: String, unit: String, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    row![
+        text(figure).font(LIGHT).size(HERO * scale).color(cp.text),
+        Space::new().width(7.0 * scale),
+        container(text(unit).font(MONO).size(HERO_UNIT * scale).color(cp.muted))
+            .padding(Padding::new(0.0).bottom((HERO * 0.17).round() * scale)),
+    ]
+    .align_y(Alignment::End)
+    .boxed()
+}
+
 pub fn swap_glyph<'a>(text_size: f32, color: Color) -> Element<'a, Message> {
     let s = text_size * 14.0 / 13.0;
     svg(crate::utils::icons::SWAP.clone())
@@ -1059,9 +1071,9 @@ pub fn receive_pane<'a>(
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
-    fill_or_scroll(
+    fill_or_scroll_by(
         RECEIVE_MIN_H,
-        move || {
+        move |size: Size| {
             receive_body(
                 payload.clone(),
                 address.clone(),
@@ -1070,6 +1082,7 @@ pub fn receive_pane<'a>(
                 on_copy.clone(),
                 drop.clone(),
                 line(),
+                size.width,
                 cp,
                 scale,
             )
@@ -1077,6 +1090,15 @@ pub fn receive_pane<'a>(
         cp,
         scale,
     )
+}
+
+fn even_lines(s: &str, per_line: usize) -> Vec<String> {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= per_line {
+        return vec![s.to_string()];
+    }
+    let lines = chars.len().div_ceil(per_line.max(1));
+    chars.chunks(chars.len().div_ceil(lines)).map(|c| c.iter().collect()).collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1088,6 +1110,7 @@ fn receive_body<'a>(
     on_copy: Message,
     drop: Option<Message>,
     line: Element<'a, Message>,
+    width: f32,
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
@@ -1115,25 +1138,28 @@ fn receive_body<'a>(
         .boxed()
     });
 
-    let shown: Element<'a, Message> = if tail == 0 {
-        text(address)
-            .font(MONO)
-            .size(RECEIVE_ADDR * scale)
-            .color(cp.dim)
-            .align_x(Alignment::Center)
-            .wrapping(Wrapping::Glyph)
-            .boxed()
-    } else {
-        let chars = address.chars().count();
-        let split = chars.saturating_sub(tail);
-        let head: String = address.chars().take(split).collect();
-        let end: String = address.chars().skip(split).collect();
-        let spans: Vec<Span<'static, ()>> = vec![
-            span(head).size(RECEIVE_ADDR * scale).font(MONO).color(cp.dim),
-            span(end).size(RECEIVE_ADDR * scale).font(MONO).color(cp.dim).underline(true),
-        ];
-        rich_text(spans).wrapping(Wrapping::Glyph).boxed()
-    };
+    let room = width - (COPY_GLYPH + 6.0 + RECEIVE_ADDR_MARGIN) * scale;
+    let per_line = (room / (RECEIVE_ADDR * scale * MONO_ADVANCE)).floor().max(1.0) as usize;
+    let tail_from = address.chars().count().saturating_sub(tail);
+    let mut shown: Column<Element<'a, Message>> = column![].align_x(Alignment::Center);
+    let mut at = 0;
+    for line in even_lines(&address, per_line) {
+        let len = line.chars().count();
+        let cut = tail_from.saturating_sub(at).min(len);
+        let mut spans: Vec<Span<'static, ()>> =
+            vec![span(line.chars().take(cut).collect::<String>()).size(RECEIVE_ADDR * scale).font(MONO).color(cp.dim)];
+        if cut < len {
+            spans.push(
+                span(line.chars().skip(cut).collect::<String>())
+                    .size(RECEIVE_ADDR * scale)
+                    .font(MONO)
+                    .color(cp.dim)
+                    .underline(true),
+            );
+        }
+        shown = shown.push(rich_text(spans).wrapping(Wrapping::None).boxed());
+        at += len;
+    }
 
     let mut address_row = row![
         Space::new().width(Length::Fill),
@@ -1141,7 +1167,7 @@ fn receive_body<'a>(
         Space::new().width(6.0 * scale),
         copy_glyph(copied, on_copy, cp, scale),
     ]
-    .align_y(Alignment::Start);
+    .align_y(Alignment::Center);
     if let Some(msg) = drop {
         address_row = address_row
             .push(Space::new().width(6.0 * scale).boxed())
@@ -1471,9 +1497,19 @@ fn menu_sep<'a>(cp: &'static CompactPalette, scale: f32) -> Element<'a, Message>
 
 #[cfg(test)]
 mod tests {
-    use super::{elide_addr, fit_addr};
+    use super::{elide_addr, even_lines, fit_addr};
 
-    const SEGWIT: &str = "bc1qyfxmsjq0pwk4kg3x5e7cqk8rjfhjrm2xamh06f67"; 
+    const SEGWIT: &str = "bc1qyfxmsjq0pwk4kg3x5e7cqk8rjfhjrm2xamh06f67";
+
+    #[test]
+    fn a_receive_address_that_overflows_splits_into_even_lines() {
+        assert_eq!(even_lines(SEGWIT, 60), [SEGWIT]);
+        let two = even_lines(SEGWIT, 30);
+        assert_eq!(two.iter().map(|l| l.chars().count()).collect::<Vec<_>>(), [22, 22]);
+        assert_eq!(two.concat(), SEGWIT);
+        let taproot = "bc1pmzfrwwndsqmk5yh69yjr5lfgfg4ev8c0tsc06e2ahcm7cq0v6nrsgvdvgd";
+        assert_eq!(even_lines(taproot, 40).iter().map(|l| l.chars().count()).collect::<Vec<_>>(), [31, 31]);
+    }
 
     #[test]
     fn fit_addr_is_whole_while_the_columns_hold_it() {

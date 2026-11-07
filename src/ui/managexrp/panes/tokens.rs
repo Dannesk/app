@@ -8,12 +8,12 @@ use crate::channel::CHANNEL;
 use crate::controller::app_state::AppState;
 use crate::controller::message::{Message, SecureField};
 use crate::controller::xrp::{xrp_available, xrp_fee, xrp_reserve};
-use crate::ui::components::grid::{self, HERO, HERO_UNIT, HINT, ROW_KEY};
+use crate::ui::components::grid::{self, HINT, ROW_KEY};
 use crate::ui::components::signing::SignFields;
 use crate::utils::money;
 use crate::ui::managexrp::tokens::short_issuer;
 use crate::ui::managexrp::xrpdashboard::{drow, group_rule, ROW_VALUE};
-use crate::utils::fonts::{LIGHT, MONO};
+use crate::utils::fonts::MONO;
 use crate::utils::theme::CompactPalette;
 use crate::utils::{add_commas, format_token_amount, price, tokens};
 
@@ -207,13 +207,7 @@ fn details_face<'a>(state: &'a AppState, t: &'static tokens::TokenDef, cp: &'sta
     } else {
         NA.to_string()
     };
-    let hero = row![
-        text(bal_str).font(LIGHT).size(HERO * scale).color(cp.text),
-        Space::new().width(8.0 * scale),
-        container(text(t.display.to_uppercase()).font(MONO).size(HERO_UNIT * scale).color(cp.muted))
-            .padding(Padding::new(0.0).bottom(5.0 * scale)),
-    ]
-    .align_y(Alignment::End);
+    let hero = grid::hero(bal_str, t.display.to_uppercase(), cp, scale);
     let own = CHANNEL.wallet_balance_rx.borrow().1.clone();
     let reserve_word = match xrp_reserve() {
         Some(r) => format!("{} XRP reserve", format_token_amount(r.per_object, 6)),

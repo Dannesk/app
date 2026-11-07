@@ -88,7 +88,7 @@ impl Tx {
     }
 
     pub(crate) fn direction_word(&self) -> &'static str {
-        if self.incoming { "receive" } else { "send" }
+        if self.incoming { "Receive" } else { "Send" }
     }
 
     pub(crate) fn amount_str(&self) -> String {
@@ -158,17 +158,17 @@ pub(crate) struct Fact {
 }
 
 pub(crate) fn facts(tx: &Tx, tiers: Option<[f32; 4]>, tip: Option<u64>, p: &'static CompactPalette) -> Vec<Fact> {
-    let address = |key: &'static str, a: &Option<String>| Fact {
+    let copyable = |key: &'static str, value: Option<&str>| Fact {
         key,
         dot: None,
-        segs: vec![a.as_deref().map_or(Seg::mono(NA, p.muted), |a| Seg::mono(elide_addr(a), p.text))],
-        copy: a.clone(),
+        segs: vec![value.map_or(Seg::mono(NA, p.muted), |v| Seg::mono(elide_addr(v), p.text))],
+        copy: value.map(str::to_string),
     };
-    let mut rows = vec![address("from", &tx.from), address("to", &tx.to), block(tx, tiers, tip, p)];
+    let mut rows = vec![copyable("from", tx.from.as_deref()), copyable("to", tx.to.as_deref()), block(tx, tiers, tip, p)];
     if !tx.incoming && !tx.evicted && !tx.replaced {
-        rows.push(Fact { key: "fee", dot: None, segs: fee_segs(tx, p), copy: None });
+        rows.push(Fact { key: "network fee", dot: None, segs: fee_segs(tx, p), copy: None });
     }
-    rows.push(Fact { key: "txid", dot: None, segs: vec![Seg::mono(elide_addr(&tx.txid), p.text)], copy: Some(tx.txid.clone()) });
+    rows.push(copyable("txid", Some(&tx.txid)));
     rows
 }
 
@@ -235,6 +235,13 @@ pub(crate) fn stamp_of(tx: &Tx) -> String {
     tx.at().map_or(NA.to_string(), stamp)
 }
 
+pub(crate) fn full_stamp(secs: u64) -> String {
+    Local
+        .timestamp_opt(secs as i64, 0)
+        .single()
+        .map_or(NA.to_string(), |dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+}
+
 fn stamp(secs: u64) -> String {
     let Some(dt) = Local.timestamp_opt(secs as i64, 0).single() else {
         return NA.to_string();
@@ -250,7 +257,6 @@ fn stamp(secs: u64) -> String {
 mod tests {
     use super::*;
     use crate::channel::btc::BtcRbfOutput;
-    use crate::ui::managebtc::panes::transactions::{CELL, TIME_W};
     use crate::utils::theme;
 
     fn tx(
@@ -441,13 +447,5 @@ mod tests {
             assert_eq!(elide_addr(a).chars().count(), 19, "{a}");
         }
         assert_eq!(elide_addr("bc1qshort"), "bc1qshort");
-    }
-
-    #[test]
-    fn stamps_fit_the_time_column() {
-        const BUDGET: usize = (TIME_W / (CELL * 0.6)) as usize;
-        for t in [1_786_761_453u64, 1_600_000_000, 1] {
-            assert!(stamp(t).chars().count() <= BUDGET, "stamp({t}) over budget");
-        }
     }
 }

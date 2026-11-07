@@ -428,7 +428,8 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::BtcReimportSuccess
         | Message::BtcReimportFailed(_)
         | Message::BtcKeyMgmtRestoreToggled
-        | Message::BtcTxSelected(_)) => return btc::handle(state, msg),
+        | Message::BtcTxSelected(_)
+        | Message::BtcTxBack) => return btc::handle(state, msg),
         msg => {
             debug_assert!(
                 !format!("{msg:?}").starts_with("Btc"),

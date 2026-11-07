@@ -66,7 +66,10 @@ fn clear_pane_form(state: &mut AppState, chain: Chain, kind: PaneKind) {
         }
         (Chain::Xrp, PaneKind::Wallet) => xrp::clear_reimport_form(state),
         (Chain::Btc, PaneKind::Send) => btc::clear_btc_send_form(state),
-        (Chain::Btc, PaneKind::Transactions) => btc::clear_btc_bump_form(state),
+        (Chain::Btc, PaneKind::Transactions) => {
+            btc::clear_btc_bump_form(state);
+            state.btc_tx_selected = None;
+        }
         (Chain::Btc, PaneKind::Wallet) => btc::clear_btc_reimport_form(state),
         (Chain::Btc, PaneKind::Receive) => btc::clear_btc_receive_line(state),
         _ => {}

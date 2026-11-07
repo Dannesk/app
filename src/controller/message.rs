@@ -286,6 +286,7 @@ pub enum Message {
     BtcReimportSuccess,
     BtcReimportFailed(String),
     BtcTxSelected(String),
+    BtcTxBack,
     BtcCopyDetail(String),
     BtcCopyDetailFeedback,
 }

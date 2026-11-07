@@ -136,8 +136,10 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             close_setup(state);
         }
         Message::BtcTxSelected(txid) => {
-            state.btc_tx_selected =
-                if state.btc_tx_selected.as_deref() == Some(txid.as_str()) { None } else { Some(txid) };
+            state.btc_tx_selected = Some(txid);
+        }
+        Message::BtcTxBack => {
+            state.btc_tx_selected = None;
         }
         Message::BtcCopyDetail(txid) => {
             state.btc_detail_copied = Some(txid.clone());
@@ -368,6 +370,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
 
         Message::BtcBumpClicked(txid) => {
             clear_btc_bump_form(state);
+            state.btc_tx_selected = None;
             state.btc_bump_txid = Some(txid);
             push_bump_draft(state);
         }
@@ -398,6 +401,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                 state.btc_bump_locked = None;
                 clear_bump_key(state);
             } else {
+                state.btc_tx_selected = state.btc_bump_txid.clone();
                 clear_btc_bump_form(state);
             }
         }
@@ -710,4 +714,5 @@ pub(crate) fn forget_wallet(state: &mut AppState) {
     clear_btc_receive_line(state);
     clear_btc_send_form(state);
     clear_btc_bump_form(state);
+    state.btc_tx_selected = None;
 }

@@ -128,7 +128,7 @@ fn pane_content<'a>(
             PaneKind::Blocks => (strip("network"), None, blocks_pane(state, cp, scale)),
             PaneKind::Transactions => (
                 strip(panes_ui::transactions::title(state)),
-                None,
+                panes_ui::transactions::meta(state, cp, scale),
                 panes_ui::transactions::view(state, cp, scale),
             ),
             PaneKind::Mempool => (strip("mempool"), None, panes_ui::mempool::view(state, cp, scale)),
