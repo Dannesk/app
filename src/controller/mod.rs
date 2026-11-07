@@ -241,6 +241,7 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         }
         Message::Sync => {
             panes::note_ledger(state);
+            panes::note_tip(state);
             state.btc_behind_peak = orbit::peak(
                 state.btc_behind_peak,
                 orbit::btc_node(orbit::socket() == crate::channel::Socket::Live),

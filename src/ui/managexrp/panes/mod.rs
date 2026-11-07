@@ -230,9 +230,29 @@ pub fn link(label: &str, color: Color, msg: Message, cp: &'static CompactPalette
 }
 
 pub fn link_word(word: String, color: Color, msg: Option<Message>, cp: &'static CompactPalette, scale: f32) -> Element<'static, Message> {
+    link_button(text(word).font(MONO).size(LINK * scale).color(color).boxed(), color, msg, cp, scale)
+}
+
+pub fn swap_word(word: String, color: Color, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'static, Message> {
+    let content = row![
+        text(word).font(MONO).size(LINK * scale).color(color),
+        Space::new().width(6.0 * scale),
+        grid::swap_glyph(LINK * scale, color),
+    ]
+    .align_y(Alignment::Center);
+    link_button(content.boxed(), color, Some(msg), cp, scale)
+}
+
+fn link_button(
+    content: Element<'static, Message>,
+    color: Color,
+    msg: Option<Message>,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'static, Message> {
     let destructive = color == cp.red;
     let live = msg.is_some();
-    button(text(word).font(MONO).size(LINK * scale).color(color))
+    button(content)
         .padding(Padding::new(3.0 * scale).left(7.0 * scale).right(7.0 * scale))
         .style(move |_, status| {
             let hot = live && matches!(status, button::Status::Hovered | button::Status::Pressed);

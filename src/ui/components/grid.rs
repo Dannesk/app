@@ -946,6 +946,15 @@ impl<Message> canvas::Program<Message> for PaneChart {
 const COPY_GLYPH: f32 = 12.0;
 
 
+pub fn swap_glyph<'a>(text_size: f32, color: Color) -> Element<'a, Message> {
+    let s = text_size * 14.0 / 13.0;
+    svg(crate::utils::icons::SWAP.clone())
+        .width(Length::Fixed(s))
+        .height(Length::Fixed(s))
+        .style(move |_, _| svg::Style { color: Some(color) })
+        .boxed()
+}
+
 pub fn copy_glyph<'a>(copied: bool, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     if copied {
         return text("\u{2713} copied").size(ROW_KEY * scale).color(cp.green).boxed();

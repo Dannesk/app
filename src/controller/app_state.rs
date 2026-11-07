@@ -430,6 +430,7 @@ pub struct AppState {
     pub btc_grid: crate::controller::panes::Grid,
     pub ledger_tape: VecDeque<crate::controller::panes::LedgerBar>,
     pub ledger_at: Option<std::time::Instant>,
+    pub btc_tip_seen: Option<(u64, Option<std::time::Instant>)>,
     pub socket_laps: Option<(std::time::Instant, u32)>,
     pub btc_behind_peak: Option<u64>,
 }
@@ -858,6 +859,7 @@ impl Default for AppState {
                 .unwrap_or_else(|| crate::controller::panes::Grid::new(crate::controller::panes::Chain::Btc)),
             ledger_tape: VecDeque::new(),
             ledger_at: None,
+            btc_tip_seen: None,
             socket_laps: None,
             btc_behind_peak: None,
             pin_wallet_identities: load_pin_wallet_identities(),

@@ -1,13 +1,16 @@
 use std::time::{Duration, Instant};
 
+use iced::Widget as _;
 use iced::advanced::svg::Svg;
 use iced::advanced::text::Alignment as TextAlign;
 use iced::alignment::Vertical;
-use iced::widget::canvas::{path, Frame, LineCap, LineDash, Path, Stroke, Text};
+use iced::widget::canvas::{self, path, Canvas, Frame, LineCap, LineDash, Path, Stroke, Text};
 use iced::widget::text::LineHeight;
-use iced::{Color, Point, Radians, Rectangle};
+use iced::widget::{column, container, stack, Space};
+use iced::{mouse, window, Alignment, Color, Element, Length, Point, Radians, Rectangle};
 
 use crate::channel::{BtcNodeStats, Health, Socket, BTC_INDEX, BTC_NODE, CHANNEL, XRP_NODE};
+use crate::controller::message::Message;
 use crate::ui::components::wallet_gate::{GLYPH, XRP_MARK_H, XRP_MARK_W};
 use crate::ui::managebtc::node::{BEHIND_FLOOR_SECS, SYNCED_FLOOR};
 use crate::utils::fonts::LIGHT;
@@ -15,6 +18,17 @@ use crate::utils::icons;
 use crate::utils::theme::CompactPalette;
 
 pub const LAP: Duration = Duration::from_millis(1600);
+pub const PANE_MIN_H: f32 = 180.0;
+pub const PULSE: Duration = Duration::from_millis(1400);
+
+const RING_MAX: f32 = 220.0;
+const RING_MIN: f32 = 150.0;
+const RING_PAD: f32 = 12.0;
+const RING_DASH: f32 = 2.0;
+const RING_PITCH: f32 = 8.0;
+const RING_LIT: f32 = 44.0 / 128.0;
+const RING_LIT_W: f32 = 1.7;
+const FIGURE: [f32; 4] = [28.0, 24.0, 20.0, 16.0];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Chain {
@@ -289,6 +303,112 @@ pub fn arc(frame: &mut Frame, c: Point, r: f32, start: f32, sweep: f32, color: C
         }),
         Stroke { line_cap: LineCap::Round, ..Stroke::default().with_color(color).with_width(width) },
     );
+}
+
+pub fn ring_d(width: f32, scale: f32) -> f32 {
+    (width / scale - 2.0 * RING_PAD).min(RING_MAX).max(RING_MIN)
+}
+
+pub fn fit(chars: usize, extra: f32, ring_d: f32) -> f32 {
+    FIGURE
+        .into_iter()
+        .find(|s| chars as f32 * s * 0.58 + extra <= ring_d * 0.8)
+        .unwrap_or(FIGURE[3])
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn pane<'a>(
+    ring_d: f32,
+    figures: Element<'a, Message>,
+    line: Element<'a, Message>,
+    node: Node,
+    laps: Option<(Instant, u32)>,
+    theme: &iced::Theme,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
+    let alpha = arc_alpha(theme);
+    let d = Length::Fixed(ring_d * scale);
+    let ring = stack![
+        Canvas::new(Ring {
+            track: Color { a: 0.32, ..cp.faint },
+            lit: Color { a: alpha, ..node.color(cp) },
+            dim: Color { a: alpha, ..cp.dim },
+            laps,
+            scale,
+        })
+        .width(d)
+        .height(d),
+        container(figures).center(d),
+    ];
+    container(column![ring, Space::new().height(8.0 * scale), line].align_x(Alignment::Center))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(Alignment::Center)
+        .align_y(Alignment::Center)
+        .boxed()
+}
+
+struct Ring {
+    track: Color,
+    lit: Color,
+    dim: Color,
+    laps: Option<(Instant, u32)>,
+    scale: f32,
+}
+
+#[derive(Default)]
+struct RingMemory {
+    now: Option<Instant>,
+}
+
+impl<M> canvas::Program<M> for Ring {
+    type State = RingMemory;
+
+    fn update(
+        &self,
+        state: &mut RingMemory,
+        event: &canvas::Event,
+        _bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Option<canvas::Action<M>> {
+        let canvas::Event::Window(window::Event::RedrawRequested(now)) = event else {
+            return None;
+        };
+        state.now = Some(*now);
+        turn(self.laps, *now).map(|_| canvas::Action::request_redraw())
+    }
+
+    fn draw(
+        &self,
+        state: &RingMemory,
+        renderer: &iced::Renderer,
+        _theme: &iced::Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let c = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let r = bounds.width.min(bounds.height) / 2.0 - RING_LIT_W * self.scale;
+        if r <= 0.0 {
+            return vec![frame.into_geometry()];
+        }
+        track(&mut frame, c, r, RING_DASH * self.scale, RING_PITCH * self.scale, self.track);
+        let (lit, spin) = match turn(self.laps, state.now.unwrap_or_else(Instant::now)) {
+            Some(t) => (self.dim, std::f32::consts::TAU * t),
+            None => (self.lit, 0.0),
+        };
+        arc(
+            &mut frame,
+            c,
+            r,
+            spin - std::f32::consts::FRAC_PI_2,
+            RING_LIT,
+            lit,
+            (RING_LIT_W * self.scale).max(1.0),
+        );
+        vec![frame.into_geometry()]
+    }
 }
 
 #[cfg(test)]

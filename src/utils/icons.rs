@@ -33,6 +33,10 @@ pub static COPY: LazyLock<svg::Handle> = LazyLock::new(|| {
     svg::Handle::from_memory(include_bytes!("copy.svg").as_ref())
 });
 
+pub static SWAP: LazyLock<svg::Handle> = LazyLock::new(|| {
+    svg::Handle::from_memory(include_bytes!("swap.svg").as_ref())
+});
+
 pub static XRP: LazyLock<svg::Handle> = LazyLock::new(|| {
     svg::Handle::from_memory(include_bytes!("xrp.svg").as_ref())
 });

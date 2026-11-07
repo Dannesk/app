@@ -113,20 +113,19 @@ impl PaneKind {
 
     pub const BTC_CANONICAL: [PaneKind; 10] = [
         PaneKind::Balance,
-        PaneKind::Fees,
         PaneKind::Chart,
         PaneKind::Send,
         PaneKind::Wallet,
         PaneKind::Receive,
         PaneKind::Blocks,
+        PaneKind::Fees,
         PaneKind::Transactions,
         PaneKind::Mempool,
         PaneKind::Intervals,
     ];
 
-    pub const BTC_DEFAULT: [PaneKind; 7] = [
+    pub const BTC_DEFAULT: [PaneKind; 6] = [
         PaneKind::Balance,
-        PaneKind::Fees,
         PaneKind::Chart,
         PaneKind::Send,
         PaneKind::Wallet,
@@ -264,14 +263,9 @@ impl PaneTree {
             ratio: 1.0 / 3.0,
             a: Box::new(PaneTree::Split {
                 axis: Axis::Horizontal,
-                ratio: 0.20,
+                ratio: 0.5,
                 a: leaf(PaneKind::Balance),
-                b: Box::new(PaneTree::Split {
-                    axis: Axis::Horizontal,
-                    ratio: 0.53,
-                    a: leaf(PaneKind::Fees),
-                    b: leaf(PaneKind::Chart),
-                }),
+                b: leaf(PaneKind::Chart),
             }),
             b: Box::new(PaneTree::Split {
                 axis: Axis::Vertical,
@@ -730,6 +724,15 @@ pub fn note_ledger(state: &mut AppState) {
     }
 }
 
+pub fn note_tip(state: &mut AppState) {
+    let Some(height) = CHANNEL.btc_node_rx.borrow().tip_height else { return };
+    state.btc_tip_seen = match state.btc_tip_seen {
+        Some((seen, at)) if seen == height => Some((seen, at)),
+        Some(_) => Some((height, Some(std::time::Instant::now()))),
+        None => Some((height, None)),
+    };
+}
+
 
 #[derive(Debug, Clone)]
 pub enum GridMsg {
@@ -1160,32 +1163,26 @@ mod tests {
     }
 
     #[test]
-    fn the_btc_default_tree_is_the_handoffs_with_the_wallet() {
+    fn the_btc_default_tree_puts_balance_over_chart_as_xrp_does() {
         let tree = PaneTree::btc_default_layout();
         assert_eq!(tree.kinds(), PaneKind::BTC_DEFAULT.to_vec());
         assert_eq!(columns(&tree), 3);
         let PaneTree::Split { a, .. } = &tree else { panic!() };
-        assert_eq!(rows(a), 3, "the left column is three deep");
+        let PaneTree::Split { a: xrp_left, .. } = &PaneTree::default_layout() else { panic!() };
+        assert_eq!(**a, **xrp_left);
 
         let mut g = Grid::new(Chain::Btc);
         assert_eq!(g.chain, Chain::Btc);
         assert_eq!(g.open_kinds(), PaneKind::BTC_DEFAULT.to_vec());
-        assert_eq!(&PaneKind::BTC_CANONICAL[..7], &PaneKind::BTC_DEFAULT[..]);
+        assert!(!g.has(PaneKind::Fees), "fees is an extra pane");
+        assert_eq!(&PaneKind::BTC_CANONICAL[..6], &PaneKind::BTC_DEFAULT[..]);
         assert_eq!(PaneKind::from_key(Chain::Btc, "intervals"), Some(PaneKind::Intervals));
         assert_eq!(PaneKind::from_key(Chain::Xrp, "mempool"), None);
-        let fees = pane_of(g.panes.as_ref().unwrap(), PaneKind::Fees);
-        g.close_pane(fees);
+        let chart = pane_of(g.panes.as_ref().unwrap(), PaneKind::Chart);
+        g.close_pane(chart);
         let after = PaneTree::mirror(g.panes.as_ref().unwrap());
         let PaneTree::Split { a, .. } = &after else { panic!() };
-        assert_eq!(
-            **a,
-            PaneTree::Split {
-                axis: Axis::Horizontal,
-                ratio: 0.20,
-                a: Box::new(PaneTree::Pane(PaneKind::Balance)),
-                b: Box::new(PaneTree::Pane(PaneKind::Chart)),
-            }
-        );
+        assert_eq!(**a, PaneTree::Pane(PaneKind::Balance));
         g.reset();
         assert_eq!(PaneTree::mirror(g.panes.as_ref().unwrap()), PaneTree::btc_default_layout());
     }

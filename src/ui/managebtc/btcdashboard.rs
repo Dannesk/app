@@ -13,14 +13,15 @@ use crate::controller::app_state::{AppState, BtcFeeTier, ChartPeriod, EnableInpu
 use crate::controller::message::{Message, PlainField, SecureField};
 use crate::controller::panes::{Chain, GridMsg, PaneKind};
 use crate::ui::components::grid::{
-    self, drow, group_rule, label, DashedWell, ADDR, FIELD_VALUE, HERO, HERO_UNIT, HINT, NA,
+    self, drow, group_rule, label, DashedWell, ADDR, FIELD_VALUE, HERO_UNIT, HINT, NA,
     ROW_KEY, ROW_TOTAL, STRIP,
 };
 use crate::ui::components::send_screen::{self as screen};
 use crate::ui::components::signing::SignFields;
 use crate::utils::{fiat_amount, money};
 use crate::ui::components::compact;
-use crate::ui::components::orbit;
+use crate::ui::components::orbit::{self, Middle, Status};
+use crate::ui::components::tui::MONO_ADVANCE;
 use crate::ui::managebtc::node::{band_color, fee_band, is_quiet, rate_text, tip_age, NodeFrameView, Verdict};
 use crate::ui::managebtc::btcsend::{self, FeeQuote};
 use crate::ui::managexrp::panes as xrp_panes;
@@ -42,6 +43,9 @@ const CARD_RADIUS: f32 = 2.0;
 const CARD_HEIGHT: f32 = 9.0;
 const CARD_AGE: f32 = 7.5;
 const TRAIN_CARDS: usize = 5;
+
+const SWAP_PAD_V: f32 = 3.0;
+const SWAP_GAP: f32 = 8.0 - SWAP_PAD_V;
 
 pub(crate) const TAIL: usize = 5;
 
@@ -157,92 +161,140 @@ fn balance_figures(union: &[crate::channel::BtcUtxo]) -> BalanceFigures {
 }
 
 
-fn figure_row<'a>(
-    key: &'static str,
-    runs: Vec<(String, Color)>,
-    unit: &'static str,
-    top: f32,
-    cp: &'static CompactPalette,
-    scale: f32,
-) -> Element<'a, Message> {
-    container(
-        row![
-            text(key).size(ROW_KEY * scale).color(cp.dim),
-            Space::new().width(Length::Fill),
-            compact::mono_runs(runs, grid::ROW_VALUE * scale),
-            unit_toggle(unit, cp, scale),
-        ]
-        .align_y(Alignment::Center),
-    )
-    .width(Length::Fill)
-    .padding(Padding::new(0.0).top(top * scale).bottom(3.0 * scale))
-    .boxed()
+fn balance_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    grid::fill_or_scroll_by(orbit::PANE_MIN_H, move |size: Size| balance_body(state, size, cp, scale), cp, scale)
 }
 
-fn unit_toggle<'a>(word: &'static str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    button(text(word).font(MONO).size(grid::ROW_VALUE * scale))
-        .on_press(Message::BtcBalanceUnitToggled)
-        .padding(Padding::new(1.0 * scale).left(3.0 * scale).right(3.0 * scale))
-        .style(move |_, status| {
-            let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: Some(if hot { cp.hover } else { Color::TRANSPARENT }.into()),
-                border: Border { color: Color::TRANSPARENT, width: 0.0, radius: (4.0 * scale).into() },
-                text_color: if hot { cp.text } else { cp.faint },
-                shadow: Shadow::default(),
-                snap: false,
+fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let hide = state.hide_balance;
+    let ccy = state.base_currency.code();
+    let mask = |s: String| if hide { "\u{2022}".repeat(4) } else { s };
+    let figures = balance_figures(&CHANNEL.btc_utxos_rx.borrow().1);
+    let sats_mode = state.btc_balance_sats;
+    let unit = if sats_mode { "sats" } else { "BTC" };
+    let amount = |sats: u64| if sats_mode { add_commas(sats as i64) } else { format!("{:.8}", sats as f64 / 1e8) };
+
+    let loaded = *CHANNEL.loaded_rx.borrow();
+    let ready = loaded.wallets && loaded.btc;
+    let rate = price::cross("BTC", ccy);
+    let total = (ready && rate > 0.0).then(|| figures.confirmed as f64 / 1e8 * rate);
+
+    let socket = orbit::socket();
+    let btc = orbit::btc_node(socket == Socket::Live);
+    let middle = orbit::middle(socket, [None, Some(btc)], total.is_some(), [true, ready], orbit::rates_pending());
+
+    let ring_d = orbit::ring_d(size.width, scale);
+    let native = native_swap(mask(amount(figures.confirmed)), unit, cp, scale);
+    let centre: Element<'a, Message> = match middle {
+        Middle::Figure { dim, .. } => {
+            let shown = if hide { "\u{2022}".repeat(6) } else { money(total.unwrap_or(0.0)) };
+            let unit_w = ccy.chars().count() as f32 * HERO_UNIT * MONO_ADVANCE;
+            let fsize = orbit::fit(shown.chars().count(), 7.0 + unit_w, ring_d);
+            let hero = row![
+                text(shown).font(LIGHT).size(fsize * scale).color(if dim { cp.dim } else { cp.text }),
+                Space::new().width(7.0 * scale),
+                container(text(ccy.to_uppercase()).font(MONO).size(HERO_UNIT * scale).color(cp.muted))
+                    .padding(Padding::new(0.0).bottom((fsize * 0.17).round() * scale)),
+            ]
+            .align_y(Alignment::End);
+            column![hero, Space::new().height(SWAP_GAP * scale), native].align_x(Alignment::Center).boxed()
+        }
+        Middle::Status(status) => {
+            let words = text(status.words())
+                .font(LIGHT)
+                .size(orbit::fit(status.words().chars().count(), 0.0, ring_d) * scale)
+                .color(if status.strong() { cp.text } else { cp.dim });
+            if ready && status != Status::Connecting {
+                column![words, Space::new().height(SWAP_GAP * scale), native].align_x(Alignment::Center).boxed()
+            } else {
+                words.boxed()
             }
+        }
+    };
+
+    let line = if figures.unconfirmed != 0 {
+        let sign = if figures.unconfirmed < 0 { "\u{2212}" } else { "+" };
+        unconfirmed_line(mask(format!("{sign}{}", amount(figures.unconfirmed.unsigned_abs()))), unit, cp, scale)
+    } else {
+        block_line(state, btc, cp, scale)
+    };
+    orbit::pane(ring_d, centre, line, btc, state.socket_laps, &state.theme, cp, scale)
+}
+
+fn native_swap<'a>(amount: String, unit: &'static str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let line = row![
+        text(amount).font(MONO).size(grid::ROW_VALUE * scale).color(cp.dim),
+        Space::new().width(5.0 * scale),
+        text(unit).font(MONO).size(grid::ROW_VALUE * scale).color(cp.muted),
+        Space::new().width(6.0 * scale),
+        grid::swap_glyph(grid::ROW_VALUE * scale, cp.faint),
+    ]
+    .align_y(Alignment::Center);
+    button(line)
+        .on_press(Message::BtcBalanceUnitToggled)
+        .padding(Padding::new(SWAP_PAD_V * scale).left(7.0 * scale).right(7.0 * scale))
+        .style(move |_, status| button::Style {
+            background: Some(
+                match status {
+                    button::Status::Hovered | button::Status::Pressed => cp.neutral,
+                    _ => Color::TRANSPARENT,
+                }
+                .into(),
+            ),
+            border: Border { color: Color::TRANSPARENT, width: 0.0, radius: (5.0 * scale).into() },
+            text_color: cp.text,
+            shadow: Shadow::default(),
+            snap: false,
         })
         .boxed()
 }
 
-fn balance_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    let hide = state.hide_balance;
-    let ccy = state.base_currency.code();
-    let rate = price::cross("BTC", ccy);
-    let mask = |s: String| if hide { "\u{2022}".repeat(4) } else { s };
-
-  
-    let figures = balance_figures(&CHANNEL.btc_utxos_rx.borrow().1);
-    let sats_mode = state.btc_balance_sats;
-    let unit = if sats_mode { "sats" } else { "btc" };
-    let amount = |sats: u64| if sats_mode { add_commas(sats as i64) } else { format!("{:.8}", sats as f64 / 1e8) };
-
-    let hero_value = if hide {
-        "\u{2022}".repeat(6)
-    } else if rate > 0.0 {
-        money(figures.confirmed as f64 / 1e8 * rate)
-    } else {
-        NA.to_string()
-    };
-    let hero = row![
-        text(hero_value).font(LIGHT).size(HERO * scale).color(cp.text),
-        Space::new().width(8.0 * scale),
-        container(text(ccy.to_uppercase()).font(MONO).size(HERO_UNIT * scale).color(cp.muted))
-            .padding(Padding::new(0.0).bottom(5.0 * scale)),
+fn unconfirmed_line<'a>(figure: String, unit: &'static str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    row![
+        text("Unconfirmed").size(ROW_KEY * scale).color(cp.muted),
+        text(figure).font(MONO).size(grid::ROW_VALUE * scale).color(cp.text),
+        text(unit).font(MONO).size(grid::ROW_VALUE * scale).color(cp.muted),
     ]
-    .align_y(Alignment::End);
+    .spacing(6.0 * scale)
+    .align_y(Alignment::End)
+    .boxed()
+}
 
-    let sign = match figures.unconfirmed {
-        n if n < 0 => "\u{2212}",
-        n if n > 0 => "+",
-        _ => "",
+fn block_line<'a>(state: &'a AppState, btc: orbit::Node, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let node = NodeFrame::current();
+    let (word, ink) = match btc {
+        orbit::Node::NoPeers => ("No peers", cp.amber),
+        orbit::Node::CatchingUp(_) => ("Syncing", cp.amber),
+        _ => ("Block", cp.muted),
     };
-    let col = column![
-        hero,
-        figure_row("confirmed", vec![(mask(amount(figures.confirmed)), cp.text)], unit, 9.0, cp, scale),
-        figure_row(
-            "unconfirmed",
-            vec![(mask(format!("{sign}{}", amount(figures.unconfirmed.unsigned_abs()))), cp.dim)],
-            unit,
-            3.0,
-            cp,
-            scale,
-        ),
-    ]
-    .width(Length::Fill);
-
-    grid::scroller(col.boxed(), cp, scale)
+    let live = btc == orbit::Node::Live;
+    let fresh = live
+        && state
+            .btc_tip_seen
+            .is_some_and(|(h, at)| node.tip_height == Some(h) && at.is_some_and(|t| t.elapsed() < orbit::PULSE));
+    let mut line = row![text(word).size(ROW_KEY * scale).color(ink)]
+        .spacing(6.0 * scale)
+        .align_y(Alignment::End);
+    if let Some(h) = node.tip_height {
+        line = line.push(
+            text(add_commas(h as i64))
+                .font(MONO)
+                .size(grid::ROW_VALUE * scale)
+                .color(if fresh { cp.green } else { cp.dim })
+                .boxed(),
+        );
+    }
+    if let Some(age) = tip_age(node.tip_at).filter(|_| live) {
+        line = line.push(text("\u{b7}").size(ROW_KEY * scale).color(cp.faint).boxed()).push(
+            row![
+                text(age_word(age)).font(MONO).size(grid::ROW_VALUE * scale).color(cp.muted),
+                text(" ago").size(ROW_KEY * scale).color(cp.muted),
+            ]
+            .align_y(Alignment::End)
+            .boxed(),
+        );
+    }
+    line.boxed()
 }
 
 
@@ -506,14 +558,17 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
     } else {
         (format!("\u{2248} {other} {twin_unit}"), cp.dim)
     };
-    let can_swap = rate > 0.0;
-    let twin = if can_swap { format!("{twin}  \u{21c4}") } else { twin };
+    let twin = if rate > 0.0 {
+        xrp_panes::swap_word(twin, twin_ink, Message::BtcSendAnchorToggled, cp, scale)
+    } else {
+        xrp_panes::link_word(twin, twin_ink, None, cp, scale)
+    };
     let stage = column![
         screen::unit("btc", cp, scale),
         Space::new().height(8.0 * scale),
         figure,
         Space::new().height(4.0 * scale),
-        xrp_panes::link_word(twin, twin_ink, can_swap.then_some(Message::BtcSendAnchorToggled), cp, scale),
+        twin,
     ]
     .align_x(Alignment::Center)
     .width(Length::Fill);

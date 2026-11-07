@@ -3,9 +3,8 @@ use iced::Widget as _;
 use iced::mouse;
 use iced::widget::canvas::{self, Canvas, Frame};
 use iced::widget::pane_grid::Pane;
-use iced::widget::{column, container, responsive, row, stack, text, Column, Space};
-use iced::{window, Alignment, Color, Element, Length, Padding, Point, Rectangle, Size};
-use std::time::Instant;
+use iced::widget::{column, container, responsive, row, text, Column, Space};
+use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Size};
 
 use crate::channel::{Socket, XrpNodeStats as NodeFrame, CHANNEL};
 use crate::ui::components::orbit::{self, Middle, Node, Status};
@@ -183,19 +182,8 @@ fn pane_content<'a>(
     grid::pane_frame(pane, kind, maximized, title, meta, body, Message::Grid, cp, scale)
 }
 
-const RING_MAX: f32 = 220.0;
-const RING_MIN: f32 = 150.0;
-const RING_PAD: f32 = 12.0;
-const RING_DASH: f32 = 2.0;
-const RING_PITCH: f32 = 8.0;
-const RING_LIT: f32 = 44.0 / 128.0;
-const RING_LIT_W: f32 = 1.7;
-const ORBIT_FIGURE: [f32; 4] = [28.0, 24.0, 20.0, 16.0];
-const BALANCE_MIN_H: f32 = 180.0;
-const LEDGER_PULSE: std::time::Duration = std::time::Duration::from_millis(1400);
-
 fn balance_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    grid::fill_or_scroll_by(BALANCE_MIN_H, move |size: Size| balance_body(state, size, cp, scale), cp, scale)
+    grid::fill_or_scroll_by(orbit::PANE_MIN_H, move |size: Size| balance_body(state, size, cp, scale), cp, scale)
 }
 
 fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -224,7 +212,7 @@ fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette
         Node::CatchingUp(_) => ("Syncing", cp.amber),
         _ => ("Ledger", cp.muted),
     };
-    let fresh = xrp == Node::Live && state.ledger_at.is_some_and(|t| t.elapsed() < LEDGER_PULSE);
+    let fresh = xrp == Node::Live && state.ledger_at.is_some_and(|t| t.elapsed() < orbit::PULSE);
     let mut ledger = row![text(word).size(ROW_KEY * scale).color(word_ink)]
         .spacing(6.0 * scale)
         .align_y(Alignment::End);
@@ -238,13 +226,8 @@ fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette
         );
     }
 
-    let ring_d = (size.width / scale - 2.0 * RING_PAD).min(RING_MAX).max(RING_MIN);
-    let fit = |chars: usize, extra: f32| {
-        ORBIT_FIGURE
-            .into_iter()
-            .find(|s| chars as f32 * s * 0.58 + extra <= ring_d * 0.8)
-            .unwrap_or(ORBIT_FIGURE[3])
-    };
+    let ring_d = orbit::ring_d(size.width, scale);
+    let fit = |chars: usize, extra: f32| orbit::fit(chars, extra, ring_d);
     let native = row![
         text(mask(format!("{xrp_amount:.6}"))).font(MONO).size(ROW_VALUE * scale).color(cp.dim),
         Space::new().width(5.0 * scale),
@@ -277,90 +260,7 @@ fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette
             }
         }
     };
-    let alpha = orbit::arc_alpha(&state.theme);
-    let d = Length::Fixed(ring_d * scale);
-    let ring = stack![
-        Canvas::new(Ring {
-            track: Color { a: 0.32, ..cp.faint },
-            lit: Color { a: alpha, ..xrp.color(cp) },
-            dim: Color { a: alpha, ..cp.dim },
-            laps: state.socket_laps,
-            scale,
-        })
-        .width(d)
-        .height(d),
-        container(figures).center(d),
-    ];
-    let orbit = column![ring, Space::new().height(8.0 * scale), ledger].align_x(Alignment::Center);
-
-    container(orbit)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .align_x(Alignment::Center)
-        .align_y(Alignment::Center)
-        .boxed()
-}
-
-struct Ring {
-    track: Color,
-    lit: Color,
-    dim: Color,
-    laps: Option<(Instant, u32)>,
-    scale: f32,
-}
-
-#[derive(Default)]
-struct RingMemory {
-    now: Option<Instant>,
-}
-
-impl<Message> canvas::Program<Message> for Ring {
-    type State = RingMemory;
-
-    fn update(
-        &self,
-        state: &mut RingMemory,
-        event: &canvas::Event,
-        _bounds: Rectangle,
-        _cursor: mouse::Cursor,
-    ) -> Option<canvas::Action<Message>> {
-        let canvas::Event::Window(window::Event::RedrawRequested(now)) = event else {
-            return None;
-        };
-        state.now = Some(*now);
-        orbit::turn(self.laps, *now).map(|_| canvas::Action::request_redraw())
-    }
-
-    fn draw(
-        &self,
-        state: &RingMemory,
-        renderer: &iced::Renderer,
-        _theme: &iced::Theme,
-        bounds: Rectangle,
-        _cursor: mouse::Cursor,
-    ) -> Vec<canvas::Geometry> {
-        let mut frame = Frame::new(renderer, bounds.size());
-        let c = Point::new(bounds.width / 2.0, bounds.height / 2.0);
-        let r = bounds.width.min(bounds.height) / 2.0 - RING_LIT_W * self.scale;
-        if r <= 0.0 {
-            return vec![frame.into_geometry()];
-        }
-        orbit::track(&mut frame, c, r, RING_DASH * self.scale, RING_PITCH * self.scale, self.track);
-        let (lit, spin) = match orbit::turn(self.laps, state.now.unwrap_or_else(Instant::now)) {
-            Some(t) => (self.dim, std::f32::consts::TAU * t),
-            None => (self.lit, 0.0),
-        };
-        orbit::arc(
-            &mut frame,
-            c,
-            r,
-            spin - std::f32::consts::FRAC_PI_2,
-            RING_LIT,
-            lit,
-            (RING_LIT_W * self.scale).max(1.0),
-        );
-        vec![frame.into_geometry()]
-    }
+    orbit::pane(ring_d, figures, ledger.boxed(), xrp, state.socket_laps, &state.theme, cp, scale)
 }
 
 fn chart_series(state: &AppState) -> Vec<(u64, f32)> {
@@ -497,14 +397,17 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
     } else {
         (format!("\u{2248} {other} {twin_unit}"), cp.dim)
     };
-    let can_swap = rate > 0.0;
-    let twin = if can_swap { format!("{twin}  \u{21c4}") } else { twin };
+    let twin = if rate > 0.0 {
+        panes_ui::swap_word(twin, twin_ink, Message::SendAnchorToggled, cp, scale)
+    } else {
+        panes_ui::link_word(twin, twin_ink, None, cp, scale)
+    };
     let mut stage = column![
         chip,
         Space::new().height(8.0 * scale),
         figure,
         Space::new().height(4.0 * scale),
-        panes_ui::link_word(twin, twin_ink, can_swap.then_some(Message::SendAnchorToggled), cp, scale),
+        twin,
     ]
     .align_x(Alignment::Center)
     .width(Length::Fill);
