@@ -5,7 +5,7 @@ use iced::Color;
 
 use crate::channel::btc::{BitcoinTransactionStatus, BtcTransactionData};
 use crate::channel::CHANNEL;
-use crate::ui::components::tx_panel::Seg;
+use crate::ui::components::tx_panel::{Fact, Seg};
 use crate::ui::managebtc::node::{rate_text, Verdict};
 use crate::utils::add_commas;
 use crate::utils::theme::CompactPalette;
@@ -148,13 +148,6 @@ fn fold_replaced(all: Vec<Tx>) -> Vec<Tx> {
 
 pub(crate) fn wait(rate: f32, tiers: &[f32; 4]) -> Verdict {
     (0..4).rev().find(|&i| rate >= tiers[i]).map_or(Verdict::BackOfQueue, |i| Verdict::of(tiers, i))
-}
-
-pub(crate) struct Fact {
-    pub(crate) key: &'static str,
-    pub(crate) dot: Option<Color>,
-    pub(crate) segs: Vec<Seg>,
-    pub(crate) copy: Option<String>,
 }
 
 pub(crate) fn facts(tx: &Tx, tiers: Option<[f32; 4]>, tip: Option<u64>, p: &'static CompactPalette) -> Vec<Fact> {

@@ -948,8 +948,16 @@ const COPY_GLYPH: f32 = 12.0;
 
 
 pub fn hero<'a>(figure: String, unit: String, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    hero_ink(figure, unit, cp.text, cp, scale)
+}
+
+pub fn hero_ink<'a>(figure: String, unit: String, ink: Color, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let figure = text(figure).font(LIGHT).size(HERO * scale).color(ink);
+    if unit.is_empty() {
+        return figure.boxed();
+    }
     row![
-        text(figure).font(LIGHT).size(HERO * scale).color(cp.text),
+        figure,
         Space::new().width(7.0 * scale),
         container(text(unit).font(MONO).size(HERO_UNIT * scale).color(cp.muted))
             .padding(Padding::new(0.0).bottom((HERO * 0.17).round() * scale)),

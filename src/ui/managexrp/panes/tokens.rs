@@ -60,7 +60,7 @@ fn reserve_runs(cp: &'static CompactPalette) -> Vec<(String, Color)> {
     }
 }
 
-fn limit_text(limit: f64) -> String {
+pub(crate) fn limit_text(limit: f64) -> String {
     if limit.fract() == 0.0 && limit.abs() < 9.0e15 {
         add_commas(limit as i64)
     } else {

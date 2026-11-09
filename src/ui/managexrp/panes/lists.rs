@@ -1,124 +1,188 @@
 
 use iced::widget::Column;
 use iced::Widget as _;
-use iced::widget::{column, responsive, Space};
+use iced::widget::{column, container, responsive, text, Space};
 use iced::{Element, Length, Size};
 
-use crate::channel::{CHANNEL, HistoryList};
+use crate::channel::{CHANNEL, HistoryList, TransactionStatus};
 use crate::controller::app_state::AppState;
 use crate::controller::message::{Message, SecureField};
+use crate::controller::xrp::xrp_reserve;
+use crate::ui::components::grid::{self, group_rule, HINT};
 use crate::ui::components::signing::SignFields;
-use crate::ui::components::tx_panel::Detail;
-use crate::ui::managexrp::xrptrade::disp;
-use crate::ui::managexrp::xrptransactions::{self as tx, Kind, Tx};
-use crate::ui::managexrp::xrpdashboard::drow;
+use crate::ui::components::tx_panel::Fact;
+use crate::ui::managebtc::btctransactions::full_stamp;
+use crate::ui::managexrp::xrpdashboard::{drow, STRIP};
+use crate::ui::managexrp::xrptransactions::{self as tx, six, Kind, Tx};
+use crate::utils::fonts::MONO;
+use crate::utils::orderbook::fmt_price;
 use crate::utils::theme::CompactPalette;
 
-use super::{button_pair, empty, end_row, fact, fee_row, group_head, list_row, primary, quiet_button, scroller, sign_block, sign_mode, ListRow, NA};
+use super::{
+    button_pair, danger_button, empty, end_row, fact, fact_row, fee_row, group_head, history_row, quiet_button, scroller,
+    sign_block, sign_mode, HistoryRow, NA, SUB,
+};
 
-pub fn orders_title(state: &AppState) -> &'static str {
-    if state.cancel_offer_sequence.is_some() { "cancel offer" } else { "orders" }
+pub fn title(state: &AppState) -> &'static str {
+    if state.cancel_offer_sequence.is_some() {
+        "cancel order"
+    } else if selected(state).is_some() {
+        "details"
+    } else {
+        "transactions"
+    }
+}
+
+pub fn meta<'a>(state: &AppState, cp: &'static CompactPalette, scale: f32) -> Option<Element<'a, Message>> {
+    if state.cancel_offer_sequence.is_some() {
+        return None;
+    }
+    let t = selected(state)?;
+    Some(text(t.state_label()).font(MONO).size(STRIP * scale).color(t.state_color(cp)).boxed())
 }
 
 fn own() -> String {
     CHANNEL.wallet_balance_rx.borrow().1.clone().unwrap_or_default()
 }
 
-fn row_of(t: &Tx, side: bool, state: &AppState, cp: &'static CompactPalette) -> ListRow {
-    let expanded = state.tx_expanded.as_deref() == Some(t.hash.as_str());
-    ListRow {
-        kind: if side { t.side_word() } else { t.kind.word() },
-        side,
-        amount: tx::amount_segs(t, cp),
-        status: (t.state_label(), t.state_color(cp)),
-        time: t.closed_at.map_or(NA.to_string(), tx::stamp),
-        on_press: Message::TxCardToggled(t.hash.clone()),
-        detail: expanded.then(|| Detail {
-            id: tx::id_line(t, state.tx_hash_copied.as_deref()),
-            lines: tx::detail_lines(t, cp),
-            tail: tx::tail(t, cp),
-        }),
-    }
+fn reserve() -> Option<f64> {
+    xrp_reserve().map(|r| r.per_object)
 }
 
-pub fn transactions<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+fn selected(state: &AppState) -> Option<Tx> {
+    let hash = state.xrp_tx_selected.as_deref()?;
     let own = own();
-    let (open, settled) = tx::split(&own);
-    let rows: Vec<&Tx> = open.iter().chain(settled.iter()).filter(|t| t.kind != Kind::Offer).collect();
-    if rows.is_empty() {
-        return empty("No transactions to show", cp, scale);
-    }
-    let mut list: Column<Element<'_, Message>> = column![].width(Length::Fill);
-    for t in rows {
-        list = list.push(list_row(row_of(t, false, state, cp), cp, scale));
-    }
-    if let Some(end) = paging(HistoryList::XrpTransactions, cp, scale) {
-        list = list.push(end);
-    }
-    scroller(list.boxed(), cp, scale)
+    CHANNEL.transactions_rx.borrow().transactions.get(hash).map(|t| Tx::from(t, &own))
 }
 
-fn paging(list: HistoryList, cp: &'static CompactPalette, scale: f32) -> Option<Element<'static, Message>> {
-    let txs = CHANNEL.transactions_rx.borrow();
-    end_row(txs.page(list), txs.held(list), list, cp, scale)
-}
-
-pub fn orders<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     if state.cancel_offer_sequence.is_some() {
         return cancel(state, cp, scale);
     }
-    let own = own();
-    let (open, settled) = tx::split(&own);
-    let live: Vec<&Tx> = open.iter().filter(|t| t.kind == Kind::Offer).collect();
-    let done: Vec<&Tx> = settled.iter().filter(|t| t.kind == Kind::Offer).collect();
-    if live.is_empty() && done.is_empty() {
-        return empty("No orders to show", cp, scale);
+    if let Some(t) = selected(state) {
+        return details(state, &t, cp, scale);
     }
+
+    let (open, settled) = tx::split(&own());
+    if open.is_empty() && settled.is_empty() {
+        return empty("No transactions to show", cp, scale);
+    }
+    let reserve = reserve();
     let mut list: Column<Element<'_, Message>> = column![].width(Length::Fill);
-    for t in &live {
-        list = list.push(list_row(row_of(t, true, state, cp), cp, scale));
+    if !open.is_empty() {
+        let mut band: Column<Element<'_, Message>> = column![group_head("open", cp, scale)].width(Length::Fill);
+        for (i, t) in open.iter().enumerate() {
+            band = band.push(row(t, reserve, i + 1 < open.len(), cp, scale));
+        }
+        list = list.push(
+            container(band)
+                .width(Length::Fill)
+                .style(move |_| container::Style { background: Some(cp.panel.into()), ..Default::default() })
+                .boxed(),
+        );
+        list = list.push(group_head("history", cp, scale));
     }
-    if !live.is_empty() && !done.is_empty() {
-        list = list.push(group_head("settled", cp, scale));
+    for t in &settled {
+        list = list.push(row(t, reserve, true, cp, scale));
     }
-    for t in &done {
-        list = list.push(list_row(row_of(t, true, state, cp), cp, scale));
-    }
-    if let Some(end) = paging(HistoryList::XrpOrders, cp, scale) {
+    let end = {
+        let txs = CHANNEL.transactions_rx.borrow();
+        end_row(&txs.page, txs.held(), HistoryList::XrpTransactions, cp, scale)
+    };
+    if let Some(end) = end {
         list = list.push(end);
     }
     scroller(list.boxed(), cp, scale)
+}
+
+fn row(t: &Tx, reserve: Option<f64>, rule: bool, cp: &'static CompactPalette, scale: f32) -> Element<'static, Message> {
+    let (figure, figure_ink, unit) = match t.amount_parts(reserve) {
+        Some((f, u)) => (f, cp.text, u),
+        None => (NA.to_string(), cp.faint, String::new()),
+    };
+    let row = HistoryRow {
+        word: t.word(),
+        status: (t.state_label(), t.state_color(cp)),
+        figure,
+        figure_ink,
+        unit,
+        stamp: t.closed_at.map_or(NA.to_string(), tx::stamp),
+        stamp_ink: if t.closed_at.is_some() { cp.muted } else { cp.faint },
+        on_press: Message::XrpTxSelected(t.hash.clone()),
+    };
+    history_row(row, rule, cp, scale)
+}
+
+fn details<'a>(state: &'a AppState, t: &Tx, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let reserve = reserve();
+    let copied = state.xrp_detail_copied.as_deref();
+    let hero = match t.amount_parts(reserve) {
+        Some((f, u)) => grid::hero_ink(f, u, if t.status == TransactionStatus::Failed { cp.dim } else { cp.text }, cp, scale),
+        None => grid::hero_ink(NA.to_string(), String::new(), cp.faint, cp, scale),
+    };
+    let (stamp, stamp_ink) = t.closed_at.map_or((NA.to_string(), cp.faint), |s| (full_stamp(s), cp.dim));
+
+    let mut body = column![hero, text(stamp).font(MONO).size(SUB * scale).color(stamp_ink), group_rule(cp, scale)]
+        .width(Length::Fill);
+    for f in tx::facts(t, reserve, cp) {
+        body = body.push(fact_line(f, copied, cp, scale));
+    }
+    if let Some(note) = tx::note(t, reserve) {
+        body = body
+            .push(Space::new().height(8.0 * scale).boxed())
+            .push(text(note).font(MONO).size(HINT * scale).color(cp.dim).boxed());
+    }
+
+    let back = quiet_button("Back", Message::XrpTxBack, cp, scale);
+    let buttons = if t.open() {
+        let seq = t.cancellable();
+        let cancel = danger_button("Cancel order", seq.is_some(), Message::CancelOrderClicked(seq.unwrap_or(0)), cp, scale);
+        button_pair(back, cancel, scale)
+    } else {
+        back
+    };
+    column![scroller(body.boxed(), cp, scale), Space::new().height(12.0 * scale), buttons]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .boxed()
+}
+
+fn fact_line(f: Fact, copied: Option<&str>, cp: &'static CompactPalette, scale: f32) -> Element<'static, Message> {
+    let copy = f.copy.map(|full| {
+        let done = copied == Some(full.as_str());
+        grid::copy_glyph(done, Message::XrpCopyDetail(full), cp, scale)
+    });
+    fact_row(f.key, None, f.segs, copy, cp, scale)
 }
 
 fn cancel<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     responsive(move |size: Size| {
         let inner = (size.width / scale).max(1.0);
-        let seq = state.cancel_offer_sequence;
-        let own = own();
-        let order = {
-            let txs = CHANNEL.transactions_rx.borrow();
-            txs.transactions
-                .values()
-                .find(|t| t.sequence.is_some() && t.sequence == seq)
-                .map(|t| Tx::from(t, &own))
-        };
-
-        let offer_runs = match &order {
+        let order = selected(state).filter(|t| t.kind == Kind::Offer);
+        let lower = |u: &str| format!(" {}", u.to_lowercase());
+        let (key, base_runs) = match &order {
             Some(t) => {
-                let mut runs = vec![(format!("{} ", t.side_word()), cp.text)];
-                match t.amount_parts() {
-                    Some((figure, unit)) => {
-                        runs.push((figure, cp.text));
-                        runs.push((format!(" {}", disp(unit).to_lowercase()), cp.faint));
-                    }
-                    None => runs.push((NA.to_string(), cp.faint)),
+                let (v, unit) = t.base();
+                let runs = match v {
+                    Some(v) => vec![(six(v), cp.text), (lower(&unit), cp.faint)],
+                    None => vec![(NA.to_string(), cp.faint)],
+                };
+                (t.side().key(), runs)
+            }
+            None => ("order", vec![(NA.to_string(), cp.faint)]),
+        };
+        let price_runs = match order.as_ref().and_then(|t| t.price().map(|p| (p, t.rate_unit()))) {
+            Some((p, unit)) => {
+                let mut runs = vec![(fmt_price(p), cp.text)];
+                if !unit.is_empty() {
+                    runs.push((lower(&unit), cp.faint));
                 }
                 runs
             }
-            None => vec![(seq.map_or(NA.to_string(), |s| format!("#{s}")), cp.text)],
+            None => vec![(NA.to_string(), cp.faint)],
         };
-        let at_runs = match order.as_ref().and_then(|t| t.price.clone()) {
-            Some(p) => vec![(p, cp.text)],
+        let reserve_runs = match reserve() {
+            Some(r) => vec![(six(r), cp.text), (" xrp".to_string(), cp.faint)],
             None => vec![(NA.to_string(), cp.faint)],
         };
 
@@ -135,11 +199,10 @@ fn cancel<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> E
             bip39_reveal: state.cancel_bip39_reveal,
             on_submit: Message::CancelSubmitClicked,
         };
-        let armed = seq.is_some();
-        let live = armed && fields.can_submit();
+        let armed = state.cancel_offer_sequence.is_some();
         let buttons = button_pair(
-            quiet_button("Keep it", Message::CancelDismissed, cp, scale),
-            primary("Sign & cancel", live, Message::CancelSubmitClicked, cp, scale),
+            quiet_button("Back", Message::CancelDismissed, cp, scale),
+            danger_button("Sign & cancel", armed && fields.can_submit(), Message::CancelSubmitClicked, cp, scale),
             scale,
         );
         let sign = sign_block(
@@ -155,8 +218,9 @@ fn cancel<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> E
         );
 
         let body = column![
-            fact("offer", offer_runs, 0.0, cp, scale),
-            drow("at", at_runs, 3.0, cp, scale),
+            fact(key, base_runs, 0.0, cp, scale),
+            drow("limit price", price_runs, 3.0, cp, scale),
+            drow("reserve returned", reserve_runs, 3.0, cp, scale),
             fee_row(state.cancel_fee, 3.0, cp, scale),
             sign,
             Space::new().height(2.0 * scale),

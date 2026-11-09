@@ -166,8 +166,11 @@ fn pane_content<'a>(
                     panes_ui::market::depth(state, cp, scale)
                 },
             ),
-            PaneKind::Transactions => (strip("transactions"), None, panes_ui::lists::transactions(state, cp, scale)),
-            PaneKind::Orders => (strip(panes_ui::lists::orders_title(state)), None, panes_ui::lists::orders(state, cp, scale)),
+            PaneKind::Transactions => (
+                strip(panes_ui::lists::title(state)),
+                panes_ui::lists::meta(state, cp, scale),
+                panes_ui::lists::view(state, cp, scale),
+            ),
             PaneKind::Tokens => (strip(&panes_ui::tokens::held_title(state)), None, panes_ui::tokens::held(state, cp, scale)),
             PaneKind::AvailableTokens => (
                 strip(&panes_ui::tokens::available_title(state)),

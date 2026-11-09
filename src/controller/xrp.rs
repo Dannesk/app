@@ -18,25 +18,24 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             reset_setup_form(state);
             state.xrp_view = XrpView::Create;
         }
-        Message::TxCardToggled(id) => {
-            if state.tx_expanded.as_deref() == Some(&id) {
-                state.tx_expanded = None;
-            } else {
-                state.tx_expanded = Some(id);
-            }
+        Message::XrpTxSelected(hash) => {
+            state.xrp_tx_selected = Some(hash);
         }
-        Message::CopyTxHash(hash) => {
-            state.tx_hash_copied = Some(hash.clone());
+        Message::XrpTxBack => {
+            state.xrp_tx_selected = None;
+        }
+        Message::XrpCopyDetail(full) => {
+            state.xrp_detail_copied = Some(full.clone());
             return Task::batch([
-                iced::clipboard::write(hash).discard(),
+                iced::clipboard::write(full).discard(),
                 Task::perform(
                     async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
-                    |_| Message::CopyTxHashFeedback,
+                    |_| Message::XrpCopyDetailFeedback,
                 ),
             ]);
         }
-        Message::CopyTxHashFeedback => {
-            state.tx_hash_copied = None;
+        Message::XrpCopyDetailFeedback => {
+            state.xrp_detail_copied = None;
         }
         Message::BackClicked => match state.xrp_view {
             XrpView::Menu => {
@@ -737,6 +736,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             let bip39      = state.cancel_bip39.take_trimmed();
             let fee = state.cancel_fee;
             clear_cancel_form(state);
+            state.xrp_tx_selected = None;
             return Task::perform(
                 async move {
                     CancelLogic::process(
@@ -1331,6 +1331,7 @@ pub(crate) fn forget_wallet(state: &mut AppState) {
     clear_cancel_form(state);
     clear_enable_form(state);
     clear_disable_form(state);
+    state.xrp_tx_selected = None;
 }
 
 pub(crate) fn clear_disable_form(state: &mut AppState) {

@@ -76,7 +76,7 @@ fn tif_code(tif: TradeTif) -> &'static str {
     }
 }
 
-fn tif_name(tif: TradeTif) -> &'static str {
+pub(crate) fn tif_name(tif: TradeTif) -> &'static str {
     match tif {
         TradeTif::Gtc => "Good til Cancelled",
         TradeTif::Ioc => "Immediate or Cancel",

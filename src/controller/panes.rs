@@ -42,7 +42,6 @@ pub enum PaneKind {
     Book,
     Depth,
     Transactions,
-    Orders,
     Tokens,
     AvailableTokens,
     Fees,
@@ -58,7 +57,10 @@ fn clear_pane_form(state: &mut AppState, chain: Chain, kind: PaneKind) {
         (Chain::Xrp, PaneKind::Send) => xrp::clear_send_form(state),
         (Chain::Xrp, PaneKind::Receive) => xrp::clear_receive_form(state),
         (Chain::Xrp, PaneKind::Ticket) => xrp::clear_trade_inputs(state),
-        (Chain::Xrp, PaneKind::Orders) => xrp::clear_cancel_form(state),
+        (Chain::Xrp, PaneKind::Transactions) => {
+            xrp::clear_cancel_form(state);
+            state.xrp_tx_selected = None;
+        }
         (Chain::Xrp, PaneKind::AvailableTokens) => xrp::clear_enable_form(state),
         (Chain::Xrp, PaneKind::Tokens) => {
             xrp::clear_disable_form(state);
@@ -82,7 +84,7 @@ fn form_kinds(chain: Chain) -> &'static [PaneKind] {
             PaneKind::Send,
             PaneKind::Receive,
             PaneKind::Ticket,
-            PaneKind::Orders,
+            PaneKind::Transactions,
             PaneKind::AvailableTokens,
             PaneKind::Tokens,
             PaneKind::Wallet,
@@ -136,7 +138,7 @@ impl PaneKind {
         PaneKind::Blocks,
     ];
 
-    pub const CANONICAL: [PaneKind; 13] = [
+    pub const CANONICAL: [PaneKind; 12] = [
         PaneKind::Balance,
         PaneKind::Chart,
         PaneKind::Send,
@@ -147,7 +149,6 @@ impl PaneKind {
         PaneKind::Book,
         PaneKind::Depth,
         PaneKind::Transactions,
-        PaneKind::Orders,
         PaneKind::Tokens,
         PaneKind::AvailableTokens,
     ];
@@ -173,7 +174,6 @@ impl PaneKind {
             PaneKind::Book => "order book",
             PaneKind::Depth => "depth",
             PaneKind::Transactions => "transactions",
-            PaneKind::Orders => "orders",
             PaneKind::Tokens => "tokens",
             PaneKind::AvailableTokens => "available tokens",
             PaneKind::Fees => "fees",
@@ -196,7 +196,6 @@ impl PaneKind {
             PaneKind::Book => "book",
             PaneKind::Depth => "depth",
             PaneKind::Transactions => "transactions",
-            PaneKind::Orders => "orders",
             PaneKind::Tokens => "tokens",
             PaneKind::AvailableTokens => "available_tokens",
             PaneKind::Fees => "fees",
@@ -227,7 +226,6 @@ impl PaneKind {
             PaneKind::Book => "Order book",
             PaneKind::Depth => "Depth",
             PaneKind::Transactions => "Transactions",
-            PaneKind::Orders => "Orders",
             PaneKind::Tokens => "Tokens",
             PaneKind::AvailableTokens => "Available tokens",
             PaneKind::Fees => "Fees",
@@ -879,7 +877,7 @@ mod tests {
         for (chain, kind, field) in [
             (Chain::Xrp, PaneKind::Send, SecureField::SendSeed),
             (Chain::Xrp, PaneKind::Ticket, SecureField::TradeSeed),
-            (Chain::Xrp, PaneKind::Orders, SecureField::CancelSeed),
+            (Chain::Xrp, PaneKind::Transactions, SecureField::CancelSeed),
             (Chain::Xrp, PaneKind::AvailableTokens, SecureField::EnableSeed),
             (Chain::Xrp, PaneKind::Tokens, SecureField::DisableSeed),
             (Chain::Xrp, PaneKind::Wallet, SecureField::ReimportSeed),
@@ -937,7 +935,7 @@ mod tests {
                 let field = match (chain, kind) {
                     (Chain::Xrp, PaneKind::Send) => SecureField::SendSeed,
                     (Chain::Xrp, PaneKind::Ticket) => SecureField::TradeSeed,
-                    (Chain::Xrp, PaneKind::Orders) => SecureField::CancelSeed,
+                    (Chain::Xrp, PaneKind::Transactions) => SecureField::CancelSeed,
                     (Chain::Xrp, PaneKind::AvailableTokens) => SecureField::EnableSeed,
                     (Chain::Xrp, PaneKind::Tokens) => SecureField::DisableSeed,
                     (Chain::Xrp, PaneKind::Wallet) => SecureField::ReimportSeed,

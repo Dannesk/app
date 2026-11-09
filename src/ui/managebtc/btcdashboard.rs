@@ -138,7 +138,6 @@ fn pane_content<'a>(
             | PaneKind::Ticket
             | PaneKind::Book
             | PaneKind::Depth
-            | PaneKind::Orders
             | PaneKind::Tokens
             | PaneKind::AvailableTokens
             | PaneKind::Empty => (Space::new().boxed(), None, grid::well_pane(Message::BtcGrid, cp, scale)),

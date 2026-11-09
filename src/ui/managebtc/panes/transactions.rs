@@ -1,21 +1,17 @@
 use iced::widget::Column;
-use iced::widget::Row;
 use iced::Widget as _;
-use iced::widget::text::Wrapping;
-use iced::widget::{column, container, row, text, Space};
-use iced::{Alignment, Element, Length, Padding};
+use iced::widget::{column, container, text, Space};
+use iced::{Element, Length};
 
 use crate::channel::{CHANNEL, HistoryList};
 use crate::controller::app_state::AppState;
 use crate::controller::message::Message;
-use crate::ui::components::compact;
-use crate::ui::components::grid::{self, group_rule, NA, ROW_KEY, ROW_VALUE, STRIP};
+use crate::ui::components::grid::{self, group_rule, NA, STRIP};
+use crate::ui::components::tx_panel::Fact;
 use crate::ui::managebtc::btcbump;
 use crate::ui::managebtc::btcdashboard::fee_dot;
-use crate::ui::managebtc::btctransactions::{self as tx, Fact, Tx};
-use crate::ui::managexrp::panes::{
-    empty, end_row, group_head, pressable, runs, scroller, SUB, SYM, TOKEN_ROW_PAD_H, TOKEN_ROW_PAD_V, VAL,
-};
+use crate::ui::managebtc::btctransactions::{self as tx, Tx};
+use crate::ui::managexrp::panes::{self, empty, end_row, group_head, history_row, scroller, HistoryRow, SUB};
 use crate::utils::fonts::MONO;
 use crate::utils::theme::CompactPalette;
 
@@ -89,46 +85,17 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
 }
 
 fn tx_row(t: &Tx, rule: bool, cp: &'static CompactPalette, scale: f32) -> Element<'static, Message> {
-    let left = column![
-        text(t.direction_word()).size(SYM * scale).color(cp.text).wrapping(Wrapping::None),
-        Space::new().height(3.0 * scale),
-        text(t.state_label()).font(MONO).size(SUB * scale).color(t.state_color(cp)).wrapping(Wrapping::None),
-    ];
-    let right = column![
-        row![
-            text(t.amount_str()).font(MONO).size(VAL * scale).color(cp.text).wrapping(Wrapping::None),
-            Space::new().width(5.0 * scale),
-            text("BTC").font(MONO).size(SUB * scale).color(cp.muted),
-        ]
-        .align_y(Alignment::End),
-        Space::new().height(3.0 * scale),
-        text(tx::stamp_of(t))
-            .font(MONO)
-            .size(SUB * scale)
-            .color(if t.at().is_some() { cp.muted } else { cp.faint })
-            .wrapping(Wrapping::None),
-    ]
-    .align_x(Alignment::End);
-    let line = container(row![left, Space::new().width(Length::Fill), right].spacing(12.0 * scale).align_y(Alignment::Center))
-        .width(Length::Fill)
-        .padding(
-            Padding::new(0.0)
-                .top(TOKEN_ROW_PAD_V * scale)
-                .bottom(TOKEN_ROW_PAD_V * scale)
-                .left(TOKEN_ROW_PAD_H * scale)
-                .right(TOKEN_ROW_PAD_H * scale),
-        );
-
-    let mut col = column![pressable(line.boxed(), Some(Message::BtcTxSelected(t.txid.clone())), cp)].width(Length::Fill);
-    if rule {
-        col = col.push(
-            container(compact::hairline(cp.rule))
-                .width(Length::Fill)
-                .padding(Padding::new(0.0).left(TOKEN_ROW_PAD_H * scale).right(TOKEN_ROW_PAD_H * scale))
-                .boxed(),
-        );
-    }
-    col.boxed()
+    let row = HistoryRow {
+        word: t.direction_word(),
+        status: (t.state_label(), t.state_color(cp)),
+        figure: t.amount_str(),
+        figure_ink: cp.text,
+        unit: "BTC".to_string(),
+        stamp: tx::stamp_of(t),
+        stamp_ink: if t.at().is_some() { cp.muted } else { cp.faint },
+        on_press: Message::BtcTxSelected(t.txid.clone()),
+    };
+    history_row(row, rule, cp, scale)
 }
 
 fn details<'a>(state: &'a AppState, t: &Tx, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -164,18 +131,5 @@ fn fact_row(f: Fact, copied: Option<&str>, cp: &'static CompactPalette, scale: f
         let done = copied == Some(full.as_str());
         grid::copy_glyph(done, Message::BtcCopyDetail(full), cp, scale)
     });
-    let key = text(f.key).size(ROW_KEY * scale).color(cp.dim).wrapping(Wrapping::None);
-    let pad = Padding::new(0.0).top(3.0 * scale).bottom(3.0 * scale);
-    let mut value: Row<Element<'static, Message>> = row![].spacing(6.0 * scale).align_y(Alignment::Center);
-    if let Some(c) = f.dot {
-        value = value.push(fee_dot(c, scale));
-    }
-    value = value.push(runs(f.segs, ROW_VALUE * scale, ROW_KEY * scale));
-    if let Some(c) = copy {
-        value = value.push(c);
-    }
-    container(row![key, Space::new().width(Length::Fill), value].align_y(Alignment::Center))
-        .width(Length::Fill)
-        .padding(pad)
-        .boxed()
+    panes::fact_row(f.key, f.dot.map(|c| fee_dot(c, scale)), f.segs, copy, cp, scale)
 }

@@ -2,8 +2,6 @@
 
 use iced::Color;
 
-use crate::controller::message::Message;
-
 #[derive(Debug, Clone)]
 pub struct Seg {
     pub s: String,
@@ -21,23 +19,9 @@ impl Seg {
     }
 }
 
-pub type Line = (&'static str, Vec<Seg>);
-
-pub struct IdLine {
+pub struct Fact {
     pub key: &'static str,
-    pub value: String,
-    pub copy: Message,
-    pub copied: bool,
-}
-
-pub enum Tail {
-  
-    Link { label: &'static str, color: Color, msg: Message },
-    Prose { s: &'static str, color: Color },
-}
-
-pub struct Detail {
-    pub id: IdLine,
-    pub lines: Vec<Line>,
-    pub tail: Option<Tail>,
+    pub dot: Option<Color>,
+    pub segs: Vec<Seg>,
+    pub copy: Option<String>,
 }
