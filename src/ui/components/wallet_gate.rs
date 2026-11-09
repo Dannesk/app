@@ -22,9 +22,9 @@ const DASH_PITCH: f32 = 8.0;
 const LIT: f32 = 58.0;
 const LIT_W: f32 = 1.7;
 const PLATE: f32 = 142.0;
-pub(crate) const GLYPH: f32 = 62.0;
-pub(crate) const XRP_MARK_W: f32 = 44.0;
-pub(crate) const XRP_MARK_H: f32 = XRP_MARK_W * 424.0 / 512.0;
+const GLYPH: f32 = 62.0;
+const XRP_MARK_W: f32 = 44.0;
+const XRP_MARK_H: f32 = XRP_MARK_W * 424.0 / 512.0;
 
 
 const WORDS: f32 = 15.0;

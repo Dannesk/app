@@ -182,21 +182,23 @@ fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette
     let btc = orbit::btc_node(socket == Socket::Live);
     let middle = orbit::middle(socket, [None, Some(btc)], total.is_some(), [true, ready], orbit::rates_pending());
 
-    let ring_d = orbit::ring_d(size.width, scale);
-    let native = native_swap(mask(amount(figures.confirmed)), unit, cp, scale);
+    let ring_d = orbit::ring_d(size, scale);
+    let grow = orbit::grow(ring_d);
+    let s = scale * grow;
+    let native = native_swap(mask(amount(figures.confirmed)), unit, cp, s);
     let centre: Element<'a, Message> = match middle {
         Middle::Figure { dim, .. } => {
             let shown = if hide { "\u{2022}".repeat(6) } else { money(total.unwrap_or(0.0)) };
             let unit_w = ccy.chars().count() as f32 * HERO_UNIT * MONO_ADVANCE;
-            let fsize = orbit::fit(shown.chars().count(), 7.0 + unit_w, ring_d);
+            let fsize = orbit::fit(shown.chars().count(), (7.0 + unit_w) * grow, ring_d);
             let hero = row![
                 text(shown).font(LIGHT).size(fsize * scale).color(if dim { cp.dim } else { cp.text }),
-                Space::new().width(7.0 * scale),
-                container(text(ccy.to_uppercase()).font(MONO).size(HERO_UNIT * scale).color(cp.muted))
+                Space::new().width(7.0 * s),
+                container(text(ccy.to_uppercase()).font(MONO).size(HERO_UNIT * s).color(cp.muted))
                     .padding(Padding::new(0.0).bottom((fsize * 0.17).round() * scale)),
             ]
             .align_y(Alignment::End);
-            column![hero, Space::new().height(SWAP_GAP * scale), native].align_x(Alignment::Center).boxed()
+            column![hero, Space::new().height(SWAP_GAP * s), native].align_x(Alignment::Center).boxed()
         }
         Middle::Status(status) => {
             let words = text(status.words())
@@ -204,7 +206,7 @@ fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette
                 .size(orbit::fit(status.words().chars().count(), 0.0, ring_d) * scale)
                 .color(if status.strong() { cp.text } else { cp.dim });
             if ready && status != Status::Connecting {
-                column![words, Space::new().height(SWAP_GAP * scale), native].align_x(Alignment::Center).boxed()
+                column![words, Space::new().height(SWAP_GAP * s), native].align_x(Alignment::Center).boxed()
             } else {
                 words.boxed()
             }
@@ -213,9 +215,9 @@ fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette
 
     let line = if figures.unconfirmed != 0 {
         let sign = if figures.unconfirmed < 0 { "\u{2212}" } else { "+" };
-        unconfirmed_line(mask(format!("{sign}{}", amount(figures.unconfirmed.unsigned_abs()))), unit, cp, scale)
+        unconfirmed_line(mask(format!("{sign}{}", amount(figures.unconfirmed.unsigned_abs()))), unit, cp, s)
     } else {
-        block_line(state, btc, cp, scale)
+        block_line(state, btc, cp, s)
     };
     orbit::pane(ring_d, centre, line, btc, state.socket_laps, &state.theme, cp, scale)
 }

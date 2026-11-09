@@ -215,41 +215,44 @@ fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette
         Node::CatchingUp(_) => ("Syncing", cp.amber),
         _ => ("Ledger", cp.muted),
     };
+    let ring_d = orbit::ring_d(size, scale);
+    let grow = orbit::grow(ring_d);
+    let s = scale * grow;
+    let fit = |chars: usize, extra: f32| orbit::fit(chars, extra, ring_d);
+
     let fresh = xrp == Node::Live && state.ledger_at.is_some_and(|t| t.elapsed() < orbit::PULSE);
-    let mut ledger = row![text(word).size(ROW_KEY * scale).color(word_ink)]
-        .spacing(6.0 * scale)
+    let mut ledger = row![text(word).size(ROW_KEY * s).color(word_ink)]
+        .spacing(6.0 * s)
         .align_y(Alignment::End);
     if let Some(i) = node.ledger_index {
         ledger = ledger.push(
             text(add_commas(i as i64))
                 .font(MONO)
-                .size(ROW_VALUE * scale)
+                .size(ROW_VALUE * s)
                 .color(if fresh { cp.green } else { cp.dim })
                 .boxed(),
         );
     }
 
-    let ring_d = orbit::ring_d(size.width, scale);
-    let fit = |chars: usize, extra: f32| orbit::fit(chars, extra, ring_d);
     let native = row![
-        text(mask(format!("{xrp_amount:.6}"))).font(MONO).size(ROW_VALUE * scale).color(cp.dim),
-        Space::new().width(5.0 * scale),
-        text("XRP").font(MONO).size(ROW_VALUE * scale).color(cp.muted),
+        text(mask(format!("{xrp_amount:.6}"))).font(MONO).size(ROW_VALUE * s).color(cp.dim),
+        Space::new().width(5.0 * s),
+        text("XRP").font(MONO).size(ROW_VALUE * s).color(cp.muted),
     ]
     .align_y(Alignment::End);
     let figures: Element<'a, Message> = match middle {
         Middle::Figure { dim, .. } => {
             let shown = if hide { "\u{2022}".repeat(6) } else { money(total.unwrap_or(0.0)) };
             let unit_w = ccy.chars().count() as f32 * HERO_UNIT * MONO_ADVANCE;
-            let fsize = fit(shown.chars().count(), 7.0 + unit_w);
+            let fsize = fit(shown.chars().count(), (7.0 + unit_w) * grow);
             let hero = row![
                 text(shown).font(LIGHT).size(fsize * scale).color(if dim { cp.dim } else { cp.text }),
-                Space::new().width(7.0 * scale),
-                container(text(ccy.to_uppercase()).font(MONO).size(HERO_UNIT * scale).color(cp.muted))
+                Space::new().width(7.0 * s),
+                container(text(ccy.to_uppercase()).font(MONO).size(HERO_UNIT * s).color(cp.muted))
                     .padding(Padding::new(0.0).bottom((fsize * 0.17).round() * scale)),
             ]
             .align_y(Alignment::End);
-            column![hero, Space::new().height(8.0 * scale), native].align_x(Alignment::Center).boxed()
+            column![hero, Space::new().height(8.0 * s), native].align_x(Alignment::Center).boxed()
         }
         Middle::Status(status) => {
             let words = text(status.words())
@@ -257,7 +260,7 @@ fn balance_body<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette
                 .size(fit(status.words().chars().count(), 0.0) * scale)
                 .color(if status.strong() { cp.text } else { cp.dim });
             if ready && status != Status::Connecting {
-                column![words, Space::new().height(8.0 * scale), native].align_x(Alignment::Center).boxed()
+                column![words, Space::new().height(8.0 * s), native].align_x(Alignment::Center).boxed()
             } else {
                 words.boxed()
             }

@@ -20,9 +20,10 @@ use crate::utils::theme::CompactPalette;
 
 const STANDARD: &str = "On-device";
 const COLD: &str = "Cold storage";
-const STANDARD_SEED: &str = "encrypted on this device";
-const STANDARD_CIPHER: &str = "AES-256 \u{b7} Argon2id";
-const COLD_SEED: &str = "not on this device";
+const STANDARD_SEED: &str = "on-device";
+const STANDARD_CIPHER: &str = "AES-256-GCM";
+const STANDARD_KDF: &str = "Argon2id";
+const COLD_SEED: &str = "off-device";
 
 pub fn title(state: &AppState) -> &'static str {
     if state.btc_key_mgmt_restoring { "restore key" } else { "wallet" }
@@ -43,14 +44,16 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
     ]
     .width(Length::Fill);
     if !cold {
-        rows = rows.push(drow("cipher", vec![(STANDARD_CIPHER.to_string(), cp.dim)], 3.0, cp, scale));
+        rows = rows
+            .push(drow("cipher", vec![(STANDARD_CIPHER.to_string(), cp.dim)], 3.0, cp, scale))
+            .push(drow("kdf", vec![(STANDARD_KDF.to_string(), cp.dim)], 3.0, cp, scale));
     }
     rows = rows
         .push(
         
             container(
                 row![
-                    text("master wallet").size(ROW_KEY * scale).color(cp.dim),
+                    text("address").size(ROW_KEY * scale).color(cp.dim),
                     Space::new().width(Length::Fill),
                     text(grid::elide_addr(&address)).font(MONO).size(ROW_VALUE * scale).color(cp.dim).wrapping(Wrapping::Glyph),
                     grid::copy_glyph(state.btc_master_copy_feedback, Message::BtcCopyMasterAddress, cp, scale),

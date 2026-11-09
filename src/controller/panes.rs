@@ -8,6 +8,7 @@ use iced::{Size, Task};
 use crate::channel::CHANNEL;
 use crate::controller::app_state::{AppState, BtcView, ChartPeriod, Tab, XrpView};
 use crate::controller::message::Message;
+use crate::ui::dashboard::DOCK_H;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Chain {
@@ -21,7 +22,6 @@ pub const LEEWAY: f32 = 6.0;
 pub const MIN_W: f32 = 200.0;
 pub const MIN_H: f32 = 88.0;
 pub const BAR_H: f32 = 34.0;
-const DOCK_H: f32 = 30.3;
 
 pub fn grid_size(state: &AppState) -> Size {
     let s = state.scale();

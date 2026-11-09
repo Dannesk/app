@@ -21,9 +21,7 @@ use crate::utils::theme::{self, CompactPalette};
 use crate::utils::{add_commas, icons, money, price, tokens};
 
 const RING_R: f32 = 210.0;
-const RING_PAD: f32 = 24.0;
-const MARK_W: f32 = 11.0;
-const MARK_GAP: f32 = 8.0;
+const RING_PAD: f32 = 2.0;
 const RING_LIFT: f32 = 10.0;
 const TRACK_ALPHA: f32 = 0.32;
 const TRACK_DASH: f32 = 2.0;
@@ -33,7 +31,7 @@ const ARC_DEG: f32 = 20.0;
 const CATCH_DEG: f32 = 150.0;
 const HOMES: [f32; 2] = [315.0, 135.0];
 
-const HERO_SIZES: [f32; 3] = [80.0, 60.0, 48.0];
+const HERO_SIZES: [f32; 5] = [80.0, 60.0, 48.0, 40.0, 32.0];
 const HERO_FIT: f32 = 0.84;
 const CENTS: f32 = 0.46;
 const DIGIT_EM: f32 = 0.573; // mean Inter Light digit advance
@@ -129,17 +127,12 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         sparkline::change_pct(&sparkline::total_series(&holdings, ccy, &state.rate_history_long))
     });
 
-    let arcs = Chain::ALL.map(|c| {
-        let n = every[c as usize];
-        Arc {
-            chain: c,
-            color: n.color(p),
-            behind: match n {
-                Node::CatchingUp(behind) => behind,
-                _ => None,
-            },
-            ink: if owned[c as usize] { p.dim } else { p.faint },
-        }
+    let arcs = every.map(|n| Arc {
+        color: n.color(p),
+        behind: match n {
+            Node::CatchingUp(behind) => behind,
+            _ => None,
+        },
     });
     let ring_box = Length::Fixed((RING_R + RING_PAD) * 2.0 * scale);
     let ring = Orbit {
@@ -283,10 +276,8 @@ fn under(line: Line, pct: Option<f32>, p: &'static CompactPalette, scale: f32) -
 
 #[derive(Clone, Copy)]
 struct Arc {
-    chain: Chain,
     color: Color,
     behind: Option<u64>,
-    ink: Color,
 }
 
 struct Orbit {
@@ -362,15 +353,6 @@ impl canvas::Program<Message> for Orbit {
                 Color { a: self.alpha, ..color },
                 ARC_W * self.scale,
             );
-            let at = (home + spin - 90.0).to_radians();
-            let reach = r + (MARK_GAP + MARK_W / 2.0) * self.scale;
-            orbit::mark(
-                &mut frame,
-                arc.chain,
-                Point::new(c.x + reach * at.cos(), c.y + reach * at.sin()),
-                MARK_W * self.scale,
-                arc.ink,
-            );
         }
         vec![track, frame.into_geometry()]
     }
@@ -385,5 +367,7 @@ mod tests {
         assert_eq!(hero_size("17,943", ".53", "usd"), 80.0);
         assert_eq!(hero_size("1,284,630", ".07", "usd"), 60.0);
         assert_eq!(hero_size("400,000,000", ".00", "vnd"), 48.0);
+        assert_eq!(hero_size("10,000,000,000", ".00", "vnd"), 40.0);
+        assert_eq!(hero_size("100,000,000,000", ".00", "vnd"), 32.0);
     }
 }

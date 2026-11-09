@@ -1,10 +1,13 @@
 use iced::Widget as _;
-use iced::widget::{button, column, container, row, text, Space};
-use iced::{Alignment, Border, Element, Length, Padding, Shadow};
+use iced::widget::canvas::{self, Canvas, Frame, Path, Stroke};
+use iced::widget::{button, column, container, row, svg, text, Space};
+use iced::{mouse, Alignment, Border, Color, Element, Length, Padding, Rectangle, Shadow};
+use crate::channel::CHANNEL;
 use crate::controller::message::Message;
 use crate::controller::app_state::{AppState, Tab};
-use crate::ui::components::compact;
+use crate::ui::components::{compact, orbit};
 use crate::ui::{activity_log, managexrp, managebtc, managebalance};
+use crate::utils::icons;
 use crate::utils::theme::{self, CompactPalette};
 
 pub fn render_dashboard(state: &AppState) -> Element<'_, Message> {
@@ -45,6 +48,15 @@ const DOCK_PAD_V: f32 = 8.0;
 const DOCK_BAR_H: f32 = 2.0;
 const DOCK_BAR_INSET: u16 = 41;
 const DOCK_BAR_SPAN: u16 = 18;
+const DOCK_ICON: f32 = 17.0;
+const DOCK_MARK: f32 = 14.0;
+const DOCK_ICON_GAP: f32 = 6.0;
+const DOCK_RING_R: f32 = 7.3 / 22.0;
+const DOCK_RING_W: f32 = 1.8 / 22.0;
+const DOCK_RING_ARC: f32 = 108.0;
+const DOCK_LINE: f32 = 1.375;
+const DOCK_ROW: f32 = if DOCK_ICON > DOCK_LABEL * DOCK_LINE { DOCK_ICON } else { DOCK_LABEL * DOCK_LINE };
+pub const DOCK_H: f32 = 2.0 * DOCK_PAD_V + DOCK_ROW;
 
 
 pub fn tab_label(tab: &Tab) -> &'static str {
@@ -84,9 +96,16 @@ fn dock_tab(
     let cell = column![
         bar,
         Space::new().height(Length::Fixed(DOCK_PAD_V * scale - bar_h)),
-        container(text(label).size(DOCK_LABEL * scale).color(ink))
-            .width(Length::Fill)
-            .align_x(Alignment::Center),
+        container(
+            row![
+                dock_icon(&target, is_active, ink, p, scale),
+                Space::new().width(Length::Fixed(DOCK_ICON_GAP * scale)),
+                text(label).size(DOCK_LABEL * scale).line_height(DOCK_LINE).color(ink),
+            ]
+            .align_y(Alignment::Center),
+        )
+        .width(Length::Fill)
+        .align_x(Alignment::Center),
         Space::new().height(Length::Fixed(DOCK_PAD_V * scale)),
     ]
     .width(Length::Fill);
@@ -106,5 +125,62 @@ fn dock_tab(
         btn.boxed()
     } else {
         btn.on_press(Message::TabChanged(target)).boxed()
+    }
+}
+
+fn dock_icon(
+    tab:    &Tab,
+    active: bool,
+    ink:    Color,
+    p:      &'static CompactPalette,
+    scale:  f32,
+) -> Element<'static, Message> {
+    let icon = Length::Fixed(DOCK_ICON * scale);
+    let mark = Length::Fixed(DOCK_MARK * scale);
+    let tinted = |handle: svg::Handle, held: bool| -> Element<'static, Message> {
+        let color = if active || held { ink } else { p.faint };
+        svg(handle)
+            .width(mark)
+            .height(mark)
+            .style(move |_, _| svg::Style { color: Some(color) })
+            .boxed()
+    };
+
+    let glyph = match tab {
+        Tab::Balance => Canvas::new(DockRing { track: ink, arc: p.mint })
+            .width(icon)
+            .height(icon)
+            .boxed(),
+        Tab::Xrp => tinted(icons::XRP.clone(), CHANNEL.wallet_balance_rx.borrow().1.is_some()),
+        Tab::Btc if active => svg(icons::BTC.clone()).width(mark).height(mark).boxed(),
+        Tab::Btc => tinted(icons::BTC_MONO.clone(), CHANNEL.bitcoin_wallet_rx.borrow().1.is_some()),
+    };
+    container(glyph).center(icon).boxed()
+}
+
+struct DockRing {
+    track: Color,
+    arc:   Color,
+}
+
+impl<M> canvas::Program<M> for DockRing {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state:   &(),
+        renderer: &iced::Renderer,
+        _theme:   &iced::Theme,
+        bounds:   Rectangle,
+        _cursor:  mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let c = frame.center();
+        let d = bounds.width.min(bounds.height);
+        let r = DOCK_RING_R * d;
+        let w = DOCK_RING_W * d;
+        frame.stroke(&Path::circle(c, r), Stroke::default().with_color(self.track).with_width(w));
+        orbit::arc(&mut frame, c, r, -std::f32::consts::FRAC_PI_2, DOCK_RING_ARC.to_radians(), self.arc, w);
+        vec![frame.into_geometry()]
     }
 }

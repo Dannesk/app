@@ -478,7 +478,7 @@ fn keys_pane<'a>(
         .push(Space::new().height(11.0 * scale).boxed())
         .push(compact::eyebrow("key storage", "required", cp, scale))
         .push(compact::segmented(
-            ("On this device", prm.mode == ImportMode::Standard, prm.on_mode_device.clone()),
+            ("On-device", prm.mode == ImportMode::Standard, prm.on_mode_device.clone()),
             ("Cold storage", prm.mode == ImportMode::Cold, prm.on_mode_cold.clone()),
             cp,
             scale,

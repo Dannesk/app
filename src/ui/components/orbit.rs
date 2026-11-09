@@ -1,34 +1,32 @@
 use std::time::{Duration, Instant};
 
 use iced::Widget as _;
-use iced::advanced::svg::Svg;
-use iced::advanced::text::Alignment as TextAlign;
-use iced::alignment::Vertical;
-use iced::widget::canvas::{self, path, Canvas, Frame, LineCap, LineDash, Path, Stroke, Text};
-use iced::widget::text::LineHeight;
+use iced::widget::canvas::{self, path, Canvas, Frame, LineCap, LineDash, Path, Stroke};
 use iced::widget::{column, container, stack, Space};
-use iced::{mouse, window, Alignment, Color, Element, Length, Point, Radians, Rectangle};
+use iced::{mouse, window, Alignment, Color, Element, Length, Point, Radians, Rectangle, Size};
 
 use crate::channel::{BtcNodeStats, Health, Socket, BTC_INDEX, BTC_NODE, CHANNEL, XRP_NODE};
 use crate::controller::message::Message;
-use crate::ui::components::wallet_gate::{GLYPH, XRP_MARK_H, XRP_MARK_W};
 use crate::ui::managebtc::node::{BEHIND_FLOOR_SECS, SYNCED_FLOOR};
-use crate::utils::fonts::LIGHT;
-use crate::utils::icons;
 use crate::utils::theme::CompactPalette;
 
 pub const LAP: Duration = Duration::from_millis(1600);
 pub const PANE_MIN_H: f32 = 180.0;
 pub const PULSE: Duration = Duration::from_millis(1400);
 
-const RING_MAX: f32 = 220.0;
 const RING_MIN: f32 = 150.0;
 const RING_PAD: f32 = 12.0;
+const RING_GAP: f32 = 8.0;
+const LINE_H: f32 = 14.0;
 const RING_DASH: f32 = 2.0;
 const RING_PITCH: f32 = 8.0;
 const RING_LIT: f32 = 44.0 / 128.0;
 const RING_LIT_W: f32 = 1.7;
-const FIGURE: [f32; 4] = [28.0, 24.0, 20.0, 16.0];
+const RING_REF: f32 = 220.0;
+const FIGURE_PER_RING: f32 = 28.0 / RING_REF;
+const FIGURE_MIN: f32 = 16.0;
+const FIGURE_FIT: f32 = 0.8;
+const FIGURE_EM: f32 = 0.58;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Chain {
@@ -273,29 +271,6 @@ pub fn track(frame: &mut Frame, c: Point, r: f32, dash: f32, pitch: f32, color: 
     );
 }
 
-pub fn mark(frame: &mut Frame, chain: Chain, at: Point, width: f32, color: Color) {
-    match chain {
-        Chain::Xrp => {
-            let height = width * XRP_MARK_H / XRP_MARK_W;
-            frame.draw_svg(
-                Rectangle { x: at.x - width / 2.0, y: at.y - height / 2.0, width, height },
-                Svg::new(icons::XRP.clone()).color(color),
-            );
-        }
-        Chain::Btc => frame.fill_text(Text {
-            content: "\u{20bf}".to_string(),
-            position: at,
-            color,
-            size: (width * GLYPH / XRP_MARK_W).into(),
-            line_height: LineHeight::Relative(1.0),
-            font: LIGHT,
-            align_x: TextAlign::Center,
-            align_y: Vertical::Center,
-            ..Text::default()
-        }),
-    }
-}
-
 pub fn arc(frame: &mut Frame, c: Point, r: f32, start: f32, sweep: f32, color: Color, width: f32) {
     frame.stroke(
         &Path::new(|b| {
@@ -305,15 +280,21 @@ pub fn arc(frame: &mut Frame, c: Point, r: f32, start: f32, sweep: f32, color: C
     );
 }
 
-pub fn ring_d(width: f32, scale: f32) -> f32 {
-    (width / scale - 2.0 * RING_PAD).min(RING_MAX).max(RING_MIN)
+pub fn ring_d(size: Size, scale: f32) -> f32 {
+    let wide = size.width / scale - 2.0 * RING_PAD;
+    let room = size.height.max(PANE_MIN_H * scale) / scale - 2.0 * RING_PAD;
+    let under = RING_GAP + LINE_H;
+    let tall = if room - under <= RING_REF { room - under } else { room / (1.0 + under / RING_REF) };
+    wide.min(tall).max(RING_MIN)
+}
+
+pub fn grow(ring_d: f32) -> f32 {
+    (ring_d / RING_REF).max(1.0)
 }
 
 pub fn fit(chars: usize, extra: f32, ring_d: f32) -> f32 {
-    FIGURE
-        .into_iter()
-        .find(|s| chars as f32 * s * 0.58 + extra <= ring_d * 0.8)
-        .unwrap_or(FIGURE[3])
+    let room = (ring_d * FIGURE_FIT - extra) / (chars.max(1) as f32 * FIGURE_EM);
+    (ring_d * FIGURE_PER_RING).min(room).max(FIGURE_MIN)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -341,7 +322,7 @@ pub fn pane<'a>(
         .height(d),
         container(figures).center(d),
     ];
-    container(column![ring, Space::new().height(8.0 * scale), line].align_x(Alignment::Center))
+    container(column![ring, Space::new().height(RING_GAP * grow(ring_d) * scale), line].align_x(Alignment::Center))
         .width(Length::Fill)
         .height(Length::Fill)
         .align_x(Alignment::Center)
@@ -477,6 +458,32 @@ mod tests {
         assert_eq!(progress(Some(12), p), 1.0 - 12.0 / 36.0);
         assert_eq!(progress(Some(36), p), 0.0);
         assert_eq!(progress(None, p), 0.0);
+    }
+
+    #[test]
+    fn the_ring_follows_the_shorter_side_of_the_pane() {
+        assert_eq!(ring_d(Size::new(600.0, 240.0), 1.0), 240.0 - 24.0 - RING_GAP - LINE_H);
+        assert_eq!(ring_d(Size::new(200.0, 800.0), 1.0), 176.0);
+        assert_eq!(ring_d(Size::new(100.0, 100.0), 1.0), RING_MIN);
+        let d = ring_d(Size::new(600.0, 500.0), 1.0);
+        assert!((d + (RING_GAP + LINE_H) * grow(d) - (500.0 - 24.0)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn the_lines_grow_with_the_ring_but_never_shrink() {
+        assert_eq!(grow(RING_MIN), 1.0);
+        assert_eq!(grow(RING_REF), 1.0);
+        assert_eq!(grow(2.0 * RING_REF), 2.0);
+    }
+
+    #[test]
+    fn the_figure_grows_with_the_ring_and_shrinks_to_stay_inside_it() {
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-3;
+        assert!(close(fit(9, 23.0, 220.0), 28.0));
+        assert!(close(fit(9, 23.0, 440.0), 56.0));
+        let s = fit(13, 23.0, 220.0);
+        assert!(s < 28.0 && 13.0 * s * FIGURE_EM + 23.0 <= 220.0 * FIGURE_FIT + 1e-3);
+        assert_eq!(fit(30, 23.0, 150.0), FIGURE_MIN);
     }
 
     #[test]

@@ -40,3 +40,11 @@ pub static SWAP: LazyLock<svg::Handle> = LazyLock::new(|| {
 pub static XRP: LazyLock<svg::Handle> = LazyLock::new(|| {
     svg::Handle::from_memory(include_bytes!("xrp.svg").as_ref())
 });
+
+pub static BTC: LazyLock<svg::Handle> = LazyLock::new(|| {
+    svg::Handle::from_memory(include_bytes!("btc.svg").as_ref())
+});
+
+pub static BTC_MONO: LazyLock<svg::Handle> = LazyLock::new(|| {
+    svg::Handle::from_memory(include_bytes!("btc-mono.svg").as_ref())
+});
