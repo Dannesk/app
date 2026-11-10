@@ -103,7 +103,8 @@ fn restore<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> 
             SecureField::BtcReimportSeed,
             seed,
             state.btc_reimport_seed_reveal,
-            Message::BtcReimportConfirm,
+            &state.phrase_line,
+            inner,
             cp,
             scale,
         );

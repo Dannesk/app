@@ -3,6 +3,8 @@ pub mod icons;
 pub mod sparkline;
 pub mod qr;
 pub mod plain_field;
+pub mod phrase;
+pub mod phrase_grid;
 pub mod secure_input;
 pub mod theme;
 pub mod bloom;

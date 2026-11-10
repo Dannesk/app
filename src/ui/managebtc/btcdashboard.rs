@@ -791,6 +791,7 @@ fn send_review<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
             bip39: SecureField::BtcSendBip39,
             bip39_buf: &state.btc_send_bip39,
             bip39_reveal: state.btc_send_bip39_reveal,
+            line: &state.phrase_line,
             on_submit: sign_msg.clone(),
         };
         let armed = match (amount, fee, spendable) {

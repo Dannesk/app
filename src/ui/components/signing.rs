@@ -2,7 +2,7 @@
 
 use dannesk_btc_codec::bip39::Mnemonic;
 
-use crate::controller::app_state::EnableInputMode;
+use crate::controller::app_state::{EnableInputMode, PhraseLine};
 use crate::controller::message::{Message, SecureField};
 use crate::secure::SecureString;
 
@@ -23,6 +23,7 @@ pub struct SignFields<'a> {
     pub bip39: SecureField,
     pub bip39_buf: &'a SecureString,
     pub bip39_reveal: bool,
+    pub line: &'a PhraseLine,
     pub on_submit: Message,
 }
 

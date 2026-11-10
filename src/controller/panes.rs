@@ -61,18 +61,28 @@ fn clear_pane_form(state: &mut AppState, chain: Chain, kind: PaneKind) {
             xrp::clear_cancel_form(state);
             state.xrp_tx_selected = None;
         }
-        (Chain::Xrp, PaneKind::AvailableTokens) => xrp::clear_enable_form(state),
+        (Chain::Xrp, PaneKind::AvailableTokens) => {
+            xrp::clear_enable_form(state);
+            state.show_enable = false;
+        }
         (Chain::Xrp, PaneKind::Tokens) => {
             xrp::clear_disable_form(state);
             state.disable_token = None;
+            state.token_details = None;
         }
-        (Chain::Xrp, PaneKind::Wallet) => xrp::clear_reimport_form(state),
+        (Chain::Xrp, PaneKind::Wallet) => {
+            xrp::clear_reimport_form(state);
+            state.key_mgmt_restoring = false;
+        }
         (Chain::Btc, PaneKind::Send) => btc::clear_btc_send_form(state),
         (Chain::Btc, PaneKind::Transactions) => {
             btc::clear_btc_bump_form(state);
             state.btc_tx_selected = None;
         }
-        (Chain::Btc, PaneKind::Wallet) => btc::clear_btc_reimport_form(state),
+        (Chain::Btc, PaneKind::Wallet) => {
+            btc::clear_btc_reimport_form(state);
+            state.btc_key_mgmt_restoring = false;
+        }
         (Chain::Btc, PaneKind::Receive) => btc::clear_btc_receive_line(state),
         _ => {}
     }
@@ -949,6 +959,23 @@ mod tests {
                 assert_eq!(state.secure_field_len(field), 0);
             }
         }
+    }
+
+    #[test]
+    fn a_pane_leaving_the_screen_returns_to_its_first_face() {
+        let mut state = AppState::default();
+        state.key_mgmt_restoring = true;
+        state.btc_key_mgmt_restoring = true;
+        state.show_enable = true;
+        state.token_details = Some("RLUSD");
+        clear_pane_form(&mut state, Chain::Xrp, PaneKind::Wallet);
+        clear_pane_form(&mut state, Chain::Btc, PaneKind::Wallet);
+        clear_pane_form(&mut state, Chain::Xrp, PaneKind::AvailableTokens);
+        clear_pane_form(&mut state, Chain::Xrp, PaneKind::Tokens);
+        assert!(!state.key_mgmt_restoring, "the XRP wallet pane stayed on restore");
+        assert!(!state.btc_key_mgmt_restoring, "the BTC wallet pane stayed on restore");
+        assert!(!state.show_enable, "available tokens stayed on the enable face");
+        assert_eq!(state.token_details, None, "tokens stayed on a token's details");
     }
 
     #[test]

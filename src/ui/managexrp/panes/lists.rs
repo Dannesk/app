@@ -197,6 +197,7 @@ fn cancel<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> E
             bip39: SecureField::CancelBip39,
             bip39_buf: &state.cancel_bip39,
             bip39_reveal: state.cancel_bip39_reveal,
+            line: &state.phrase_line,
             on_submit: Message::CancelSubmitClicked,
         };
         let armed = state.cancel_offer_sequence.is_some();

@@ -110,117 +110,6 @@ pub fn grid_rows(mask: &[bool], len: usize, cols: usize) -> usize {
     wrap_rows(mask, len, cols).len()
 }
 
-#[derive(Clone, Copy)]
-struct Cells {
-    cols: usize,
-    rows: usize,
-    word_cols: usize,
-    index_cols: usize,
-    gap_cols: usize,
-    index_color: Color,
-}
-
-impl Cells {
-    fn stride(&self) -> usize {
-        self.index_cols + self.word_cols + self.gap_cols
-    }
-
-    fn block(&self, w: usize) -> (usize, usize) {
-        let cells = self.cols * self.rows;
-        if w < cells {
-            (w / self.rows, w % self.rows)
-        } else {
-            let o = w - cells;
-            (o % self.cols, self.rows + o / self.cols)
-        }
-    }
-
-    fn slot(&self, w: usize, offset: usize) -> (usize, usize) {
-        let (c, r) = self.block(w);
-        (c * self.stride() + self.index_cols + offset, r)
-    }
-}
-
-fn word_runs(mask: &[bool], len: usize) -> Vec<Range<usize>> {
-    let mut runs = Vec::new();
-    let mut start: Option<usize> = None;
-    for i in 0..len {
-        let sep = mask.get(i).copied().unwrap_or(false);
-        match (sep, start) {
-            (false, None) => start = Some(i),
-            (true, Some(s)) => {
-                runs.push(s..i);
-                start = None;
-            }
-            _ => {}
-        }
-    }
-    if let Some(s) = start {
-        runs.push(s..len);
-    }
-    runs
-}
-
-fn cell_positions(mask: &[bool], len: usize, cells: Cells) -> Vec<(usize, usize)> {
-    let mut pos = Vec::with_capacity(len + 1);
-    let mut word = 0usize;
-    let mut offset = 0usize;
-    let mut in_word = false;
-    for i in 0..len {
-        let sep = mask.get(i).copied().unwrap_or(false);
-        if !sep && !in_word {
-            in_word = true;
-            offset = 0;
-        }
-        pos.push(cells.slot(word, offset));
-        if sep {
-            if in_word {
-                in_word = false;
-                word += 1;
-                offset = 0;
-            }
-        } else {
-            offset += 1;
-        }
-    }
-    pos.push(cells.slot(word, offset));
-    pos
-}
-
-fn cell_layout_rows(mask: &[bool], len: usize, cells: Cells) -> usize {
-    let words = word_runs(mask, len).len();
-    if words <= cells.cols * cells.rows {
-        cells.rows
-    } else {
-        let spill = words - cells.cols * cells.rows;
-        cells.rows + spill.div_ceil(cells.cols)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum Advance {
-    Jump(usize),
-    Open,
-    Full,
-}
-
-fn advance_from(mask: &[bool], len: usize, cursor: usize, capacity: usize) -> Advance {
-    let words = word_runs(mask, len);
-    let here = words.iter().position(|r| cursor <= r.end);
-    match here.and_then(|i| words.get(i + 1)) {
-        Some(next) => Advance::Jump(next.start),
-        None if words.len() >= capacity => Advance::Full,
-        None => Advance::Open,
-    }
-}
-
-fn word_full(mask: &[bool], len: usize, cursor: usize, cap: usize) -> bool {
-    word_runs(mask, len)
-        .iter()
-        .find(|r| cursor <= r.end)
-        .is_some_and(|r| r.len() >= cap)
-}
-
 pub struct SecureInput<'a, Message> {
     char_len: usize,
     width: Length,
@@ -235,7 +124,6 @@ pub struct SecureInput<'a, Message> {
     word_gaps: bool,
     revealed: Option<&'a str>,
     grid: Option<Grid>,
-    cells: Option<Cells>,
     placeholder: String,
     placeholder_color: Color,
     placeholder_font: Option<Font>,
@@ -268,7 +156,6 @@ impl<'a, Message> SecureInput<'a, Message> {
             word_mask: Vec::new(),
             word_gaps: true,
             grid: None,
-            cells: None,
             revealed: None,
             placeholder: String::new(),
             placeholder_color: Color::from_rgb(0.5, 0.5, 0.5),
@@ -305,19 +192,6 @@ impl<'a, Message> SecureInput<'a, Message> {
 
     pub fn grid(mut self, advance: f32, line_height: f32, font: Font) -> Self {
         self.grid = Some(Grid { advance, line_height, font });
-        self
-    }
-
-    pub fn word_cells(
-        mut self,
-        cols: usize,
-        rows: usize,
-        word_cols: usize,
-        index_cols: usize,
-        gap_cols: usize,
-        index_color: Color,
-    ) -> Self {
-        self.cells = Some(Cells { cols, rows, word_cols, index_cols, gap_cols, index_color });
         self
     }
 
@@ -470,10 +344,6 @@ impl<'a, Message> SecureInput<'a, Message> {
             return;
         }
 
-        if let Some(cells) = self.cells {
-            self.draw_cells(g, cells, state, renderer, bounds);
-            return;
-        }
 
         let first = self.grid_scroll(cols, cursor);
 
@@ -554,127 +424,6 @@ impl<'a, Message> SecureInput<'a, Message> {
             caret_quad(renderer, x, cy);
         }
     }
-
-    fn draw_cells(&self, g: Grid, cells: Cells, state: &State, renderer: &mut iced::Renderer, bounds: Rectangle) {
-        let hint = renderer.hint_factor();
-        let cursor = state.cursor.min(self.char_len);
-        let col_x = |c: usize| bounds.x + c as f32 * g.advance;
-        let row_y = |r: usize| bounds.y + r as f32 * g.line_height + g.line_height / 2.0;
-
-        let cell_text = |content: String| text::Text {
-            content,
-            bounds: Size::new(bounds.width, g.line_height),
-            size: Pixels(self.text_size),
-            line_height: text::LineHeight::Relative(1.0),
-            font: g.font,
-            align_x: text::Alignment::Left,
-            align_y: alignment::Vertical::Center,
-            shaping: text::Shaping::Advanced,
-            ellipsis: text::Ellipsis::None,
-            hint_factor: hint,
-            wrapping: text::Wrapping::None,
-        };
-
-        for w in 0..cells.cols * cells.rows {
-            let (c, r) = cells.block(w);
-            renderer.fill_text(
-                cell_text(format!("{:02}", w + 1)),
-                Point::new(col_x(c * cells.stride()), row_y(r)),
-                cells.index_color,
-                bounds,
-            );
-        }
-
-        let positions = cell_positions(&self.word_mask, self.char_len, cells);
-
-        match &self.revealed {
-            Some(plain) => {
-                for (w, run) in word_runs(&self.word_mask, self.char_len).iter().enumerate() {
-                    let shown: String =
-                        plain.chars().skip(run.start).take(run.len()).collect();
-                    let (x_cols, r) = cells.slot(w, 0);
-                    renderer.fill_text(
-                        cell_text(shown),
-                        Point::new(col_x(x_cols), row_y(r)),
-                        self.dot_color,
-                        bounds,
-                    );
-                }
-            }
-            None => {
-                let diameter = self.text_size * 0.45;
-                let inset = (g.advance - diameter) / 2.0;
-                for i in 0..self.char_len {
-                    if self.word_mask.get(i).copied().unwrap_or(false) {
-                        continue;
-                    }
-                    let (x_cols, r) = positions[i];
-                    renderer.fill_quad(
-                        renderer::Quad {
-                            bounds: Rectangle {
-                                x: col_x(x_cols) + inset,
-                                y: row_y(r) - diameter / 2.0,
-                                width: diameter,
-                                height: diameter,
-                            },
-                            border: Border {
-                                radius: (diameter / 2.0).into(),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        },
-                        self.dot_color,
-                    );
-                }
-            }
-        }
-
-        if state.caret_on() {
-            let (x_cols, r) = positions[cursor];
-            let w = (self.text_size * 0.08).max(1.0);
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: Rectangle {
-                        x: col_x(x_cols),
-                        y: row_y(r) - self.text_size / 2.0,
-                        width: w,
-                        height: self.text_size,
-                    },
-                    ..Default::default()
-                },
-                self.caret_color,
-            );
-        }
-    }
-
-    fn cell_click_index(&self, cells: Cells, g: Grid, bounds: Rectangle, pos: Point) -> Option<usize> {
-        let rel_cols = ((pos.x - bounds.x) / g.advance).max(0.0);
-        let row = (((pos.y - bounds.y) / g.line_height).max(0.0)).floor() as usize;
-        let stride = cells.stride();
-        let block = ((rel_cols / stride as f32) as usize).min(cells.cols.saturating_sub(1));
-        let w = if row < cells.rows {
-            block * cells.rows + row
-        } else {
-            cells.cols * cells.rows + (row - cells.rows) * cells.cols + block
-        };
-        let words = word_runs(&self.word_mask, self.char_len);
-        let run = words.get(w)?;
-        let within = rel_cols - (block * stride + cells.index_cols) as f32;
-        let offset = (within + 0.5).max(0.0).floor() as usize;
-        Some(run.start + offset.min(run.len()))
-    }
-
-    fn open_next_cell(&self, state: &mut State, shell: &mut Shell<'_, Message>) {
-        let ends_open = self.char_len == 0
-            || self.word_mask.get(self.char_len - 1).copied().unwrap_or(false);
-        if ends_open || self.char_cap.is_some_and(|cap| self.char_len >= cap) {
-            state.cursor = self.char_len;
-        } else {
-            shell.publish((self.on_insert)(self.char_len, ' '));
-            state.cursor = self.char_len + 1;
-        }
-        shell.request_redraw();
-    }
 }
 
 impl<Message> widget::Meta for SecureInput<'_, Message> {}
@@ -716,13 +465,8 @@ where
         let height = match (self.pin_cells, self.box_height) {
             (Some(_), _) | (None, None) => self.widget_height(),
             (None, Some(min_h)) if self.grid.is_some() => {
-                let rows = match self.cells {
-                    Some(cells) => cell_layout_rows(&self.word_mask, self.char_len, cells),
-                    None => {
-                        let cols = self.grid_cols(limits.max.width);
-                        grid_rows(&self.word_mask, self.char_len, cols)
-                    }
-                };
+                let cols = self.grid_cols(limits.max.width);
+                let rows = grid_rows(&self.word_mask, self.char_len, cols);
                 (rows as f32 * self.line_height()).max(min_h)
             }
             (None, Some(min_h)) => {
@@ -1001,15 +745,7 @@ where
                     state.window_focused = true;
                     state.touch();
                     if self.box_height.is_some() {
-                        match (self.cells, self.grid, cursor.position()) {
-                            (Some(cells), Some(g), Some(pos)) => {
-                                match self.cell_click_index(cells, g, bounds, pos) {
-                                    Some(i) => state.cursor = i,
-                                    None => self.open_next_cell(state, shell),
-                                }
-                            }
-                            _ => state.cursor = self.char_len,
-                        }
+                        state.cursor = self.char_len;
                     } else if let Some(pos) = cursor.position() {
                         let rel = (pos.x - bounds.x).max(0.0);
                         let idx = ((rel + self.step() / 2.0) / self.step()) as usize;
@@ -1074,23 +810,6 @@ where
                         shell.request_redraw();
                     }
                     keyboard::Key::Named(Named::Enter) => {
-                        if let Some(cells) = self.cells {
-                            let capacity = cells.cols * cells.rows;
-                            match advance_from(&self.word_mask, self.char_len, state.cursor, capacity) {
-                                Advance::Jump(i) => {
-                                    state.cursor = i;
-                                    shell.capture_event();
-                                    shell.request_redraw();
-                                    return;
-                                }
-                                Advance::Open => {
-                                    self.open_next_cell(state, shell);
-                                    shell.capture_event();
-                                    return;
-                                }
-                                Advance::Full => {}
-                            }
-                        }
                         if let Some(msg) = &self.on_submit {
                             shell.publish(msg.clone());
                             shell.capture_event();
@@ -1113,13 +832,6 @@ where
                                 }
                                 if self.char_cap.is_some_and(|cap| self.char_len >= cap) {
                                     return;
-                                }
-                                if let Some(cells) = self.cells {
-                                    if !c.is_whitespace()
-                                        && word_full(&self.word_mask, self.char_len, state.cursor, cells.word_cols)
-                                    {
-                                        return;
-                                    }
                                 }
                                 shell.publish((self.on_insert)(state.cursor, c));
                                 state.cursor += 1;
@@ -1256,98 +968,5 @@ actress actual";
         assert_eq!(wrap_rows(&[], 0, 46), vec![0..0]);
         assert_eq!(wrap_rows(&[], 5, 0), vec![0..5]);
         assert_eq!(wrap_rows(&mask("one two"), 7, 46), vec![0..7]);
-    }
-
-    const CELLS: Cells = Cells {
-        cols: 3,
-        rows: 8,
-        word_cols: 8,
-        index_cols: 3,
-        gap_cols: 2,
-        index_color: Color::BLACK,
-    };
-
-    #[test]
-    fn enter_walks_the_cells_and_submits_only_when_full() {
-        let two = "abandon ability";
-        let m = mask(two);
-        let n = two.chars().count();
-        assert_eq!(advance_from(&m, n, 3, 24), Advance::Jump(8), "mid word 1 -> start of word 2");
-        assert_eq!(advance_from(&m, n, 7, 24), Advance::Jump(8), "end of word 1 -> start of word 2");
-        assert_eq!(advance_from(&m, n, 8, 24), Advance::Open, "start of word 2 -> open cell 3");
-        assert_eq!(advance_from(&m, n, n, 24), Advance::Open, "end of word 2 -> open cell 3");
-        assert_eq!(advance_from(&[], 0, 0, 24), Advance::Open, "an empty box has nowhere else to go");
-        let open = "abandon ability ";
-        let m = mask(open);
-        assert_eq!(advance_from(&m, open.len(), open.len(), 24), Advance::Open);
-        assert_eq!(advance_from(&m, open.len(), 10, 2), Advance::Full);
-        assert_eq!(advance_from(&m, open.len(), open.len(), 2), Advance::Full);
-        assert_eq!(advance_from(&m, open.len(), 2, 2), Advance::Jump(8));
-    }
-
-    #[test]
-    fn a_word_stops_at_its_cell_width() {
-        let s = "abcdefgh ab";
-        let m = mask(s);
-        let n = s.len();
-        assert!(word_full(&m, n, 8, 8), "end of an 8-letter word");
-        assert!(word_full(&m, n, 3, 8), "inside an 8-letter word");
-        assert!(!word_full(&m, n, 9, 8), "start of the short word");
-        assert!(!word_full(&m, n, n, 8), "end of the short word");
-        let open = "abcdefgh ";
-        let m = mask(open);
-        assert!(!word_full(&m, open.len(), open.len(), 8), "a fresh cell takes anything");
-        assert!(!word_full(&[], 0, 0, 8), "so does an empty box");
-    }
-
-    #[test]
-    fn cells_place_words_column_major_and_spill_downward() {
-        assert_eq!(CELLS.block(0), (0, 0));
-        assert_eq!(CELLS.block(7), (0, 7));
-        assert_eq!(CELLS.block(8), (1, 0));
-        assert_eq!(CELLS.block(23), (2, 7));
-        assert_eq!(CELLS.block(24), (0, 8));
-        assert_eq!(CELLS.block(26), (2, 8));
-        assert_eq!(CELLS.block(27), (0, 9));
-
-        let m = mask(PHRASE);
-        assert_eq!(word_runs(&m, m.len()).len(), 24);
-        assert_eq!(cell_layout_rows(&m, m.len(), CELLS), 8);
-        let long = format!("{PHRASE} extra words here");
-        let lm = mask(&long);
-        assert_eq!(cell_layout_rows(&lm, lm.len(), CELLS), 9);
-        assert_eq!(cell_layout_rows(&[], 0, CELLS), 8);
-    }
-
-    #[test]
-    fn cell_positions_walk_words_and_separators() {
-        let m = mask(PHRASE);
-        let pos = cell_positions(&m, m.len(), CELLS);
-        assert_eq!(pos.len(), m.len() + 1);
-
-        let runs = word_runs(&m, m.len());
-        assert_eq!(pos[runs[0].start], (CELLS.index_cols, 0));
-        let sep = runs[0].end;
-        assert_eq!(pos[sep], (CELLS.index_cols + runs[0].len(), 0));
-        assert_eq!(pos[sep].0, pos[sep - 1].0 + 1);
-        assert_eq!(pos[sep + 1], (CELLS.index_cols, 1));
-        assert_eq!(pos[runs[8].start], (CELLS.stride() + CELLS.index_cols, 0));
-        for (i, &(x, r)) in pos.iter().enumerate() {
-            assert!(x >= CELLS.index_cols, "slot {i} at column {x} is inside a prefix");
-            assert!(r < 8, "slot {i} on row {r} of an 8-row phrase");
-        }
-    }
-
-    #[test]
-    fn cell_positions_survive_messy_separators() {
-        for messy in [" alpha beta", "alpha  beta", "alpha beta ", "  "] {
-            let m = mask(messy);
-            let runs = word_runs(&m, m.len());
-            assert!(runs.len() <= 2, "{messy:?} produced {} words", runs.len());
-            let pos = cell_positions(&m, m.len(), CELLS);
-            assert_eq!(pos.len(), m.len() + 1, "{messy:?} lost a caret slot");
-        }
-        assert_eq!(word_runs(&mask(" a  b "), 6), vec![1..2, 4..5]);
-        assert!(word_runs(&[], 0).is_empty());
     }
 }

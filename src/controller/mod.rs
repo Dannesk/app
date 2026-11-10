@@ -4,6 +4,7 @@ pub mod subscription;
 pub mod xrp;
 pub mod btc;
 pub mod panes;
+pub mod setup;
 
 use iced::Task;
 use std::time::Duration;
@@ -104,23 +105,9 @@ fn gate_wrong_attempt(state: &mut AppState) -> Task<Message> {
 
 pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
     match message {
-        Message::SecurePasteRequested(field) => {
-            return iced::clipboard::read_text()
-                .map(move |text| Message::SecurePasted(field, text.ok().map(std::sync::Arc::unwrap_or_clone)));
-        }
-        Message::SecurePasted(field, text) => {
-            if let Some(text) = text {
-                state.replace_secure_field(field, text);
-            }
-        }
         Message::SecureClearRequested(field) => {
             state.replace_secure_field(field, String::new());
-        }
-        Message::SignCredentialCleared { secret, phrase, bip39 } => {
-            for field in [secret, phrase, bip39] {
-                state.replace_secure_field(field, String::new());
-                state.set_secure_reveal(field, false);
-            }
+            state.forget_phrase_line(field);
         }
         Message::EscapeDismiss => {
             state.xrp_grid.menu_open = false;
@@ -147,6 +134,18 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         Message::SecureEdit(field, op) => {
             state.apply_secure_edit(field, op);
 
+        }
+        Message::Phrase(field, op) => {
+            state.apply_phrase_op(field, op);
+        }
+        Message::SetupTaskOpened(chain, task) => {
+            setup::open(state, chain, task);
+        }
+        Message::SetupCheckStarted => {
+            setup::start_check(state);
+        }
+        Message::SetupCheckPicked(choice) => {
+            setup::pick(state, choice);
         }
         Message::GateDigit(c) => {
             if state.gate_wiping || !c.is_ascii_digit() {

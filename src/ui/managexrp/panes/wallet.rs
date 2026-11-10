@@ -98,7 +98,8 @@ fn restore<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> 
             SecureField::ReimportSeed,
             seed,
             state.reimport_seed_reveal,
-            Message::ReimportConfirm,
+            &state.phrase_line,
+            inner,
             cp,
             scale,
         );

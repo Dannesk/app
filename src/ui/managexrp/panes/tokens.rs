@@ -136,6 +136,7 @@ fn enable_face<'a>(state: &'a AppState, t: &'static tokens::TokenDef, cp: &'stat
             bip39: SecureField::EnableBip39,
             bip39_buf: &state.enable_bip39,
             bip39_reveal: state.enable_bip39_reveal,
+            line: &state.phrase_line,
             on_submit: Message::EnableSubmitClicked,
         };
         let armed = state.enable_fee.is_some();
@@ -172,6 +173,7 @@ fn remove_face<'a>(state: &'a AppState, t: &'static tokens::TokenDef, cp: &'stat
             bip39: SecureField::DisableBip39,
             bip39_buf: &state.disable_bip39,
             bip39_reveal: state.disable_bip39_reveal,
+            line: &state.phrase_line,
             on_submit: Message::DisableSubmitClicked,
         };
         let armed = CHANNEL.token(t.code).0 == 0.0 && state.disable_fee.is_some();

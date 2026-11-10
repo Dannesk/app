@@ -775,6 +775,7 @@ fn review_face<'a>(
             bip39: SecureField::TradeBip39,
             bip39_buf: &state.trade_bip39,
             bip39_reveal: state.trade_bip39_reveal,
+            line: &state.phrase_line,
             on_submit: sign_msg.clone(),
         };
         let live = fields.can_submit();

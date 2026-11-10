@@ -262,6 +262,7 @@ pub(crate) fn sign<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
             bip39: SecureField::BtcBumpBip39,
             bip39_buf: &state.btc_bump_bip39,
             bip39_reveal: state.btc_bump_bip39_reveal,
+            line: &state.phrase_line,
             on_submit: Message::BtcBumpSubmitClicked,
         };
         let armed = locked.is_some() && send.as_ref().is_some_and(|t| t.can_bump());

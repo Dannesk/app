@@ -1,6 +1,6 @@
 
 
-use iced::widget::{Column, Row};
+use iced::widget::Row;
 use iced::Widget as _;
 use iced::widget::{button, column, container, row, svg, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow};
@@ -36,13 +36,6 @@ pub const METER_BAR_H: f32 = 8.0;
 
 
 
-pub const WORDS_COLS: usize = 3;
-pub const WORDS_ROWS: usize = 8;
-
-pub const WORD_CHARS: usize = 8;
-pub const INDEX_CHARS: usize = 3;
-pub const GAP_CHARS: usize = 2;
-pub const GRID_SPAN: usize = WORDS_COLS * (INDEX_CHARS + WORD_CHARS + GAP_CHARS) - GAP_CHARS;
 
 const BOX_PAD_V: f32 = 5.0;
 const BOX_PAD_H: f32 = 8.0;
@@ -128,103 +121,6 @@ pub fn back_chevron<'a>(msg: Message, p: &'static CompactPalette, scale: f32) ->
     corner_button(icons::CHEVRON_LEFT.clone(), msg, p, scale)
 }
 
-
-pub fn header_strip<'a>(
-    title:     &str,
-    shortcuts: &[(&str, &str)],
-    p:         &'static CompactPalette,
-    scale:     f32,
-) -> Element<'a, Message> {
- 
-    let shortcuts: Element<'a, Message> = if shortcuts.is_empty() {
-        Space::new().boxed()
-    } else {
-        let mut runs: Vec<Run> = vec![("SHORTCUTS".to_string(), p.faint)];
-        for (key, action) in shortcuts {
-            runs.push((format!("   {}", key.to_uppercase()), p.muted));
-            runs.push((format!(" {}", action.to_uppercase()), p.faint));
-        }
-        mono_runs(runs, EYEBROW * scale)
-    };
-    column![
-        container(
-            row![
-                text(title.to_string()).size(TITLE * scale).color(p.text),
-                Space::new().width(Length::Fill),
-                shortcuts,
-            ]
-            .align_y(Alignment::End),
-        )
-        .width(Length::Fill)
-        .padding(Padding::new(0.0).left(16.0 * scale).right(16.0 * scale).bottom(8.0 * scale)),
-        hairline(p.rule),
-    ]
-    .width(Length::Fill)
-    .boxed()
-}
-
-
-pub fn eyebrow<'a>(
-    left:  &str,
-    right: &str,
-    p:     &'static CompactPalette,
-    scale: f32,
-) -> Element<'a, Message> {
-    container(
-        row![
-            text(left.to_uppercase()).font(MONO).size(EYEBROW * scale).color(p.muted),
-            Space::new().width(Length::Fill),
-            text(right.to_uppercase()).font(MONO).size(EYEBROW * scale).color(p.muted),
-        ]
-        .align_y(Alignment::End),
-    )
-    .width(Length::Fill)
-    .padding(Padding::new(0.0).bottom(8.0 * scale))
-    .boxed()
-}
-
-
-pub fn eyebrow_data<'a>(
-    left:  &str,
-    right: &str,
-    p:     &'static CompactPalette,
-    scale: f32,
-) -> Element<'a, Message> {
-    container(
-        row![
-            text(left.to_uppercase()).font(MONO).size(EYEBROW * scale).color(p.muted),
-            Space::new().width(Length::Fill),
-            text(right.to_string()).font(MONO).size(EYEBROW * scale).color(p.muted),
-        ]
-        .align_y(Alignment::End),
-    )
-    .width(Length::Fill)
-    .padding(Padding::new(0.0).bottom(8.0 * scale))
-    .boxed()
-}
-
-
-pub fn upper_link<'a>(label: &str, msg: Message, p: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    button(
-        text(format!("{} \u{203a}", label.to_uppercase()))
-            .font(MONO)
-            .size(EYEBROW * scale)
-            .color(p.dim),
-    )
-    .on_press(msg)
-    .padding(Padding::new(1.0 * scale).left(5.0 * scale).right(5.0 * scale))
-    .style(move |_, status| {
-        let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-        button::Style {
-            background: Some(if hot { p.hover } else { Color::TRANSPARENT }.into()),
-            border: Border { color: Color::TRANSPARENT, width: 0.0, radius: (4.0 * scale).into() },
-            text_color: if hot { p.text } else { p.dim },
-            shadow: Shadow::default(),
-            snap: false,
-        }
-    })
-    .boxed()
-}
 
 pub fn eye<'a>(revealed: bool, msg: Message, p: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     let handle = if revealed { icons::EYE_CLOSED.clone() } else { icons::EYE_OPEN.clone() };
@@ -504,30 +400,6 @@ pub fn mono_runs<'a>(runs: Vec<Run>, size: f32) -> Element<'a, Message> {
 }
 
 
-pub fn stat_rows<'a>(
-    rows:  &[(&str, &str)],
-    p:     &'static CompactPalette,
-    scale: f32,
-) -> Element<'a, Message> {
-    let mut col = column![hairline(p.rule), Space::new().height(9.0 * scale)].spacing(0);
-    let mut list: Column<Element<'_, Message>> = column![].spacing(3.0 * scale);
-    for (k, v) in rows {
-        list = list.push(
-            row![
-                text(k.to_string()).size(ROW * scale).color(p.dim),
-                Space::new().width(Length::Fill),
-                text(v.to_string()).font(MONO).size(ROW * scale).color(p.text),
-            ]
-            .align_y(Alignment::Center).boxed(),
-        );
-    }
-    col = col.push(list.boxed());
-    container(col)
-        .width(Length::Fill)
-        .padding(Padding::new(0.0).top(11.0 * scale))
-        .boxed()
-}
-
 
 pub fn cta<'a>(label: &str, enabled: bool, msg: Message, p: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     button(
@@ -562,70 +434,3 @@ pub fn cta<'a>(label: &str, enabled: bool, msg: Message, p: &'static CompactPale
     .boxed()
 }
 
-
-#[allow(clippy::too_many_arguments)]
-pub fn phrase_box<'a>(
-    field:     SecureField,
-    secret:    &'a SecureString,
-    revealed:  bool,
-    placeholder: &str,
-    height:    f32,
-    on_submit: Message,
-    p:         &'static CompactPalette,
-    scale:     f32,
-) -> Element<'a, Message> {
-    use iced::widget::stack;
-
-    let size = ROW * scale;
-    let advance = size * MONO_ADVANCE;
-    let line = size * 1.6;
-    let mask: Vec<bool> = secret.as_str().chars().map(|c| c.is_whitespace()).collect();
-
-    let input = SecureInput::new(
-        secret.char_len(),
-        move |i, c| Message::SecureEdit(field, SecureOp::Insert(i, c)),
-        move |i| Message::SecureEdit(field, SecureOp::Remove(i)),
-        move |i, s| Message::SecureEdit(field, SecureOp::Paste(i, s)),
-    )
-    .size(size)
-    .width(Length::Fill)
-    .dot_color(p.text)
-    .caret_color(p.focus)
-    .placeholder_color(p.faint)
-    .placeholder(placeholder.to_owned())
-    .grid(advance, line, MONO)
-    .word_cells(WORDS_COLS, WORDS_ROWS, WORD_CHARS, INDEX_CHARS, GAP_CHARS, p.faint)
-    .word_mask(mask)
-    .multiline(WORDS_ROWS as f32 * line)
-    .on_submit(on_submit)
-    .revealed(revealed.then(|| secret.as_str()));
-
-    let border = if secret.char_len() > 0 { p.focus } else { p.border };
-    let well = container(container(input).width(Length::Fixed(GRID_SPAN as f32 * advance)))
-        .width(Length::Fill)
-        .height(Length::Fixed(height * scale))
-        .padding(
-            Padding::new(0.0)
-                .top(9.0 * scale)
-                .bottom(9.0 * scale)
-                .left(11.0 * scale)
-                .right((11.0 + EYE + EYE_GAP) * scale),
-        )
-        .style(move |_| container::Style {
-            background: Some(p.field.into()),
-            border: Border { color: border, width: 1.0, radius: (6.0 * scale).into() },
-            ..Default::default()
-        });
-
-    let toggle = container(eye(
-        revealed,
-        Message::SecureEdit(field, SecureOp::ToggleReveal),
-        p,
-        scale,
-    ))
-    .width(Length::Fill)
-    .align_x(Alignment::End)
-    .padding(Padding::new(0.0).top(9.0 * scale).right(9.0 * scale));
-
-    stack![well, toggle].boxed()
-}

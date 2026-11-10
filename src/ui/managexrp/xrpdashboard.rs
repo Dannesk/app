@@ -617,6 +617,7 @@ fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
             bip39: SecureField::SendBip39,
             bip39_buf: &state.send_bip39,
             bip39_reveal: state.send_bip39_reveal,
+            line: &state.phrase_line,
             on_submit: sign_msg.clone(),
         };
         let armed = resolved.is_some() && fee_drops.is_some() && amount.is_some_and(|a| xrp::send_fits_for(&state.send_tab, a, fee));

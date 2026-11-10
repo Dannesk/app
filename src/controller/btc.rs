@@ -3,7 +3,7 @@ use iced::Task;
 use rand::Rng;
 use crate::controller::message::{Message, PlainField, SecureField};
 use crate::controller::app_state::{
-    AppState, BtcFeeTier, BtcView, EnableInputMode, ImportMode, SendAnchor,
+    AppState, BtcFeeTier, BtcView, EnableInputMode, SendAnchor,
 };
 use crate::ui::managebtc::btcbump;
 use crate::ui::managebtc::btcsend::{self, FeeQuote};
@@ -48,6 +48,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             if !crate::ui::components::wallet_setup::can_finish(
                 crate::ui::components::wallet_setup::SetupFlow::Create,
                 &state.create_mnemonic,
+                state.create_checked,
                 state.btc_word25,
                 &state.btc_bip39_input,
                 state.btc_import_mode,
@@ -55,6 +56,12 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             ) {
                 return Task::none();
             }
+            let (Some(mode), Some(script_type)) = (
+                state.btc_import_mode,
+                crate::ui::managebtc::btcsetup::create_type(state.btc_script_type),
+            ) else {
+                return Task::none();
+            };
             let Some(ws_tx) = crate::ws::CRYPTO_COMMANDS_TX.get().cloned() else {
                 abandon_setup(state, "Create Bitcoin wallet");
                 return Task::none();
@@ -64,8 +71,6 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             let bip39 = state.btc_bip39_input.take_trimmed();
             state.hold_entropy(SecureField::BtcEncryption);
             let encryption = state.btc_encryption_input.take_trimmed();
-            let mode = state.btc_import_mode;
-            let script_type = crate::ui::managebtc::btcsetup::create_type(state.btc_script_type);
 
             return Task::perform(
                 async move { BTCCreateLogic::process(mnemonic, bip39, encryption, mode, script_type, ws_tx).await },
@@ -82,26 +87,27 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             close_setup(state);
         }
         Message::BtcWord25Chosen(yes) => {
-            state.btc_word25 = yes;
+            state.btc_word25 = Some(yes);
             if !yes {
                 state.btc_bip39_input.clear();
                 state.btc_bip39_reveal = false;
             }
         }
         Message::BtcScriptTypeChosen(t) => {
-            state.btc_script_type = t;
+            state.btc_script_type = Some(t);
         }
         Message::BtcImportModeChanged(mode) => {
-            if state.btc_import_mode != mode {
+            if state.btc_import_mode != Some(mode) {
                 state.btc_encryption_input.clear();
                 state.btc_encryption_reveal = false;
-                state.btc_import_mode = mode;
+                state.btc_import_mode = Some(mode);
             }
         }
         Message::BtcImportSubmitClicked => {
             if !crate::ui::components::wallet_setup::can_finish(
                 crate::ui::components::wallet_setup::SetupFlow::Import,
                 &state.btc_seed_text,
+                false,
                 state.btc_word25,
                 &state.btc_bip39_input,
                 state.btc_import_mode,
@@ -109,6 +115,9 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             ) {
                 return Task::none();
             }
+            let (Some(mode), Some(script_type)) = (state.btc_import_mode, state.btc_script_type) else {
+                return Task::none();
+            };
             let Some(ws_tx) = crate::ws::CRYPTO_COMMANDS_TX.get().cloned() else {
                 abandon_setup(state, "Import Bitcoin wallet");
                 return Task::none();
@@ -118,8 +127,6 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             let bip39 = state.btc_bip39_input.take_trimmed();
             state.hold_entropy(SecureField::BtcEncryption);
             let encryption = state.btc_encryption_input.take_trimmed();
-            let mode = state.btc_import_mode;
-            let script_type = state.btc_script_type;
 
             return Task::perform(
                 async move { BTCImportLogic::process(mnemonic, bip39, encryption, mode, script_type, ws_tx).await },
@@ -302,7 +309,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             state.btc_send_bip39.clear();
             state.btc_send_bip39_reveal = false;
             state.btc_send_seed_text.clear();
-            state.btc_send_seed_reveal = false;
+            state.btc_send_seed_reveal = true;
         }
         Message::BtcSendSubmitClicked => {
             if state.btc_send_step != 2 {
@@ -518,7 +525,7 @@ pub(crate) fn clear_btc_receive_line(state: &mut AppState) {
 pub(crate) fn clear_btc_reimport_form(state: &mut AppState) {
     state.release_entropy();
     state.btc_reimport_seed_text.clear();
-    state.btc_reimport_seed_reveal = false;
+    state.btc_reimport_seed_reveal = true;
     state.btc_reimport_passphrase.clear();
     state.btc_reimport_passphrase_reveal = false;
     state.btc_reimport_bip39.clear();
@@ -530,17 +537,18 @@ pub(crate) fn clear_btc_reimport_form(state: &mut AppState) {
 fn reset_setup_form(state: &mut AppState) {
     state.release_entropy();
     state.btc_seed_text.clear();
-    state.btc_seed_reveal = false;
+    state.btc_seed_reveal = true;
     state.btc_encryption_input.clear();
     state.btc_encryption_reveal = false;
     state.btc_bip39_input.clear();
     state.btc_bip39_reveal = false;
-    state.btc_word25 = false;
+    state.btc_word25 = None;
     state.create_mnemonic.clear();
-    state.create_seed_reveal = false;
-    state.btc_import_mode = ImportMode::default();
-    state.btc_script_type = Default::default();
+    state.create_seed_reveal = true;
+    state.btc_import_mode = None;
+    state.btc_script_type = None;
     state.btc_copy_feedback = false;
+    crate::controller::setup::reset(state, crate::controller::app_state::SetupChain::Btc);
 }
 
 fn close_setup(state: &mut AppState) {
@@ -672,7 +680,7 @@ fn clear_bump_key(state: &mut AppState) {
     state.btc_bump_bip39.clear();
     state.btc_bump_bip39_reveal = false;
     state.btc_bump_seed_text.clear();
-    state.btc_bump_seed_reveal = false;
+    state.btc_bump_seed_reveal = true;
 }
 
 pub(crate) fn clear_btc_bump_form(state: &mut AppState) {
@@ -704,7 +712,7 @@ pub(crate) fn clear_btc_send_form(state: &mut AppState) {
     state.btc_send_bip39.clear();
     state.btc_send_bip39_reveal = false;
     state.btc_send_seed_text.clear();
-    state.btc_send_seed_reveal = false;
+    state.btc_send_seed_reveal = true;
     push_send_draft(state);
 }
 

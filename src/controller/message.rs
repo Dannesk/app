@@ -1,5 +1,5 @@
 use crate::controller::app_state::{
-    BaseCcy, BtcFeeTier, ImportMode, Tab, TradeSide, XrpTokenTab,
+    BaseCcy, BtcFeeTier, ImportMode, SetupChain, SetupTask, Tab, TradeSide, XrpTokenTab,
 };
 use crate::channel::ActivityLogState;
 
@@ -84,6 +84,39 @@ pub enum SecureOp {
     ToggleReveal,
 }
 
+#[derive(Clone)]
+pub enum PhraseOp {
+    Caret(Option<usize>),
+    Lit(usize),
+    Type(usize, usize, char),
+    Erase(usize, usize),
+    StepBack(usize),
+    Take(usize, usize, bool),
+    Pick(usize, usize),
+    Choose(usize, usize),
+    Advance,
+    Replace(usize, Option<char>),
+    Fill(usize, String),
+}
+
+impl std::fmt::Debug for PhraseOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Caret(slot) => write!(f, "Caret({slot:?})"),
+            Self::Lit(n) => write!(f, "Lit({n})"),
+            Self::Type(k, at, _) => write!(f, "Type({k}, {at})"),
+            Self::Erase(k, at) => write!(f, "Erase({k}, {at})"),
+            Self::StepBack(k) => write!(f, "StepBack({k})"),
+            Self::Take(k, lit, tab) => write!(f, "Take({k}, {lit}, {tab})"),
+            Self::Pick(k, n) => write!(f, "Pick({k}, {n})"),
+            Self::Choose(k, n) => write!(f, "Choose({k}, {n})"),
+            Self::Advance => f.write_str("Advance"),
+            Self::Replace(k, _) => write!(f, "Replace({k})"),
+            Self::Fill(k, _) => write!(f, "Fill({k})"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TagPane {
     Send,
@@ -126,14 +159,11 @@ pub enum Message {
     SystemFontsIndexed,
     FirstFrame,
     SecureEdit(SecureField, SecureOp),
-    SecurePasteRequested(SecureField),
+    Phrase(SecureField, PhraseOp),
+    SetupTaskOpened(SetupChain, SetupTask),
+    SetupCheckStarted,
+    SetupCheckPicked(usize),
     SecureClearRequested(SecureField),
-    SignCredentialCleared {
-        secret: SecureField,
-        phrase: SecureField,
-        bip39:  SecureField,
-    },
-    SecurePasted(SecureField, Option<String>),
     PlainEdit(PlainField, SecureOp),
     PlainPasteRequested(PlainField),
     PlainPasted(PlainField, Option<String>),

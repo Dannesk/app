@@ -20,7 +20,8 @@ use crate::secure::SecureString;
 use crate::ui::components::compact;
 use crate::ui::components::tui::MONO_ADVANCE;
 use crate::ui::components::signing::SignFields;
-use crate::ui::components::wallet_setup::{self, PHRASE_PLACEHOLDER, TARGET_WORDS};
+use crate::controller::app_state::PhraseLine;
+use crate::ui::components::phrase_entry::{self, Entry};
 use crate::ui::managexrp::tokens as tokens_page;
 use crate::utils::fonts::{LIGHT, MONO};
 use crate::utils::plain_field::plain_field_grid_ink_focus;
@@ -67,7 +68,6 @@ const MENU_PAD_H: f32 = 13.0;
 const MENU_CHECK_W: f32 = 9.0;
 pub const AMT_GAP: f32 = 7.0;
 pub const EQ_W: f32 = 8.0;
-pub const PHRASE_H: f32 = 154.0;
 const QR_QUIET: f32 = 0.056;
 const SCROLLER_W: f32 = 3.0;
 
@@ -546,54 +546,16 @@ const RECEIVE_MIN_H: f32 = 190.0;
 
 
 pub fn phrase_field<'a>(
-    field:     SecureField,
-    seed:      &'a SecureString,
-    revealed:  bool,
-    on_submit: Message,
-    cp:        &'static CompactPalette,
-    scale:     f32,
+    field:    SecureField,
+    seed:     &'a SecureString,
+    revealed: bool,
+    line:     &'a PhraseLine,
+    inner:    f32,
+    cp:       &'static CompactPalette,
+    scale:    f32,
 ) -> Element<'a, Message> {
-    let words = seed.as_str().split_whitespace().count();
-    let complete = words == TARGET_WORDS;
-    let checksum_ok = complete && wallet_setup::mnemonic_checksum_ok(seed.as_str());
-
-   
-    let counter_ink = match words {
-        0 => cp.faint,
-        n if n == TARGET_WORDS => if checksum_ok { cp.green } else { cp.red },
-        _ => cp.amber,
-    };
-    let mut status = vec![
-        (format!("{words} / {TARGET_WORDS}"), counter_ink),
-        (" \u{b7} words".to_string(), cp.dim),
-    ];
-    if words > 0 {
-        let (verdict, ink) = match (complete, checksum_ok) {
-            (false, _) => ("awaiting all 24 words", cp.muted),
-            (true, true) => ("\u{2713} checksum valid", cp.green),
-            (true, false) => ("\u{2715} invalid checksum", cp.red),
-        };
-        status.push((format!(" \u{b7} {verdict}"), ink));
-    }
-
-    let action = if words == 0 {
-        compact::upper_link("Paste", Message::SecurePasteRequested(field), cp, scale)
-    } else {
-        compact::upper_link("Clear", Message::SecureClearRequested(field), cp, scale)
-    };
-
-    column![
-        compact::phrase_box(field, seed, revealed, PHRASE_PLACEHOLDER, PHRASE_H, on_submit, cp, scale),
-        Space::new().height(5.0 * scale),
-        row![
-            compact::mono_runs(status, STRIP * scale),
-            Space::new().width(Length::Fill),
-            action,
-        ]
-        .align_y(Alignment::Center),
-    ]
-    .width(Length::Fill)
-    .boxed()
+    let entry = Entry { field, seed, revealed, line, width: inner * scale, eye: true, autofocus: false };
+    phrase_entry::view(entry, &phrase_entry::pane(cp, scale), cp, scale)
 }
 
 
@@ -627,7 +589,8 @@ pub fn sign_block<'a>(
             fields.phrase,
             phrase_buf,
             fields.phrase_reveal,
-            fields.on_submit.clone(),
+            fields.line,
+            inner,
             cp,
             scale,
         ),

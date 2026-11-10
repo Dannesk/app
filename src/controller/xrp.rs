@@ -1,6 +1,6 @@
 use iced::Task;
 use crate::controller::message::{Message, PlainField, SecureField, TagPane};
-use crate::controller::app_state::{AppState, EnableInputMode, ImportMode, SendAnchor, XrpTokenTab, XrpView, TradeKind, TradeSide, TradeTif, TradeView};
+use crate::controller::app_state::{AppState, EnableInputMode, SendAnchor, XrpTokenTab, XrpView, TradeKind, TradeSide, TradeTif, TradeView};
 use crate::secure::SecureString;
 use crate::channel::CHANNEL;
 use crate::bridge::xrp_import_logic::XRPImportLogic;
@@ -58,23 +58,24 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             }
         }
         Message::Word25Chosen(yes) => {
-            state.xrp_word25 = yes;
+            state.xrp_word25 = Some(yes);
             if !yes {
                 state.xrp_bip39_input.clear();
                 state.xrp_bip39_reveal = false;
             }
         }
         Message::ImportModeChanged(mode) => {
-            if state.xrp_import_mode != mode {
+            if state.xrp_import_mode != Some(mode) {
                 state.xrp_encryption_input.clear();
                 state.xrp_encryption_reveal = false;
-                state.xrp_import_mode = mode;
+                state.xrp_import_mode = Some(mode);
             }
         }
         Message::ImportSubmitClicked => {
             if !crate::ui::components::wallet_setup::can_finish(
                 crate::ui::components::wallet_setup::SetupFlow::Import,
                 &state.xrp_seed_text,
+                false,
                 state.xrp_word25,
                 &state.xrp_bip39_input,
                 state.xrp_import_mode,
@@ -82,6 +83,9 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             ) {
                 return Task::none();
             }
+            let Some(mode) = state.xrp_import_mode else {
+                return Task::none();
+            };
             let Some(ws_tx) = crate::ws::CRYPTO_COMMANDS_TX.get().cloned() else {
                 abandon_setup(state, "Import XRP wallet");
                 return Task::none();
@@ -91,7 +95,6 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             let bip39 = state.xrp_bip39_input.take_trimmed();
             state.hold_entropy(SecureField::XrpEncryption);
             let encryption = state.xrp_encryption_input.take_trimmed();
-            let mode = state.xrp_import_mode;
 
             return Task::perform(
                 async move { XRPImportLogic::process(mnemonic, bip39, encryption, mode, ws_tx).await },
@@ -380,6 +383,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             if !crate::ui::components::wallet_setup::can_finish(
                 crate::ui::components::wallet_setup::SetupFlow::Create,
                 &state.create_mnemonic,
+                state.create_checked,
                 state.xrp_word25,
                 &state.xrp_bip39_input,
                 state.xrp_import_mode,
@@ -387,6 +391,9 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             ) {
                 return Task::none();
             }
+            let Some(mode) = state.xrp_import_mode else {
+                return Task::none();
+            };
             let Some(ws_tx) = crate::ws::CRYPTO_COMMANDS_TX.get().cloned() else {
                 abandon_setup(state, "Create XRP wallet");
                 return Task::none();
@@ -396,7 +403,6 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             let bip39 = state.xrp_bip39_input.take_trimmed();
             state.hold_entropy(SecureField::XrpEncryption);
             let encryption = state.xrp_encryption_input.take_trimmed();
-            let mode = state.xrp_import_mode;
 
             return Task::perform(
                 async move { XRPCreateLogic::process(mnemonic, bip39, encryption, mode, ws_tx).await },
@@ -548,7 +554,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             state.send_bip39.clear();
             state.send_bip39_reveal = false;
             state.send_seed_text.clear();
-            state.send_seed_reveal = false;
+            state.send_seed_reveal = true;
         }
         Message::TradeSideSet(side) => {
             state.trade_side_chosen = true;
@@ -910,7 +916,7 @@ pub(crate) fn clear_trade_secrets(state: &mut AppState) {
     state.trade_bip39.clear();
     state.trade_bip39_reveal = false;
     state.trade_seed_text.clear();
-    state.trade_seed_reveal = false;
+    state.trade_seed_reveal = true;
 }
 
 const PAIR_KEY: &str = "xrp_pair";
@@ -1253,7 +1259,7 @@ pub(crate) fn clear_send_form(state: &mut AppState) {
     state.send_bip39.clear();
     state.send_bip39_reveal = false;
     state.send_seed_text.clear();
-    state.send_seed_reveal = false;
+    state.send_seed_reveal = true;
     state.send_error = None;
 }
 
@@ -1265,7 +1271,7 @@ pub(crate) fn clear_cancel_form(state: &mut AppState) {
     state.cancel_bip39.clear();
     state.cancel_bip39_reveal = false;
     state.cancel_seed_text.clear();
-    state.cancel_seed_reveal = false;
+    state.cancel_seed_reveal = true;
     state.cancel_error = None;
 }
 
@@ -1277,16 +1283,17 @@ fn close_setup(state: &mut AppState) {
 fn reset_setup_form(state: &mut AppState) {
     state.release_entropy();
     state.xrp_seed_text.clear();
-    state.xrp_seed_reveal = false;
+    state.xrp_seed_reveal = true;
     state.xrp_encryption_input.clear();
     state.xrp_encryption_reveal = false;
     state.xrp_bip39_input.clear();
     state.xrp_bip39_reveal = false;
-    state.xrp_word25 = false;
+    state.xrp_word25 = None;
     state.create_mnemonic.clear();
-    state.create_seed_reveal = false;
-    state.xrp_import_mode = ImportMode::default();
+    state.create_seed_reveal = true;
+    state.xrp_import_mode = None;
     state.xrp_copy_feedback = false;
+    crate::controller::setup::reset(state, crate::controller::app_state::SetupChain::Xrp);
 }
 
 fn abandon_setup(state: &mut AppState, title: &'static str) {
@@ -1299,7 +1306,7 @@ fn abandon_setup(state: &mut AppState, title: &'static str) {
 pub(crate) fn clear_reimport_form(state: &mut AppState) {
     state.release_entropy();
     state.reimport_seed_text.clear();
-    state.reimport_seed_reveal = false;
+    state.reimport_seed_reveal = true;
     state.reimport_passphrase.clear();
     state.reimport_passphrase_reveal = false;
     state.reimport_bip39.clear();
@@ -1317,7 +1324,7 @@ pub(crate) fn clear_enable_form(state: &mut AppState) {
     state.enable_bip39.clear();
     state.enable_bip39_reveal = false;
     state.enable_seed_text.clear();
-    state.enable_seed_reveal = false;
+    state.enable_seed_reveal = true;
     state.enable_error = None;
 }
 
@@ -1341,7 +1348,7 @@ pub(crate) fn clear_disable_form(state: &mut AppState) {
     state.disable_bip39.clear();
     state.disable_bip39_reveal = false;
     state.disable_seed_text.clear();
-    state.disable_seed_reveal = false;
+    state.disable_seed_reveal = true;
     state.disable_error = None;
 }
 

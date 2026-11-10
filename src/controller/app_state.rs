@@ -1,6 +1,6 @@
 use zeroize::Zeroize;
 use crate::channel::ActivityLogState;
-use crate::controller::message::{PlainField, SecureField, SecureOp};
+use crate::controller::message::{PhraseOp, PlainField, SecureField, SecureOp};
 use crate::secure::SecureString;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -184,6 +184,45 @@ impl EnableInputMode {
 
 pub use crate::wallet::ImportMode;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupChain {
+    Xrp,
+    Btc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SetupTask {
+    #[default]
+    Phrase,
+    AddressType,
+    Word25,
+    Storage,
+}
+
+#[derive(Clone)]
+pub struct PhraseCheck {
+    pub positions: [usize; 3],
+    pub options: [[&'static str; 4]; 3],
+    pub answered: usize,
+}
+
+impl std::fmt::Debug for PhraseCheck {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PhraseCheck({} of 3)", self.answered)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PhraseLine {
+    pub field: Option<SecureField>,
+    pub active: Option<usize>,
+    pub lit: usize,
+    pub pasted: Option<usize>,
+    pub over: Option<usize>,
+    pub jumps: u32,
+    pub jump_from: usize,
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Theme {
@@ -234,12 +273,12 @@ pub struct AppState {
     pub btc_seed_reveal: bool,
     pub btc_encryption_input: SecureString,
     pub btc_encryption_reveal: bool,
-    pub btc_import_mode: ImportMode,
+    pub btc_import_mode: Option<ImportMode>,
     pub btc_bip39_input: SecureString,
     pub btc_bip39_reveal: bool,
-    pub btc_word25: bool,
+    pub btc_word25: Option<bool>,
   
-    pub btc_script_type: crate::btc_script_type::BtcScriptType,
+    pub btc_script_type: Option<crate::btc_script_type::BtcScriptType>,
     pub xrp_token_tab: XrpTokenTab,
     pub send_asset_picker_open: bool,
     pub enable_passphrase: SecureString,
@@ -286,10 +325,10 @@ pub struct AppState {
     pub xrp_seed_reveal: bool,
     pub xrp_encryption_input: SecureString,
     pub xrp_encryption_reveal: bool,
-    pub xrp_import_mode: ImportMode,
+    pub xrp_import_mode: Option<ImportMode>,
     pub xrp_bip39_input: SecureString,
     pub xrp_bip39_reveal: bool,
-    pub xrp_word25: bool,
+    pub xrp_word25: Option<bool>,
     pub send_step: u8,
     pub send_tab: XrpTokenTab,
     pub send_fee: Option<u64>,
@@ -433,6 +472,12 @@ pub struct AppState {
     pub btc_tip_seen: Option<(u64, Option<std::time::Instant>)>,
     pub socket_laps: Option<(std::time::Instant, u32)>,
     pub btc_behind_peak: Option<u64>,
+    pub xrp_setup_task: SetupTask,
+    pub btc_setup_task: SetupTask,
+    pub create_check: Option<PhraseCheck>,
+    pub create_checked: bool,
+    pub create_mismatch: Option<usize>,
+    pub phrase_line: PhraseLine,
 }
 
 impl AppState {
@@ -510,6 +555,68 @@ impl AppState {
                 text.zeroize();
             }
             SecureOp::ToggleReveal => *reveal = !*reveal,
+        }
+    }
+
+    pub fn apply_phrase_op(&mut self, field: SecureField, op: PhraseOp) {
+        use crate::utils::phrase;
+        if self.phrase_line.field != Some(field) {
+            self.phrase_line = PhraseLine { field: Some(field), ..PhraseLine::default() };
+        }
+        match op {
+            PhraseOp::Caret(slot) => {
+                if self.phrase_line.active != slot {
+                    self.phrase_line.active = slot;
+                    self.phrase_line.lit = 0;
+                }
+                return;
+            }
+            PhraseOp::Lit(n) => {
+                self.phrase_line.lit = n;
+                return;
+            }
+            _ => {}
+        }
+        let (buf, _) = self.secure_field_mut(field);
+        let (mut pasted, mut over, mut jump) = (None, None, None);
+        match op {
+            PhraseOp::Type(k, at, c) => phrase::type_char(buf, k, at, c),
+            PhraseOp::Erase(k, at) => phrase::erase(buf, k, at),
+            PhraseOp::StepBack(k) => phrase::step_back(buf, k),
+            PhraseOp::Take(k, lit, tab) => phrase::take(buf, k, lit, tab),
+            PhraseOp::Pick(k, n) => phrase::pick(buf, k, n),
+            PhraseOp::Choose(k, n) => {
+                phrase::pick(buf, k, n);
+                jump = Some(k);
+            }
+            PhraseOp::Advance => phrase::advance(buf),
+            PhraseOp::Replace(k, c) => phrase::replace(buf, k, c),
+            PhraseOp::Fill(k, mut text) => {
+                let (put, total) = phrase::fill(buf, k, &text);
+                text.zeroize();
+                if total > phrase::SLOTS {
+                    over = Some(total);
+                } else if total > 0 {
+                    pasted = Some(put);
+                }
+            }
+            PhraseOp::Caret(_) | PhraseOp::Lit(_) => {}
+        }
+        let line = &mut self.phrase_line;
+        line.lit = 0;
+        line.pasted = pasted;
+        line.over = over;
+        if let Some(k) = jump {
+            line.jumps = line.jumps.wrapping_add(1);
+            line.jump_from = k;
+        }
+    }
+
+    pub fn forget_phrase_line(&mut self, field: SecureField) {
+        if self.phrase_line.field == Some(field) {
+            self.phrase_line.pasted = None;
+            self.phrase_line.over = None;
+            self.phrase_line.lit = 0;
         }
     }
 
@@ -649,11 +756,6 @@ impl AppState {
         self.secure_field_mut(field).0.char_len()
     }
 
-    pub fn set_secure_reveal(&mut self, field: SecureField, revealed: bool) {
-        let (_, reveal) = self.secure_field_mut(field);
-        *reveal = revealed;
-    }
-
     pub fn replace_secure_field(&mut self, field: SecureField, mut text: String) {
         let cap = field.char_cap();
         let (buf, _) = self.secure_field_mut(field);
@@ -694,14 +796,14 @@ impl Default for AppState {
             xrp_view: XrpView::default(),
             btc_view: BtcView::default(),
             btc_seed_text: SecureString::input(),
-            btc_seed_reveal: false,
+            btc_seed_reveal: true,
             btc_encryption_input: SecureString::input(),
             btc_encryption_reveal: false,
-            btc_import_mode: ImportMode::default(),
+            btc_import_mode: None,
             btc_bip39_input: SecureString::input(),
             btc_bip39_reveal: false,
-            btc_word25: false,
-            btc_script_type: Default::default(),
+            btc_word25: None,
+            btc_script_type: None,
             xrp_token_tab: XrpTokenTab::default(),
             send_asset_picker_open: false,
             enable_passphrase: SecureString::input(),
@@ -709,7 +811,7 @@ impl Default for AppState {
             enable_bip39: SecureString::input(),
             enable_bip39_reveal: false,
             enable_seed_text: SecureString::input(),
-            enable_seed_reveal: false,
+            enable_seed_reveal: true,
             enable_error: None,
             show_enable: false,
             enable_fee: None,
@@ -722,7 +824,7 @@ impl Default for AppState {
             disable_bip39: SecureString::input(),
             disable_bip39_reveal: false,
             disable_seed_text: SecureString::input(),
-            disable_seed_reveal: false,
+            disable_seed_reveal: true,
             disable_error: None,
             key_mgmt_restoring: false,
             btc_key_mgmt_restoring: false,
@@ -736,13 +838,13 @@ impl Default for AppState {
             remove_wallet_requested: false,
             btc_remove_wallet_requested: false,
             xrp_seed_text: SecureString::input(),
-            xrp_seed_reveal: false,
+            xrp_seed_reveal: true,
             xrp_encryption_input: SecureString::input(),
             xrp_encryption_reveal: false,
-            xrp_import_mode: ImportMode::default(),
+            xrp_import_mode: None,
             xrp_bip39_input: SecureString::input(),
             xrp_bip39_reveal: false,
-            xrp_word25: false,
+            xrp_word25: None,
             send_step: 0,
             send_tab: XrpTokenTab::Xrp,
             send_fee: None,
@@ -762,10 +864,10 @@ impl Default for AppState {
             send_bip39: SecureString::input(),
             send_bip39_reveal: false,
             send_seed_text: SecureString::input(),
-            send_seed_reveal: false,
+            send_seed_reveal: true,
             send_error: None,
             create_mnemonic: SecureString::input(),
-            create_seed_reveal: false,
+            create_seed_reveal: true,
             xrp_tx_selected: None,
             xrp_detail_copied: None,
             activity_log: None,
@@ -804,11 +906,11 @@ impl Default for AppState {
             btc_bump_bip39: SecureString::input(),
             btc_bump_bip39_reveal: false,
             btc_bump_seed_text: SecureString::input(),
-            btc_bump_seed_reveal: false,
+            btc_bump_seed_reveal: true,
             btc_send_bip39: SecureString::input(),
             btc_send_bip39_reveal: false,
             btc_send_seed_text: SecureString::input(),
-            btc_send_seed_reveal: false,
+            btc_send_seed_reveal: true,
             trade_pay_asset: String::new(),
             trade_receive_asset: String::new(),
             trade_amount: String::new(),
@@ -826,7 +928,7 @@ impl Default for AppState {
             trade_bip39: SecureString::input(),
             trade_bip39_reveal: false,
             trade_seed_text: SecureString::input(),
-            trade_seed_reveal: false,
+            trade_seed_reveal: true,
             cancel_offer_sequence: None,
             cancel_fee: None,
             cancel_passphrase: SecureString::input(),
@@ -834,10 +936,10 @@ impl Default for AppState {
             cancel_bip39: SecureString::input(),
             cancel_bip39_reveal: false,
             cancel_seed_text: SecureString::input(),
-            cancel_seed_reveal: false,
+            cancel_seed_reveal: true,
             cancel_error: None,
             reimport_seed_text: SecureString::input(),
-            reimport_seed_reveal: false,
+            reimport_seed_reveal: true,
             reimport_passphrase: SecureString::input(),
             reimport_passphrase_reveal: false,
             reimport_bip39: SecureString::input(),
@@ -845,7 +947,7 @@ impl Default for AppState {
             reimport_error: None,
             reimport_spinning: false,
             btc_reimport_seed_text: SecureString::input(),
-            btc_reimport_seed_reveal: false,
+            btc_reimport_seed_reveal: true,
             btc_reimport_passphrase: SecureString::input(),
             btc_reimport_passphrase_reveal: false,
             btc_reimport_bip39: SecureString::input(),
@@ -862,6 +964,12 @@ impl Default for AppState {
             btc_tip_seen: None,
             socket_laps: None,
             btc_behind_peak: None,
+            xrp_setup_task: SetupTask::default(),
+            btc_setup_task: SetupTask::default(),
+            create_check: None,
+            create_checked: false,
+            create_mismatch: None,
+            phrase_line: PhraseLine::default(),
             pin_wallet_identities: load_pin_wallet_identities(),
             gate_unlocked: !gate_enabled,
             gate_exists: crate::gate::exists(),
