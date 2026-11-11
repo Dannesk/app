@@ -631,7 +631,7 @@ fn eyebrow<'a>(left: &str, right: &str, done: bool, cp: &'static theme::CompactP
     if done {
         r = r
             .push(Space::new().width(7.0 * s).boxed())
-            .push(text("\u{2713}").font(MONO).size(compact::EYEBROW * s).color(cp.green).boxed());
+            .push(text("\u{2713}").size(compact::EYEBROW * s).color(cp.green).boxed());
     }
     container(r)
         .width(Length::Fill)

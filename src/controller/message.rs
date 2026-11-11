@@ -1,5 +1,5 @@
 use crate::controller::app_state::{
-    BaseCcy, BtcFeeTier, ImportMode, SetupChain, SetupTask, Tab, TradeSide, XrpTokenTab,
+    BaseCcy, BtcFeeTier, ImportMode, SettingsView, SetupChain, SetupTask, Tab, TradeSide, XrpTokenTab,
 };
 use crate::channel::ActivityLogState;
 
@@ -172,6 +172,7 @@ pub enum Message {
     GateBack,
     GatePinSubmitted,
     GateEnabledToggled(bool),
+    GateCancelled,
     GateWipeExit,
     TabChanged(Tab),
     ImportWalletClicked,
@@ -235,6 +236,8 @@ pub enum Message {
     DisplayCcySet(BaseCcy),
     OpenSettings,
     CloseSettings,
+    SettingsShow(SettingsView),
+    SettingsScrolled(f32),
     BtcImportWalletClicked,
     BtcCreateWalletClicked,
     BtcGenerateMnemonic,

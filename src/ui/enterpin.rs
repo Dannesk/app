@@ -67,7 +67,9 @@ pub fn render_gate(state: &AppState) -> Element<'_, Message> {
     }
 
     let confirming = !state.gate_exists && state.gate_pin_draft.is_some();
-    let title = if state.gate_exists {
+    let title = if state.gate_asking.is_some() {
+        "enter pin"
+    } else if state.gate_exists {
         "welcome back"
     } else if confirming {
         "confirm"
@@ -168,12 +170,18 @@ pub fn render_gate(state: &AppState) -> Element<'_, Message> {
                 .right((SHAKE_BASE - offset) * scale),
         );
 
-    let back: Element<'_, Message> = if confirming {
-        container(ck::back_chevron(Message::GateBack, cp, scale))
-            .padding(Padding::new(0.0).top(ck::CORNER_TOP * scale).left(ck::CORNER_LEFT * scale))
-            .boxed()
+    let back_msg = if confirming {
+        Some(Message::GateBack)
+    } else if state.gate_choosing || state.gate_asking.is_some() {
+        Some(Message::GateCancelled)
     } else {
-        Space::new().boxed()
+        None
+    };
+    let back: Element<'_, Message> = match back_msg {
+        Some(msg) => container(ck::back_chevron(msg, cp, scale))
+            .padding(Padding::new(0.0).top(ck::CORNER_TOP * scale).left(ck::CORNER_LEFT * scale))
+            .boxed(),
+        None => Space::new().boxed(),
     };
 
     container(stack![centred, back].width(Length::Fill).height(Length::Fill))

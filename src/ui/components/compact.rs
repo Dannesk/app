@@ -80,8 +80,19 @@ pub fn corner_button<'a>(
     p:     &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
-    let d = CORNER * scale;
-    let g = CORNER_GLYPH * scale;
+    round_button(icon, msg, CORNER, CORNER_GLYPH, p, scale)
+}
+
+pub fn round_button<'a>(
+    icon:     svg::Handle,
+    msg:      Message,
+    diameter: f32,
+    glyph:    f32,
+    p:        &'static CompactPalette,
+    scale:    f32,
+) -> Element<'a, Message> {
+    let d = diameter * scale;
+    let g = glyph * scale;
     let glyph = container(
         svg(icon)
             .width(Length::Fixed(g))

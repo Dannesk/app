@@ -62,6 +62,9 @@ const PANE_PAD_BOTTOM: f32 = 11.0;
 const STRIP_PAD_BOTTOM: f32 = 9.0;
 const CONTROL_GAP: f32 = 8.0;
 const GLYPH: f32 = 9.0;
+const GLYPH_TEXT: f32 = 10.0;
+const CLOSE_GLYPH: f32 = 12.0;
+const GLYPH_LINE: f32 = 13.0;
 
 const MENU_W: f32 = 254.0;
 const MENU_PAD_H: f32 = 13.0;
@@ -251,12 +254,13 @@ fn title_bar<'a>(
           
             .push(glyph(
                 if maximized { "\u{2199}" } else { "\u{2197}" },
+                GLYPH_TEXT,
                 wrap(GridMsg::Maximize(pane)),
                 cp,
                 scale,
             ));
     }
-    controls = controls.push(glyph("\u{d7}", wrap(GridMsg::Close(pane)), cp, scale));
+    controls = controls.push(glyph("\u{2715}", CLOSE_GLYPH, wrap(GridMsg::Close(pane)), cp, scale));
 
     TitleBar::new(title)
         .controls(Controls::new(controls))
@@ -269,8 +273,13 @@ fn title_bar<'a>(
         })
 }
 
-fn glyph<'a>(mark: &'static str, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    button(text(mark).font(MONO).size(10.0 * scale))
+fn glyph<'a>(mark: &'static str, size: f32, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    button(
+        text(mark)
+            .font(MONO)
+            .size(size * scale)
+            .line_height(iced::widget::text::LineHeight::Absolute(Pixels(GLYPH_LINE * scale))),
+    )
         .on_press(msg)
         .padding(Padding::ZERO)
         .style(move |_, status| button::Style {
@@ -1024,7 +1033,7 @@ pub fn pane_link<'a>(word: &str, msg: Message, cp: &'static CompactPalette, scal
 
 
 pub const RECEIVE_LINE_H: f32 = 21.0;
-const LINE_BTN: f32 = 10.0; 
+const LINE_BTN: f32 = 10.0;
 const TAG_FIELD_W: f32 = 100.0; 
 const TAG_FIELD_H: f32 = 20.0; 
 const TAG_FIELD_PAD_H: f32 = 7.0; 
@@ -1174,7 +1183,18 @@ pub fn line_button<'a>(
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
-    button(text(word).font(MONO).size(size * scale))
+    line_glyph(text(word).font(MONO).size(size * scale), ink, hot_ink, msg, cp, scale)
+}
+
+fn line_glyph<'a>(
+    glyph: iced::widget::Text<'a>,
+    ink: Color,
+    hot_ink: Color,
+    msg: Option<Message>,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
+    button(glyph)
         .on_press_maybe(msg)
         .padding(Padding::new(1.0 * scale).left(4.0 * scale).right(4.0 * scale))
         .style(move |_, status| {
@@ -1191,7 +1211,7 @@ pub fn line_button<'a>(
 }
 
 pub fn line_ok<'a>(msg: Option<Message>, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    line_button("\u{2713}", LINE_BTN, cp.green, cp.green, msg, cp, scale)
+    line_glyph(text("\u{2713}").size(LINE_BTN * scale), cp.green, cp.green, msg, cp, scale)
 }
 
 pub fn line_no<'a>(msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {

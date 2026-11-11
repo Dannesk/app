@@ -11,7 +11,7 @@ use std::time::Duration;
 use crate::channel::CHANNEL;
 use crate::controller::message::Message;
 use crate::controller::app_state::XrpView;
-use crate::controller::app_state::AppState;
+use crate::controller::app_state::{AppState, GateAsk, SettingsView};
 use crate::ui::components::orbit;
 
 const SHORT_HISTORY_CAP: usize = 120;           
@@ -74,6 +74,69 @@ fn wipe_wallet_data() {
     let _ = CHANNEL.activity_tx.send(None);
 }
 
+fn close_settings(state: &mut AppState) {
+    state.settings_open = false;
+    state.settings_view = SettingsView::Main;
+    state.prefs_erase_confirm = false;
+}
+
+fn set_gate_enabled(state: &mut AppState, on: bool) {
+    use crate::bridge::json_storage;
+    use serde_json::Value;
+    state.gate_enabled = on;
+    let _ = json_storage::update_json::<Value>("settings.json", |json| {
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("gate_enabled".to_string(), serde_json::json!(on));
+        }
+    });
+}
+
+fn pin_guards(state: &AppState) -> bool {
+    state.gate_enabled && crate::gate::exists()
+}
+
+fn gate_ask(state: &mut AppState, ask: GateAsk) {
+    state.gate_asking = Some(ask);
+    state.settings_scroll_y = 0.0;
+    state.gate_exists = true;
+    state.gate_unlocked = false;
+    state.gate_pin_draft = None;
+    state.gate_pin_input.clear();
+    state.gate_error = None;
+    state.gate_error_at = None;
+}
+
+fn set_hide_balance(state: &mut AppState, hide: bool) {
+    use crate::bridge::json_storage;
+    use serde_json::Value;
+    state.hide_balance = hide;
+    let _ = json_storage::update_json::<Value>("settings.json", |json| {
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("is_hidden".to_string(), serde_json::json!(hide));
+        }
+    });
+}
+
+fn pin_off(state: &mut AppState) {
+    set_gate_enabled(state, false);
+    crate::gate::delete();
+    state.gate_exists = false;
+}
+
+fn gate_cancel(state: &mut AppState) {
+    let choosing = std::mem::take(&mut state.gate_choosing);
+    let asking = state.gate_asking.take().is_some();
+    if !choosing && !asking {
+        return;
+    }
+    state.gate_unlocked = true;
+    state.gate_exists = crate::gate::exists();
+    state.gate_pin_draft = None;
+    state.gate_pin_input.clear();
+    state.gate_error = None;
+    state.gate_error_at = None;
+}
+
 fn gate_fail(state: &mut AppState, message: String) {
     state.gate_error = Some(message);
     state.gate_error_at = Some(std::time::Instant::now());
@@ -113,6 +176,11 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             state.xrp_grid.menu_open = false;
             state.btc_grid.menu_open = false;
             state.send_asset_picker_open = false;
+            if state.gate_choosing || state.gate_asking.is_some() {
+                gate_cancel(state);
+            } else {
+                close_settings(state);
+            }
         }
         Message::PlainEdit(field, op) => {
             if state.apply_plain_edit(field, op) {
@@ -190,6 +258,11 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
                         state.gate_unlocked = true;
                         crate::startup_trace::stamp("PIN accepted");
                         state.gate_error = None;
+                        match state.gate_asking.take() {
+                            Some(GateAsk::ShowBalances) => set_hide_balance(state, false),
+                            Some(GateAsk::PinOff) => pin_off(state),
+                            None => {}
+                        }
                     }
                     Ok(false) => return gate_wrong_attempt(state),
                     Err(e) => gate_fail(state, e),
@@ -206,6 +279,9 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
                                 state.gate_exists = true;
                                 state.gate_unlocked = true;
                                 state.gate_error = None;
+                                if std::mem::take(&mut state.gate_choosing) {
+                                    set_gate_enabled(state, true);
+                                }
                             }
                             Err(e) => gate_fail(state, format!("could not save pin: {e}")),
                         }
@@ -216,28 +292,24 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
                 }
             }
         }
-        Message::GateEnabledToggled(on) => {
-            use crate::bridge::json_storage;
-            use serde_json::Value;
-            state.gate_enabled = on;
-            let _ = json_storage::update_json::<Value>("settings.json", |json| {
-                if let Some(obj) = json.as_object_mut() {
-                    obj.insert("gate_enabled".to_string(), serde_json::json!(on));
-                }
-            });
-            if !on {
-                crate::gate::delete();
-                state.gate_exists = false;
+        Message::GateEnabledToggled(true) => {
+            state.gate_choosing = true;
+            state.settings_scroll_y = 0.0;
+            state.gate_exists = false;
+            state.gate_unlocked = false;
+            state.gate_pin_draft = None;
+            state.gate_pin_input.clear();
+            state.gate_error = None;
+            state.gate_error_at = None;
+        }
+        Message::GateEnabledToggled(false) => {
+            if state.hide_balance && pin_guards(state) {
+                gate_ask(state, GateAsk::PinOff);
             } else {
-                state.gate_exists = crate::gate::exists();
-                if !state.gate_exists {
-                    state.gate_unlocked = false;
-                    state.gate_pin_draft = None;
-                    state.gate_pin_input.clear();
-                    state.gate_error = None;
-                }
+                pin_off(state);
             }
         }
+        Message::GateCancelled => gate_cancel(state),
         Message::Sync => {
             panes::note_ledger(state);
             panes::note_tip(state);
@@ -302,11 +374,25 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         }
         Message::OpenSettings => {
             state.settings_open = true;
+            state.settings_view = SettingsView::Main;
+            state.settings_scroll_y = 0.0;
             state.prefs_erase_confirm = false;
         }
-        Message::CloseSettings => {
-            state.settings_open = false;
+        Message::CloseSettings => close_settings(state),
+        Message::SettingsShow(view) => {
+            use iced::widget::operation::{scrollable, Animation};
+            use crate::ui::managebalance::settings::BODY;
+            state.settings_view = view;
             state.prefs_erase_confirm = false;
+            return if view == SettingsView::Main {
+                let y = state.settings_scroll_y;
+                scrollable::scroll_to(BODY, scrollable::AbsoluteOffset { x: 0.0, y }, Animation::Instant)
+            } else {
+                scrollable::snap_to(BODY, scrollable::RelativeOffset::START, Animation::Instant)
+            };
+        }
+        Message::SettingsScrolled(y) => {
+            state.settings_scroll_y = y;
         }
         Message::ActivityChanged(val) => {
             state.activity_log = val;
@@ -341,15 +427,11 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             return iced::widget::operation::focus_next();
         }
         Message::ToggleHideBalance => {
-            use crate::bridge::json_storage;
-            use serde_json::Value;
-            state.hide_balance = !state.hide_balance;
-            let hide = state.hide_balance;
-            let _ = json_storage::update_json::<Value>("settings.json", |json| {
-                if let Some(obj) = json.as_object_mut() {
-                    obj.insert("is_hidden".to_string(), serde_json::json!(hide));
-                }
-            });
+            if state.hide_balance && pin_guards(state) {
+                gate_ask(state, GateAsk::ShowBalances);
+            } else {
+                set_hide_balance(state, !state.hide_balance);
+            }
         }
         Message::DisplayCcySet(ccy) => {
             use crate::bridge::json_storage;

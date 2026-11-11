@@ -237,7 +237,7 @@ pub enum Theme {
 impl Theme {
    
     pub const SELECTABLE: &'static [(Theme, &'static str)] =
-        &[(Theme::Paper, "paper"), (Theme::Chalk, "chalk"), (Theme::Graphite, "graphite"), (Theme::Obsidian, "obsidian")];
+        &[(Theme::Paper, "Paper"), (Theme::Chalk, "Chalk"), (Theme::Graphite, "Graphite"), (Theme::Obsidian, "Obsidian")];
 
     pub fn build(self) -> iced::Theme {
         match self {
@@ -260,6 +260,20 @@ impl Theme {
             Theme::Paper
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SettingsView {
+    #[default]
+    Main,
+    Theme,
+    Currency,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GateAsk {
+    ShowBalances,
+    PinOff,
 }
 
 #[derive(Debug)]
@@ -371,6 +385,8 @@ pub struct AppState {
 
   
     pub settings_open: bool,
+    pub settings_view: SettingsView,
+    pub settings_scroll_y: f32,
     pub prefs_erase_confirm: bool,
     pub btc_send_step: u8,
     pub btc_send_recipient: String,
@@ -458,6 +474,8 @@ pub struct AppState {
     pub gate_unlocked: bool,
     pub gate_exists: bool,
     pub gate_enabled: bool,
+    pub gate_choosing: bool,
+    pub gate_asking: Option<GateAsk>,
     pub gate_pin_draft: Option<String>,
     pub gate_pin_input: String,
     pub gate_error: Option<String>,
@@ -880,6 +898,8 @@ impl Default for AppState {
             btc_master_copy_feedback: false,
             xrp_wallet_copy_feedback: false,
             settings_open: false,
+            settings_view: SettingsView::Main,
+            settings_scroll_y: 0.0,
             prefs_erase_confirm: false,
             btc_send_step: 0,
             btc_send_recipient: String::new(),
@@ -974,6 +994,8 @@ impl Default for AppState {
             gate_unlocked: !gate_enabled,
             gate_exists: crate::gate::exists(),
             gate_enabled,
+            gate_choosing: false,
+            gate_asking: None,
             gate_pin_draft: None,
             gate_pin_input: String::new(),
             gate_error: None,

@@ -1,11 +1,12 @@
 use iced::Widget as _;
 use iced::widget::canvas::{self, Canvas, Frame, Path, Stroke};
-use iced::widget::{button, column, container, row, svg, text, Space};
+use iced::widget::{button, column, container, row, stack, svg, text, Space};
 use iced::{mouse, Alignment, Border, Color, Element, Length, Padding, Rectangle, Shadow};
 use crate::channel::CHANNEL;
 use crate::controller::message::Message;
 use crate::controller::app_state::{AppState, Tab};
-use crate::ui::components::{compact, orbit};
+use crate::ui::components::{compact, modal, orbit};
+use crate::ui::managebalance::settings;
 use crate::ui::{activity_log, managexrp, managebtc, managebalance};
 use crate::utils::icons;
 use crate::utils::theme::{self, CompactPalette};
@@ -29,16 +30,23 @@ pub fn render_dashboard(state: &AppState) -> Element<'_, Message> {
 
     let scale = state.scale();
     let p = theme::compact(&state.theme);
-    column![
+    let dark = theme::is_dark(&state.theme);
+    let page = column![
         container(content).width(Length::Fill).height(Length::Fill),
         compact::hairline(p.rule),
         row![
-            dock_tab(Tab::Balance, &state.selected_tab, p, scale),
-            dock_tab(Tab::Xrp,     &state.selected_tab, p, scale),
-            dock_tab(Tab::Btc,     &state.selected_tab, p, scale),
+            dock_tab(Tab::Balance, &state.selected_tab, dark, p, scale),
+            dock_tab(Tab::Xrp,     &state.selected_tab, dark, p, scale),
+            dock_tab(Tab::Btc,     &state.selected_tab, dark, p, scale),
         ]
         .width(Length::Fill),
-    ].boxed()
+    ];
+
+    let mut layers = stack![page].width(Length::Fill).height(Length::Fill);
+    if state.settings_open {
+        layers = layers.push(modal::layer(settings::card(state), p.scrim));
+    }
+    layers.boxed()
 }
 
 
@@ -70,6 +78,7 @@ pub fn tab_label(tab: &Tab) -> &'static str {
 fn dock_tab(
     target:  Tab,
     current: &Tab,
+    dark:    bool,
     p:       &'static CompactPalette,
     scale:   f32,
 ) -> Element<'static, Message> {
@@ -98,7 +107,7 @@ fn dock_tab(
         Space::new().height(Length::Fixed(DOCK_PAD_V * scale - bar_h)),
         container(
             row![
-                dock_icon(&target, is_active, ink, p, scale),
+                dock_icon(&target, is_active, ink, dark, p, scale),
                 Space::new().width(Length::Fixed(DOCK_ICON_GAP * scale)),
                 text(label).size(DOCK_LABEL * scale).line_height(DOCK_LINE).color(ink),
             ]
@@ -132,6 +141,7 @@ fn dock_icon(
     tab:    &Tab,
     active: bool,
     ink:    Color,
+    dark:   bool,
     p:      &'static CompactPalette,
     scale:  f32,
 ) -> Element<'static, Message> {
@@ -146,8 +156,13 @@ fn dock_icon(
             .boxed()
     };
 
+    let track = match (dark, active) {
+        (false, _) => ink,
+        (true, true) => p.muted,
+        (true, false) => p.faint,
+    };
     let glyph = match tab {
-        Tab::Balance => Canvas::new(DockRing { track: ink, arc: p.mint })
+        Tab::Balance => Canvas::new(DockRing { track, arc: p.mint })
             .width(icon)
             .height(icon)
             .boxed(),
