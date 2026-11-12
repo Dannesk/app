@@ -12,7 +12,7 @@ use crate::ui::components::compact as ck;
 use crate::utils::bloom;
 use crate::utils::fonts::MONO;
 use crate::utils::icons;
-use crate::utils::theme::{self, CompactPalette};
+use crate::utils::theme;
 
 const LOGO: f32 = 76.0;
 const TITLE_GAP: f32 = 14.0;
@@ -61,10 +61,6 @@ pub fn pump_ms(state: &AppState) -> Option<u64> {
 pub fn render_gate(state: &AppState) -> Element<'_, Message> {
     let cp = theme::compact(&state.theme);
     let scale = state.scale();
-
-    if state.gate_wiping {
-        return wiping(cp, scale);
-    }
 
     let confirming = !state.gate_exists && state.gate_pin_draft.is_some();
     let title = if state.gate_asking.is_some() {
@@ -213,24 +209,4 @@ fn caret<'a>(colour: Color, scale: f32) -> Element<'a, Message> {
             ..Default::default()
         })
         .boxed()
-}
-
-fn wiping<'a>(cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    container(
-        column![
-            text("that was the last attempt").font(MONO).size(TITLE_SIZE * scale).color(cp.red),
-            Space::new().height(MSG_GAP * scale),
-            text("every wallet on this device has been erased")
-                .font(MONO)
-                .size(MSG_SIZE * scale)
-                .color(cp.muted),
-        ]
-        .align_x(Alignment::Center),
-    )
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .align_x(Alignment::Center)
-    .align_y(Alignment::Center)
-    .style(move |_| container::Style { background: Some(cp.window.into()), ..Default::default() })
-    .boxed()
 }

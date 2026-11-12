@@ -99,7 +99,7 @@ fn pane_content<'a>(
                         series,
                         price::cross("XRP", ccy) as f32,
                         state.xrp_grid.chart_period,
-                        &format!("xrp / {}", ccy.to_lowercase()),
+                        &format!("XRP / {ccy}"),
                         four_dp,
                         theme::is_dark(&state.theme),
                         cp,
@@ -373,7 +373,7 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
     let anchor_fiat = matches!(state.send_anchor, SendAnchor::Fiat);
     let asset_placeholder = if is_xrp { "0.000000" } else { "0.00" };
     let (field, typed, placeholder, figure_unit) = if anchor_fiat {
-        (PlainField::XrpSendFiat, state.send_fiat_amount.as_str(), "0.00", ccy.to_lowercase())
+        (PlainField::XrpSendFiat, state.send_fiat_amount.as_str(), "0.00", ccy.to_string())
     } else {
         (PlainField::XrpSendAmount, state.send_amount.as_str(), asset_placeholder, unit.clone())
     };
@@ -588,7 +588,7 @@ fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
                 Some(a) => {
                     let mut runs = vec![(format_token_amount(a + fee, 6), cp.text), (" xrp".to_string(), cp.faint)];
                     if rate > 0.0 {
-                        runs.push((format!("  \u{b7}  {} {}", fiat_amount((a + fee) * rate), ccy.to_lowercase()), cp.faint));
+                        runs.push((format!("  \u{b7}  {} {}", fiat_amount((a + fee) * rate), ccy), cp.faint));
                     }
                     runs
                 }

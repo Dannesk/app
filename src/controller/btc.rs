@@ -511,11 +511,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
 
 pub(crate) fn set_balance_sats(state: &mut AppState, sats: bool) {
     state.btc_balance_sats = sats;
-    let _ = crate::bridge::json_storage::update_json::<serde_json::Value>("settings.json", |json| {
-        if let Some(obj) = json.as_object_mut() {
-            obj.insert("btc_sats".to_string(), serde_json::json!(sats));
-        }
-    });
+    crate::settings::set_btc_sats(sats);
 }
 
 pub(crate) fn clear_btc_receive_line(state: &mut AppState) {

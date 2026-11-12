@@ -11,6 +11,7 @@ use crate::ui::managebtc::node::{BEHIND_FLOOR_SECS, SYNCED_FLOOR};
 use crate::utils::theme::CompactPalette;
 
 pub const LAP: Duration = Duration::from_millis(1600);
+pub const CATCH_LAP_SECS: f32 = 21.0;
 pub const PANE_MIN_H: f32 = 180.0;
 pub const PULSE: Duration = Duration::from_millis(1400);
 
@@ -27,6 +28,8 @@ const FIGURE_PER_RING: f32 = 28.0 / RING_REF;
 const FIGURE_MIN: f32 = 16.0;
 const FIGURE_FIT: f32 = 0.8;
 const FIGURE_EM: f32 = 0.58;
+const SEG_GAP: f32 = 6.0 / 90.0;
+pub const SEG_HEAD: f32 = 31.0 / 90.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Chain {
@@ -242,6 +245,14 @@ pub fn turn(run: Option<(Instant, u32)>, now: Instant) -> Option<f32> {
     Some(if f < 0.5 { 4.0 * f * f * f } else { 1.0 - (2.0 - 2.0 * f).powi(3) / 2.0 })
 }
 
+pub fn catching(node: Node) -> bool {
+    matches!(node, Node::CatchingUp(_) | Node::NoPeers)
+}
+
+pub fn catch_turn() -> f32 {
+    (crate::utils::bloom::clock_secs() / CATCH_LAP_SECS).fract()
+}
+
 pub fn peak(prev: Option<u64>, node: Node) -> Option<u64> {
     match node {
         Node::CatchingUp(Some(behind)) => Some(prev.map_or(behind, |p| p.max(behind))),
@@ -280,6 +291,11 @@ pub fn arc(frame: &mut Frame, c: Point, r: f32, start: f32, sweep: f32, color: C
     );
 }
 
+pub fn segment(i: usize, total: usize) -> (f32, f32) {
+    let seg = std::f32::consts::TAU / total.max(1) as f32;
+    (-std::f32::consts::FRAC_PI_2 + seg * i as f32 + SEG_GAP, seg - 2.0 * SEG_GAP)
+}
+
 pub fn ring_d(size: Size, scale: f32) -> f32 {
     let wide = size.width / scale - 2.0 * RING_PAD;
     let room = size.height.max(PANE_MIN_H * scale) / scale - 2.0 * RING_PAD;
@@ -316,6 +332,7 @@ pub fn pane<'a>(
             lit: Color { a: alpha, ..node.color(cp) },
             dim: Color { a: alpha, ..cp.dim },
             laps,
+            catching: catching(node),
             scale,
         })
         .width(d)
@@ -335,6 +352,7 @@ struct Ring {
     lit: Color,
     dim: Color,
     laps: Option<(Instant, u32)>,
+    catching: bool,
     scale: f32,
 }
 
@@ -357,7 +375,7 @@ impl<M> canvas::Program<M> for Ring {
             return None;
         };
         state.now = Some(*now);
-        turn(self.laps, *now).map(|_| canvas::Action::request_redraw())
+        (self.catching || turn(self.laps, *now).is_some()).then(canvas::Action::request_redraw)
     }
 
     fn draw(
@@ -377,6 +395,7 @@ impl<M> canvas::Program<M> for Ring {
         track(&mut frame, c, r, RING_DASH * self.scale, RING_PITCH * self.scale, self.track);
         let (lit, spin) = match turn(self.laps, state.now.unwrap_or_else(Instant::now)) {
             Some(t) => (self.dim, std::f32::consts::TAU * t),
+            None if self.catching => (self.lit, std::f32::consts::TAU * catch_turn()),
             None => (self.lit, 0.0),
         };
         arc(

@@ -173,7 +173,7 @@ pub enum Message {
     GatePinSubmitted,
     GateEnabledToggled(bool),
     GateCancelled,
-    GateWipeExit,
+    GateWipeDone,
     TabChanged(Tab),
     ImportWalletClicked,
     CreateWalletClicked,

@@ -11,7 +11,7 @@ pub mod ui;
 pub mod utils;
 
 
-pub use dannesk_core::{bridge, btc_script_type, channel, decrypt, encrypt, gate, secure, wallet, ws};
+pub use dannesk_core::{bridge, btc_script_type, channel, decrypt, encrypt, gate, secure, settings, wallet, ws};
 
 use crate::controller::app_state::AppState;
 use crate::controller::message::Message;
@@ -28,6 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .join("Dannesk");
     dannesk_core::init(dannesk_core::App { version: VERSION, data_dir })
         .map_err(|_| "the core was initialised twice")?;
+    settings::load();
 
 
     utils::fonts::index_before_window();

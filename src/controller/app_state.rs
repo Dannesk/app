@@ -1035,29 +1035,10 @@ fn load_pin_wallet_identities() -> Vec<(String, String)> {
     ids
 }
 
-pub fn default_settings() -> serde_json::Value {
-    serde_json::json!({ "theme": Theme::Paper, "is_hidden": false, "base_currency": "USD", "btc_sats": false })
-}
-
 fn load_settings() -> (iced::Theme, bool, BaseCcy, bool) {
-    use crate::bridge::json_storage;
-    use serde_json::Value;
-
-    if let Some(json) = json_storage::read_json::<Value>("settings.json").ok().filter(Value::is_object) {
-        let ct = json.get("theme")
-            .and_then(|v| serde_json::from_value::<Theme>(v.clone()).ok())
-            .unwrap_or(Theme::Paper);
-        let hide = json.get("is_hidden").and_then(|v| v.as_bool()).unwrap_or(false);
-        let base = json.get("base_currency")
-            .and_then(|v| v.as_str())
-            .map(BaseCcy::from_code)
-            .unwrap_or_default();
-        let sats = json.get("btc_sats").and_then(|v| v.as_bool()).unwrap_or(false);
-        (ct.build(), hide, base, sats)
-    } else {
-        let _ = json_storage::write_json("settings.json", &default_settings());
-        (crate::utils::theme::paper_theme(), false, BaseCcy::default(), false)
-    }
+    let s = crate::channel::CHANNEL.settings_rx.borrow().clone();
+    let theme = serde_json::from_value::<Theme>(serde_json::Value::String(s.theme)).unwrap_or(Theme::Paper);
+    (theme.build(), s.is_hidden, BaseCcy::from_code(&s.base_currency), s.btc_sats)
 }
 #[cfg(test)]
 mod tests {

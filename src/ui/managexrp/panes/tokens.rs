@@ -88,7 +88,7 @@ pub fn held<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         let (bal_str, fiat_str) = if hide {
             (MASK.to_string(), MASK.to_string())
         } else if rate > 0.0 {
-            (format_token_amount(balance, 6), format!("\u{2248} {} {}", money(balance * rate), ccy.to_lowercase()))
+            (format_token_amount(balance, 6), format!("\u{2248} {} {}", money(balance * rate), ccy))
         } else {
             (format_token_amount(balance, 6), NA.to_string())
         };
@@ -205,7 +205,7 @@ fn details_face<'a>(state: &'a AppState, t: &'static tokens::TokenDef, cp: &'sta
     let fiat_str = if hide {
         MASK.to_string()
     } else if rate > 0.0 {
-        format!("\u{2248} {} {}", money(balance * rate), ccy.to_lowercase())
+        format!("\u{2248} {} {}", money(balance * rate), ccy)
     } else {
         NA.to_string()
     };

@@ -8,7 +8,7 @@ pub mod setup;
 
 use iced::Task;
 use std::time::Duration;
-use crate::channel::CHANNEL;
+use crate::bridge::wipe_logic::wipe_wallet_data;
 use crate::controller::message::Message;
 use crate::controller::app_state::XrpView;
 use crate::controller::app_state::{AppState, GateAsk, SettingsView};
@@ -32,48 +32,6 @@ fn within_span(series: Vec<(u64, f32)>, span_ms: u64) -> std::collections::VecDe
 
 pub use subscription::subscriptions;
 
-fn wipe_wallet_data() {
-    use crate::bridge::json_storage::{remove_json, write_json};
-    use crate::channel::{TransactionState, BtcTransactionState, WSCommand};
-
-    let (_, xrp_address, _, _) = CHANNEL.wallet_balance_rx.borrow().clone();
-    let (_, btc_address, _, _) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
-    let ws_tx = crate::ws::CRYPTO_COMMANDS_TX.get().cloned();
-
-    crate::gate::delete();
-
-    if let Some(tx) = &ws_tx {
-        if let Some(address) = xrp_address {
-            let _ = tx.try_send(WSCommand {
-                command: "delete_wallet".to_string(),
-                wallet: Some(address),
-                ..Default::default()
-            });
-        }
-        if let Some(address) = btc_address {
-            let _ = tx.try_send(WSCommand {
-                command: "delete_bitcoin_wallet".to_string(),
-                wallet: Some(address),
-                ..Default::default()
-            });
-        }
-    }
-
-    for file in &["xrp_encrypt.json", "xrp.json", "btc_encrypt.json", "btc.json", "settings.json"] {
-        let _ = remove_json(file);
-    }
-    let _ = write_json("settings.json", &crate::controller::app_state::default_settings());
-
-    let _ = CHANNEL.wallet_balance_tx.send((0.0, None, false, crate::channel::KeyMode::Standard));
-    let _ = CHANNEL.transactions_tx.send(TransactionState::default());
-    CHANNEL.clear_tokens();
-    let _ = CHANNEL.bitcoin_wallet_tx.send((0.0, None, false, crate::channel::KeyMode::Standard));
-    let _ = CHANNEL.btc_transactions_tx.send(BtcTransactionState::default());
-    let _ = CHANNEL.btc_utxos_tx.send((None, Vec::new()));
-    let _ = CHANNEL.pending_trade_tx.send(None);
-    let _ = CHANNEL.activity_tx.send(None);
-}
-
 fn close_settings(state: &mut AppState) {
     state.settings_open = false;
     state.settings_view = SettingsView::Main;
@@ -81,14 +39,8 @@ fn close_settings(state: &mut AppState) {
 }
 
 fn set_gate_enabled(state: &mut AppState, on: bool) {
-    use crate::bridge::json_storage;
-    use serde_json::Value;
     state.gate_enabled = on;
-    let _ = json_storage::update_json::<Value>("settings.json", |json| {
-        if let Some(obj) = json.as_object_mut() {
-            obj.insert("gate_enabled".to_string(), serde_json::json!(on));
-        }
-    });
+    crate::settings::set_gate_enabled(on);
 }
 
 fn pin_guards(state: &AppState) -> bool {
@@ -107,14 +59,8 @@ fn gate_ask(state: &mut AppState, ask: GateAsk) {
 }
 
 fn set_hide_balance(state: &mut AppState, hide: bool) {
-    use crate::bridge::json_storage;
-    use serde_json::Value;
     state.hide_balance = hide;
-    let _ = json_storage::update_json::<Value>("settings.json", |json| {
-        if let Some(obj) = json.as_object_mut() {
-            obj.insert("is_hidden".to_string(), serde_json::json!(hide));
-        }
-    });
+    crate::settings::set_hidden(hide);
 }
 
 fn pin_off(state: &mut AppState) {
@@ -124,6 +70,9 @@ fn pin_off(state: &mut AppState) {
 }
 
 fn gate_cancel(state: &mut AppState) {
+    if state.gate_wiping {
+        return;
+    }
     let choosing = std::mem::take(&mut state.gate_choosing);
     let asking = state.gate_asking.take().is_some();
     if !choosing && !asking {
@@ -147,16 +96,14 @@ fn gate_wrong_attempt(state: &mut AppState) -> Task<Message> {
         0 => {
             wipe_wallet_data();
             state.gate_wiping = true;
-            state.gate_exists = false;
-            state.gate_error = None;
-            state.gate_error_at = None;
+            gate_fail(state, "wiping data \u{2014} goodbye".to_string());
             Task::perform(
                 async { tokio::time::sleep(Duration::from_millis(1800)).await },
-                |_| Message::GateWipeExit,
+                |_| Message::GateWipeDone,
             )
         }
         1 => {
-            gate_fail(state, "1 attempt left \u{2014} then everything is erased".to_string());
+            gate_fail(state, "wrong pin \u{2014} 1 attempt left".to_string());
             Task::none()
         }
         n => {
@@ -229,6 +176,9 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             }
         }
         Message::GateBackspace => {
+            if state.gate_wiping {
+                return Task::none();
+            }
             state.gate_pin_input.pop();
             state.gate_error = None;
             state.gate_error_at = None;
@@ -240,8 +190,16 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             state.gate_error = None;
             state.gate_error_at = None;
         }
-        Message::GateWipeExit => {
-            return iced::exit();
+        Message::GateWipeDone => {
+            xrp::forget_wallet(state);
+            btc::forget_wallet(state);
+            state.reset_settings();
+            close_settings(state);
+            state.gate_wiping = false;
+            state.gate_exists = false;
+            state.gate_asking = None;
+            state.gate_error = None;
+            state.gate_error_at = None;
         }
         Message::GatePinSubmitted => {
             use crate::gate::PIN_DIGITS;
@@ -414,14 +372,10 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             let _ = crate::channel::CHANNEL.activity_tx.send(None);
         }
         Message::ThemeSet(custom) => {
-            use crate::bridge::json_storage;
-            use serde_json::Value;
             state.theme = custom.build();
-            let _ = json_storage::update_json::<Value>("settings.json", |json| {
-                if let Some(obj) = json.as_object_mut() {
-                    obj.insert("theme".to_string(), serde_json::json!(custom));
-                }
-            });
+            if let Ok(serde_json::Value::String(name)) = serde_json::to_value(custom) {
+                crate::settings::set_theme(&name);
+            }
         }
         Message::FocusNext => {
             return iced::widget::operation::focus_next();
@@ -434,16 +388,8 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             }
         }
         Message::DisplayCcySet(ccy) => {
-            use crate::bridge::json_storage;
-            use serde_json::Value;
             state.base_currency = ccy;
-            let base_code = ccy.code();
-            let _ = json_storage::update_json::<Value>("settings.json", |json| {
-                if let Some(obj) = json.as_object_mut() {
-                    obj.insert("base_currency".to_string(), serde_json::json!(base_code));
-                    obj.remove("local_currency");
-                }
-            });
+            crate::settings::set_base_currency(ccy.code());
         }
         Message::PrefsEraseAsked => {
             state.prefs_erase_confirm = true;

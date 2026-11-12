@@ -601,15 +601,13 @@ impl cnvs::Program<Message> for Progress {
         orbit::track(&mut frame, c, r, 2.0 * u, 8.0 * u, self.track);
 
         let total = self.total.max(1);
-        let seg = std::f32::consts::TAU / total as f32;
-        let gap = 6.0 * u / r;
         let width = (2.9 * u).max(1.0);
-        let top = -std::f32::consts::FRAC_PI_2;
         for i in 0..self.done.min(total) {
-            orbit::arc(&mut frame, c, r, top + seg * i as f32 + gap, seg - 2.0 * gap, self.arc, width);
+            let (start, sweep) = orbit::segment(i, total);
+            orbit::arc(&mut frame, c, r, start, sweep, self.arc, width);
         }
         if self.done < total {
-            orbit::arc(&mut frame, c, r, top + seg * self.done as f32 + gap, 31.0 * u / r, self.arc, width);
+            orbit::arc(&mut frame, c, r, orbit::segment(self.done, total).0, orbit::SEG_HEAD, self.arc, width);
         }
 
         frame.stroke(

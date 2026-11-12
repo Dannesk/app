@@ -1,32 +1,34 @@
 
 use iced::Widget as _;
 use iced::widget::canvas::{self as cnvs};
-use iced::widget::{Column, Row, Space, button, canvas, column, container, text};
-use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Point, Radians, Rectangle, Shadow};
-use iced::mouse;
+use iced::widget::{Row, Space, canvas, column, container, stack, text};
+use iced::{Alignment, Color, Element, Length, Padding, Point, Radians, Rectangle};
+use iced::{mouse, window};
 use std::time::Instant;
-use crate::channel::{ActivityLogState, ActivityStepState};
+use crate::channel::{ActivityLogState, ActivityStepState, Socket, CHANNEL};
 use crate::controller::message::Message;
+use crate::ui::components::compact;
+use crate::ui::components::orbit::{self, Chain, Status};
 use crate::utils::bloom;
-use crate::utils::fonts::MONO;
+use crate::utils::fonts::{LIGHT, MONO};
 use crate::utils::theme::{self, CompactPalette};
 
 const BLOCK_W: f32 = 380.0;
 const PAD_H: f32 = 16.0;
 
-
-const REASSURE_SECS: f32 = 10.0;
 const SPIN_SECS: f32 = 0.85;
 
 const FILL_EASE_SECS: f32 = 0.5;
 
-const TITLE: f32 = 13.0;
-const COUNTER: f32 = 8.5;
+const RING_D: f32 = 220.0;
+const RING_W: f32 = 1.7;
+const RING_GAP: f32 = 14.0;
+
+const TITLE: f32 = 16.5;
 const STEP_LABEL: f32 = 11.5;
 const STEP_ELAPSED: f32 = 11.0;
 const STEP_GLYPH: f32 = 9.0;
 const NOTE: f32 = 10.0;
-const BUTTON: f32 = 11.5;
 const GLYPH_W: f32 = 10.0;
 const SPINNER: f32 = 8.0;
 
@@ -41,13 +43,14 @@ fn ms_label(ms: u64) -> String {
 }
 
 
-fn fill_fraction(log: &ActivityLogState, tick: Instant) -> f32 {
-    let total = log.steps.len().max(1) as f32;
-    let done = log.steps.iter().filter(|s| matches!(s.state, ActivityStepState::Ok { .. })).count();
-    if done == 0 {
-        return 0.0;
-    }
-    let last_at = log
+fn eased(tick: Instant, at: Instant) -> f32 {
+    let t = (tick.saturating_duration_since(at).as_secs_f32() / FILL_EASE_SECS).clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
+}
+
+fn arcs(log: &ActivityLogState, tick: Instant) -> Vec<(f32, f32)> {
+    let total = log.steps.len();
+    let newest = log
         .steps
         .iter()
         .filter_map(|s| match s.state {
@@ -55,14 +58,34 @@ fn fill_fraction(log: &ActivityLogState, tick: Instant) -> f32 {
             _ => None,
         })
         .max();
-    let eased = match last_at {
-        Some(at) => {
-            let t = (tick.saturating_duration_since(at).as_secs_f32() / FILL_EASE_SECS).clamp(0.0, 1.0);
-            1.0 - (1.0 - t).powi(3)
-        }
-        None => 1.0,
+    log.steps
+        .iter()
+        .enumerate()
+        .filter_map(|(i, step)| {
+            let (start, full) = orbit::segment(i, total);
+            let head = orbit::SEG_HEAD.min(full);
+            let sweep = match step.state {
+                ActivityStepState::Pending => return None,
+                ActivityStepState::Active { .. } => head,
+                ActivityStepState::Ok { at, .. } if Some(at) == newest => head + (full - head) * eased(tick, at),
+                _ => full,
+            };
+            Some((start, sweep))
+        })
+        .collect()
+}
+
+fn link_words(key: Option<&str>) -> Status {
+    let chain = match key.and_then(|k| k.split(':').next()) {
+        Some("relay") => Some(Chain::Xrp),
+        Some("btc") => Some(Chain::Btc),
+        _ => None,
     };
-    ((done - 1) as f32 + eased) / total
+    match chain {
+        Some(chain) if *CHANNEL.proxy_ws_status_rx.borrow() => Status::Offline(Some(chain)),
+        _ if matches!(orbit::socket(), Socket::Connecting { .. }) => Status::Connecting,
+        _ => Status::Reconnecting,
+    }
 }
 
 pub fn render_activity_log<'a>(
@@ -73,56 +96,32 @@ pub fn render_activity_log<'a>(
 ) -> Element<'a, Message> {
     let cp = theme::compact(iced_theme);
 
-
-    let link_down = !*crate::channel::CHANNEL.link_rx(log.health_key).borrow();
-
-    let done = log.steps.iter().filter(|s| matches!(s.state, ActivityStepState::Ok { .. })).count();
-    let total = log.steps.len();
     let failed = log.any_error();
     let terminal = log.is_terminal();
+    let down = !terminal && !*CHANNEL.link_rx(log.health_key).borrow();
 
-
-    let counter: Element<'_, Message> = if failed {
-        counter_runs(vec![("failed \u{00b7} ", cp.muted), (&format!("{done} / {total}"), cp.dim)], scale)
-    } else if terminal {
-        let elapsed: u64 = log
-            .steps
-            .iter()
-            .filter_map(|s| match s.state {
-                ActivityStepState::Ok { ms, .. } => Some(ms),
-                _ => None,
-            })
-            .sum();
-        counter_runs(vec![("done \u{00b7} ", cp.muted), (&ms_label(elapsed), cp.dim)], scale)
+    let (middle, ink) = if down {
+        let status = link_words(log.health_key);
+        (status.words(), if status.strong() { cp.text } else { cp.dim })
     } else {
-        counter_runs(vec![(&done.to_string(), cp.dim), (&format!(" / {total}"), cp.muted)], scale)
+        (log.title, cp.text)
     };
-
-    let header = container(
-        Row::with_children(vec![
-            text(log.title).size(TITLE * scale).color(cp.text).boxed(),
-            Space::new().width(Length::Fill).boxed(),
-            counter,
-        ])
-        .align_y(Alignment::End),
-    )
-    .width(Length::Fill)
-    .padding(Padding::new(0.0).left(PAD_H * scale).right(PAD_H * scale).bottom(8.0 * scale));
-
-    let frac = fill_fraction(log, tick);
-    let fill_colour = if failed { cp.red } else { cp.dim };
-    let track = container(
-        container(Space::new())
-            .width(Length::Fixed((BLOCK_W * scale * frac).max(0.0)))
-            .height(Length::Fixed(1.0))
-            .style(move |_| container::Style {
-                background: Some(fill_colour.into()),
-                ..Default::default()
-            }),
-    )
-    .width(Length::Fill)
-    .height(Length::Fixed(1.0))
-    .style(move |_| container::Style { background: Some(cp.rule.into()), ..Default::default() });
+    let lit = if failed { cp.red } else { cp.green };
+    let d = Length::Fixed(RING_D * scale);
+    let ring = container(stack![
+        canvas(Ring {
+            arcs: arcs(log, tick),
+            lit: Color { a: 0.85, ..lit },
+            dim: Color { a: 0.85, ..cp.dim },
+            track: Color { a: 0.32, ..cp.faint },
+            down,
+            scale,
+        })
+        .width(d)
+        .height(d),
+        container(text(middle).font(LIGHT).size(TITLE * scale).color(ink)).center(d),
+    ])
+    .center_x(Length::Fill);
 
 
     let mut rows: Vec<Element<'_, Message>> = Vec::new();
@@ -141,13 +140,13 @@ pub fn render_activity_log<'a>(
                 cp.text,
                 cp.muted,
             ),
-        
+
             ActivityStepState::Ok { .. } => (
                 text("\u{2713}").size(STEP_GLYPH * scale).color(cp.green).boxed(),
                 cp.text,
                 cp.muted,
             ),
-          
+
             ActivityStepState::Error { .. } | ActivityStepState::Stalled { .. } => (
                 text("\u{2715}").font(MONO).size(STEP_GLYPH * scale).color(cp.red).boxed(),
                 cp.red,
@@ -155,35 +154,11 @@ pub fn render_activity_log<'a>(
             ),
         };
 
-  
+
         let elapsed = match &step.state {
             ActivityStepState::Ok { ms, .. } => ms_label(*ms),
-            ActivityStepState::Error { .. } => String::new(),
             _ => String::new(),
         };
-
-        let mut body: Column<Element<'_, Message>> = column![Row::with_children(vec![
-            text(step.label).size(STEP_LABEL * scale).color(label_colour).boxed(),
-            Space::new().width(Length::Fill).boxed(),
-            text(elapsed).font(MONO).size(STEP_ELAPSED * scale).color(elapsed_colour).boxed(),
-        ])
-        .align_y(Alignment::End)];
-
-    
-        if let ActivityStepState::Active { since } = &step.state {
-            let (line, colour) = if link_down {
-                (Some("Network dropped \u{2014} retrying connection\u{2026}"), cp.amber)
-            } else if tick.saturating_duration_since(*since).as_secs_f32() >= REASSURE_SECS {
-                (Some("Still waiting for the network\u{2026}"), cp.muted)
-            } else {
-                (None, cp.muted)
-            };
-            if let Some(line) = line {
-                body = body
-                    .push(Space::new().height(3.0 * scale).boxed())
-                    .push(text(line).size(NOTE * scale).color(colour).boxed());
-            }
-        }
 
         rows.push(
             container(
@@ -193,7 +168,14 @@ pub fn render_activity_log<'a>(
                         .align_x(Alignment::Center)
                         .boxed(),
                     Space::new().width(10.0 * scale).boxed(),
-                    body.width(Length::Fill).boxed(),
+                    Row::with_children(vec![
+                        text(step.label).size(STEP_LABEL * scale).color(label_colour).boxed(),
+                        Space::new().width(Length::Fill).boxed(),
+                        text(elapsed).font(MONO).size(STEP_ELAPSED * scale).color(elapsed_colour).boxed(),
+                    ])
+                    .align_y(Alignment::End)
+                    .width(Length::Fill)
+                    .boxed(),
                 ])
                 .align_y(Alignment::End),
             )
@@ -221,62 +203,19 @@ pub fn render_activity_log<'a>(
         (None, None) => Space::new().boxed(),
     };
 
-  
-    let footer = container(
-        button(
-            text("Continue")
-                .size(BUTTON * scale)
-                .color(if terminal { cp.text } else { cp.faint }),
-        )
-        .padding(Padding::new(0.0).top(5.0 * scale).bottom(5.0 * scale).left(18.0 * scale).right(18.0 * scale))
-        .on_press_maybe(terminal.then_some(Message::ActivityDismiss))
-        .style(move |_, status| {
-            let hot = terminal && matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: Some(Background::Color(match (terminal, hot) {
-                    (false, _) => Color::TRANSPARENT,
-                    (true, false) => cp.neutral,
-                    (true, true) => cp.hover,
-                })),
-                text_color: if terminal { cp.text } else { cp.faint },
-                border: Border {
-                    color: if terminal { cp.border } else { cp.border_soft },
-                    width: 1.0,
-                    radius: (6.0 * scale).into(),
-                },
-                shadow: Shadow::default(),
-                snap: false,
-            }
-        }),
-    )
-    .width(Length::Fill)
-    .align_x(Alignment::End)
-    .padding(Padding::new(0.0).top(13.0 * scale).left(PAD_H * scale).right(PAD_H * scale));
+
+    let footer = container(compact::cta("Continue", terminal, Message::ActivityDismiss, cp, scale))
+        .width(Length::Fill)
+        .padding(Padding::new(0.0).top(13.0 * scale).left(PAD_H * scale).right(PAD_H * scale));
 
     container(
-        column![header, track, steps, note, footer].width(Length::Fixed(BLOCK_W * scale)),
+        column![ring, Space::new().height(RING_GAP * scale), steps, note, footer]
+            .width(Length::Fixed(BLOCK_W * scale)),
     )
     .width(Length::Fill)
     .height(Length::Fill)
     .style(move |_| container::Style { background: Some(cp.window.into()), ..Default::default() })
     .center(Length::Fill)
-    .boxed()
-}
-
-
-fn counter_runs<'a>(runs: Vec<(&str, Color)>, scale: f32) -> Element<'a, Message> {
-    Row::with_children(
-        runs.into_iter()
-            .map(|(s, c)| {
-                text(s.to_uppercase())
-                    .font(MONO)
-                    .size(COUNTER * scale)
-                    .color(c)
-                    .boxed()
-            })
-            .collect::<Vec<_>>(),
-    )
-    .align_y(Alignment::End)
     .boxed()
 }
 
@@ -302,7 +241,7 @@ fn note_block<'a>(
 
     container(
         column![
-            crate::ui::components::compact::hairline(cp.rule),
+            compact::hairline(cp.rule),
             Space::new().height(9.0 * scale),
             r,
         ]
@@ -313,6 +252,67 @@ fn note_block<'a>(
     .boxed()
 }
 
+
+struct Ring {
+    arcs: Vec<(f32, f32)>,
+    lit: Color,
+    dim: Color,
+    track: Color,
+    down: bool,
+    scale: f32,
+}
+
+#[derive(Default)]
+struct Laps {
+    run: Option<(Instant, u32)>,
+    now: Option<Instant>,
+}
+
+impl cnvs::Program<Message> for Ring {
+    type State = Laps;
+
+    fn update(
+        &self,
+        state: &mut Laps,
+        event: &cnvs::Event,
+        _bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Option<cnvs::Action<Message>> {
+        let cnvs::Event::Window(window::Event::RedrawRequested(now)) = event else {
+            return None;
+        };
+        state.now = Some(*now);
+        if self.down && orbit::turn(state.run, *now).is_none() {
+            state.run = Some((*now, 1));
+        }
+        orbit::turn(state.run, *now).is_some().then(cnvs::Action::request_redraw)
+    }
+
+    fn draw(
+        &self,
+        state: &Laps,
+        renderer: &iced::Renderer,
+        _theme: &iced::Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<cnvs::Geometry<iced::Renderer>> {
+        let mut frame = cnvs::Frame::new(renderer, bounds.size());
+        let c = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let r = bounds.width.min(bounds.height) / 2.0 - RING_W * self.scale;
+        if r <= 0.0 {
+            return vec![frame.into_geometry()];
+        }
+        orbit::track(&mut frame, c, r, 2.0 * self.scale, 8.0 * self.scale, self.track);
+        let (colour, spin) = match orbit::turn(state.run, state.now.unwrap_or_else(Instant::now)) {
+            Some(t) => (self.dim, std::f32::consts::TAU * t),
+            None => (self.lit, 0.0),
+        };
+        for &(start, sweep) in &self.arcs {
+            orbit::arc(&mut frame, c, r, start + spin, sweep, colour, (RING_W * self.scale).max(1.0));
+        }
+        vec![frame.into_geometry()]
+    }
+}
 
 
 struct Spinner {
@@ -381,27 +381,33 @@ mod tests {
         }
     }
 
-    #[test]
-    fn an_untouched_run_shows_no_fill() {
-        let log = log_with(vec![ActivityStepState::Pending; 4]);
-        assert_eq!(fill_fraction(&log, Instant::now()), 0.0);
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-6
     }
 
     #[test]
-    fn a_settled_bar_is_done_over_total() {
+    fn an_untouched_run_lights_nothing() {
+        let log = log_with(vec![ActivityStepState::Pending; 4]);
+        assert!(arcs(&log, Instant::now()).is_empty());
+    }
+
+    #[test]
+    fn a_settled_step_fills_its_segment_and_the_active_one_shows_the_head() {
         let then = Instant::now() - Duration::from_secs(5);
         let log = log_with(vec![
             ActivityStepState::Ok { ms: 2200, at: then },
-            ActivityStepState::Ok { ms: 0, at: then },
             ActivityStepState::Active { since: then },
             ActivityStepState::Pending,
+            ActivityStepState::Pending,
         ]);
-        assert!((fill_fraction(&log, Instant::now()) - 0.5).abs() < 1e-6);
+        let lit = arcs(&log, Instant::now());
+        assert_eq!(lit.len(), 2);
+        assert!(close(lit[0].1, orbit::segment(0, 4).1));
+        assert!(close(lit[1].0, orbit::segment(1, 4).0) && close(lit[1].1, orbit::SEG_HEAD));
     }
 
-  
     #[test]
-    fn the_fill_eases_from_the_previous_step() {
+    fn the_newest_segment_grows_from_the_head() {
         let now = Instant::now();
         let log = log_with(vec![
             ActivityStepState::Ok { ms: 2200, at: now - Duration::from_secs(5) },
@@ -409,14 +415,31 @@ mod tests {
             ActivityStepState::Pending,
             ActivityStepState::Pending,
         ]);
-        let f = fill_fraction(&log, now);
-        assert!((f - 0.25).abs() < 1e-6, "the bar jumped instead of easing: {f}");
+        let lit = arcs(&log, now);
+        assert!(close(lit[0].1, orbit::segment(0, 4).1));
+        assert!(close(lit[1].1, orbit::SEG_HEAD), "the segment jumped instead of growing: {}", lit[1].1);
     }
 
     #[test]
-    fn a_finished_run_fills_completely() {
+    fn a_failed_step_fills_its_segment() {
+        let then = Instant::now() - Duration::from_secs(5);
+        let log = log_with(vec![
+            ActivityStepState::Ok { ms: 10, at: then },
+            ActivityStepState::Stalled { message: "Connection lost".to_string() },
+            ActivityStepState::Pending,
+            ActivityStepState::Pending,
+        ]);
+        let lit = arcs(&log, Instant::now());
+        assert_eq!(lit.len(), 2);
+        assert!(close(lit[1].1, orbit::segment(1, 4).1));
+    }
+
+    #[test]
+    fn a_finished_run_fills_every_segment() {
         let then = Instant::now() - Duration::from_secs(5);
         let log = log_with(vec![ActivityStepState::Ok { ms: 10, at: then }; 4]);
-        assert!((fill_fraction(&log, Instant::now()) - 1.0).abs() < 1e-6);
+        let lit = arcs(&log, Instant::now());
+        assert_eq!(lit.len(), 4);
+        assert!(lit.iter().all(|&(_, sweep)| close(sweep, orbit::segment(0, 4).1)));
     }
 }

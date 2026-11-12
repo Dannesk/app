@@ -180,7 +180,7 @@ pub(crate) fn sign<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
         let with_fiat = |sats: u64, value: String| -> Vec<(String, iced::Color)> {
             let mut runs = vec![(value, cp.text), (" btc".to_string(), cp.faint)];
             if fx > 0.0 {
-                runs.push((format!("  \u{b7}  {} {}", fiat_cost(sats as f64 / 1e8 * fx), ccy.to_lowercase()), cp.faint));
+                runs.push((format!("  \u{b7}  {} {}", fiat_cost(sats as f64 / 1e8 * fx), ccy), cp.faint));
             }
             runs
         };
@@ -227,7 +227,7 @@ pub(crate) fn sign<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
             (Some(a), Some(f)) => {
                 let mut runs = vec![(btc(a + f.fee), cp.text), (" btc".to_string(), cp.faint)];
                 if fx > 0.0 {
-                    runs.push((format!("  \u{b7}  {} {}", fiat_amount((a + f.fee) as f64 / 1e8 * fx), ccy.to_lowercase()), cp.faint));
+                    runs.push((format!("  \u{b7}  {} {}", fiat_amount((a + f.fee) as f64 / 1e8 * fx), ccy), cp.faint));
                 }
                 runs
             }

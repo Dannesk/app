@@ -96,7 +96,7 @@ fn pane_content<'a>(
                         series,
                         price::cross("BTC", ccy) as f32,
                         state.btc_grid.chart_period,
-                        &format!("btc / {}", ccy.to_lowercase()),
+                        &format!("BTC / {ccy}"),
                         as_money,
                         theme::is_dark(&state.theme),
                         cp,
@@ -321,7 +321,7 @@ fn fees_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
                 ];
                 if price > 0.0 {
                     cost.push((fiat_cost(sats as f64 / 1e8 * price), cp.dim));
-                    cost.push((format!(" {}", ccy.to_lowercase()), cp.muted));
+                    cost.push((format!(" {}", ccy), cp.muted));
                 } else {
                     cost.push((NA.to_string(), cp.faint));
                 }
@@ -534,7 +534,7 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
 
     let anchor_fiat = matches!(state.btc_send_anchor, SendAnchor::Fiat);
     let (field, typed, placeholder, figure_unit) = if anchor_fiat {
-        (PlainField::BtcSendFiat, state.btc_send_fiat_amount.as_str(), "0.00", ccy.to_lowercase())
+        (PlainField::BtcSendFiat, state.btc_send_fiat_amount.as_str(), "0.00", ccy.to_string())
     } else {
         (PlainField::BtcSendAmount, state.btc_send_amount.as_str(), "0.00000000", "btc".to_string())
     };
@@ -737,7 +737,7 @@ fn send_review<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
             Some(f) => {
                 let mut runs = vec![(add_commas(f as i64), cp.dim), (" sat".to_string(), cp.faint)];
                 if rate > 0.0 {
-                    runs.push((format!("  \u{b7}  {} {}", fiat_cost(f as f64 / 1e8 * rate), ccy.to_lowercase()), cp.faint));
+                    runs.push((format!("  \u{b7}  {} {}", fiat_cost(f as f64 / 1e8 * rate), ccy), cp.faint));
                 }
                 runs
             }
@@ -763,7 +763,7 @@ fn send_review<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
                 let sum = a + f;
                 let mut runs = vec![(btc(sum), cp.text), (" btc".to_string(), cp.faint)];
                 if rate > 0.0 {
-                    runs.push((format!("  \u{b7}  {} {}", fiat_amount(sum as f64 / 1e8 * rate), ccy.to_lowercase()), cp.faint));
+                    runs.push((format!("  \u{b7}  {} {}", fiat_amount(sum as f64 / 1e8 * rate), ccy), cp.faint));
                 }
                 runs
             }
@@ -863,7 +863,7 @@ pub(crate) fn sats_cost(sats: Option<u64>, price: f64, ccy: &str, cp: &'static C
     ];
     if price > 0.0 {
         cost.push((fiat_cost(fee as f64 / 1e8 * price), cp.dim));
-        cost.push((format!(" {}", ccy.to_lowercase()), cp.muted));
+        cost.push((format!(" {}", ccy), cp.muted));
     } else {
         cost.push((NA.to_string(), cp.faint));
     }

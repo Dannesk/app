@@ -133,6 +133,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
             Node::CatchingUp(behind) => behind,
             _ => None,
         },
+        catching: orbit::catching(n),
     });
     let ring_box = Length::Fixed((RING_R + RING_PAD) * 2.0 * scale);
     let ring = Orbit {
@@ -278,6 +279,7 @@ fn under(line: Line, pct: Option<f32>, p: &'static CompactPalette, scale: f32) -
 struct Arc {
     color: Color,
     behind: Option<u64>,
+    catching: bool,
 }
 
 struct Orbit {
@@ -311,7 +313,8 @@ impl canvas::Program<Message> for Orbit {
             return None;
         };
         state.now = Some(*now);
-        orbit::turn(self.laps, *now).map(|_| canvas::Action::request_redraw())
+        let catching = self.arcs.iter().any(|a| a.catching);
+        (catching || orbit::turn(self.laps, *now).is_some()).then(canvas::Action::request_redraw)
     }
 
     fn draw(
@@ -341,7 +344,11 @@ impl canvas::Program<Message> for Orbit {
         for ((arc, home), peak) in self.arcs.iter().zip(HOMES).zip(self.peaks) {
             let (color, sweep, spin) = match lap {
                 Some(t) => (self.dim, ARC_DEG, 360.0 * t),
-                None => (arc.color, ARC_DEG + CATCH_DEG * orbit::progress(arc.behind, peak), 0.0),
+                None => (
+                    arc.color,
+                    ARC_DEG + CATCH_DEG * orbit::progress(arc.behind, peak),
+                    if arc.catching { 360.0 * orbit::catch_turn() } else { 0.0 },
+                ),
             };
             let start = (home - ARC_DEG / 2.0 + spin - 90.0).to_radians();
             orbit::arc(
