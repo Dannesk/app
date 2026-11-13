@@ -89,10 +89,10 @@ fn body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Ele
             .height(Length::Fill)
             .padding(Padding::new(0.0).top(CHART_PAD_TOP * scale).bottom(CHART_PAD_BOTTOM * scale)),
         axis_row(left, right, cp, scale),
-        drow("average", average, 0.0, cp, scale),
-        drow("slowest", slowest, 3.0, cp, scale),
-        drow("difficulty epoch", epoch, 3.0, cp, scale),
-        drow("retarget", retarget, 3.0, cp, scale),
+        drow("Average", average, 0.0, cp, scale),
+        drow("Slowest", slowest, 3.0, cp, scale),
+        drow("Difficulty epoch", epoch, 3.0, cp, scale),
+        drow("Retarget", retarget, 3.0, cp, scale),
     ]
     .width(Length::Fill)
     .height(Length::Fill)

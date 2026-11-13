@@ -45,7 +45,7 @@ fn issuer_line(t: &tokens::TokenDef) -> String {
 
 fn issuer_row<'a>(t: &tokens::TokenDef, top: f32, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     drow(
-        "issuer",
+        "Issuer",
         vec![(t.issuer_name.to_string(), cp.text), (format!("  \u{b7}  {}", short_issuer(t.issuer)), cp.muted)],
         top,
         cp,
@@ -55,7 +55,7 @@ fn issuer_row<'a>(t: &tokens::TokenDef, top: f32, cp: &'static CompactPalette, s
 
 fn reserve_runs(cp: &'static CompactPalette) -> Vec<(String, Color)> {
     match xrp_reserve() {
-        Some(r) => vec![(format_token_amount(r.per_object, 6), cp.text), (" xrp".to_string(), cp.faint)],
+        Some(r) => vec![(format_token_amount(r.per_object, 6), cp.text), (" XRP".to_string(), cp.faint)],
         None => vec![(NA.to_string(), cp.faint)],
     }
 }
@@ -148,7 +148,7 @@ fn enable_face<'a>(state: &'a AppState, t: &'static tokens::TokenDef, cp: &'stat
         let sign = sign_block(&fields, &state.enable_passphrase, &state.enable_seed_text, &state.enable_bip39, armed, buttons, inner, cp, scale);
         let body = column![
             issuer_row(t, 0.0, cp, scale),
-            drow("reserve", reserve_runs(cp), 3.0, cp, scale),
+            drow("Reserve", reserve_runs(cp), 3.0, cp, scale),
             fee_row(state.enable_fee, 3.0, cp, scale),
             sign,
             Space::new().height(2.0 * scale),
@@ -185,7 +185,7 @@ fn remove_face<'a>(state: &'a AppState, t: &'static tokens::TokenDef, cp: &'stat
         let sign = sign_block(&fields, &state.disable_passphrase, &state.disable_seed_text, &state.disable_bip39, armed, buttons, inner, cp, scale);
         let body = column![
             issuer_row(t, 0.0, cp, scale),
-            drow("reserve returned", reserve_runs(cp), 3.0, cp, scale),
+            drow("Reserve returned", reserve_runs(cp), 3.0, cp, scale),
             fee_row(state.disable_fee, 3.0, cp, scale),
             sign,
             Space::new().height(2.0 * scale),
@@ -231,25 +231,25 @@ fn details_face<'a>(state: &'a AppState, t: &'static tokens::TokenDef, cp: &'sta
         hero,
         text(fiat_str).font(MONO).size(SUB * scale).color(cp.muted),
         group_rule(cp, scale),
-        drow("issuer", vec![(t.issuer_name.to_string(), cp.text)], 0.0, cp, scale),
-        address_fact("issuer address", t.issuer, state.xrp_issuer_copied, Message::CopyIssuerAddress(t.code), cp, scale),
+        drow("Issuer", vec![(t.issuer_name.to_string(), cp.text)], 0.0, cp, scale),
+        address_fact("Issuer address", t.issuer, state.xrp_issuer_copied, Message::CopyIssuerAddress(t.code), cp, scale),
     ]
     .width(Length::Fill);
     if let Some(own) = own {
-        body = body.push(address_fact("your address", &own, state.xrp_wallet_copy_feedback, Message::WalletCopyAddress, cp, scale));
+        body = body.push(address_fact("Your address", &own, state.xrp_wallet_copy_feedback, Message::WalletCopyAddress, cp, scale));
     }
     body = body
         .push(drow(
-            "limit",
+            "Limit",
             match limit {
-                Some(l) => vec![(limit_text(l), cp.text), (format!(" {}", t.ticker.to_lowercase()), cp.faint)],
+                Some(l) => vec![(limit_text(l), cp.text), (format!(" {}", t.ticker), cp.faint)],
                 None => vec![(NA.to_string(), cp.faint)],
             },
             3.0,
             cp,
             scale,
         ))
-        .push(drow("reserve", reserve_runs(cp), 3.0, cp, scale))
+        .push(drow("Reserve", reserve_runs(cp), 3.0, cp, scale))
         .push(Space::new().height(8.0 * scale).boxed())
         .push(text(note).font(MONO).size(HINT * scale).color(cp.dim).boxed())
         .push(Space::new().height(12.0 * scale).boxed())

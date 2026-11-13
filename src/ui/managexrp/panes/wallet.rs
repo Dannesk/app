@@ -39,19 +39,19 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
     let mut rows = column![
         text(if cold { COLD } else { STANDARD }).font(MONO).size(BIG * scale).color(cp.text),
         group_rule(cp, scale),
-        drow("seed", vec![((if cold { COLD_SEED } else { STANDARD_SEED }).to_string(), cp.dim)], 0.0, cp, scale),
+        drow("Seed", vec![((if cold { COLD_SEED } else { STANDARD_SEED }).to_string(), cp.dim)], 0.0, cp, scale),
     ]
     .width(Length::Fill);
     if !cold {
         rows = rows
-            .push(drow("cipher", vec![(STANDARD_CIPHER.to_string(), cp.dim)], 3.0, cp, scale))
-            .push(drow("kdf", vec![(STANDARD_KDF.to_string(), cp.dim)], 3.0, cp, scale));
+            .push(drow("Cipher", vec![(STANDARD_CIPHER.to_string(), cp.dim)], 3.0, cp, scale))
+            .push(drow("KDF", vec![(STANDARD_KDF.to_string(), cp.dim)], 3.0, cp, scale));
     }
     rows = rows
         .push(
             container(
                 row![
-                    text("address").size(super::KEY * scale).color(cp.dim),
+                    text("Address").size(super::KEY * scale).color(cp.dim),
                     Space::new().width(Length::Fill),
                     text(grid::elide_addr(&address)).font(MONO).size(ROW_VALUE * scale).color(cp.dim).wrapping(Wrapping::Glyph),
                     grid::copy_glyph(state.xrp_wallet_copy_feedback, Message::WalletCopyAddress, cp, scale),
@@ -64,9 +64,9 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         );
 
     let mode: Element<'a, Message> = if cold {
-        pane_button("Restore key", true, false, Message::KeyMgmtRestoreToggled, cp, scale)
+        grid::outline("Restore key", true, Message::KeyMgmtRestoreToggled, cp, scale)
     } else {
-        pane_button("Remove key", !state.key_purge_requested, false, Message::DeleteXrpKey, cp, scale)
+        grid::outline("Remove key", !state.key_purge_requested, Message::DeleteXrpKey, cp, scale)
     };
     let remove = danger_button("Remove wallet", !state.remove_wallet_requested, Message::RemoveXrpWallet, cp, scale);
 
@@ -150,7 +150,7 @@ fn restore<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> 
 
         let buttons = button_pair(
             quiet_button("Cancel", Message::KeyMgmtRestoreToggled, cp, scale),
-            pane_button("Restore key", armed, true, Message::ReimportConfirm, cp, scale),
+            pane_button("Restore key", armed, Message::ReimportConfirm, cp, scale),
             scale,
         );
 

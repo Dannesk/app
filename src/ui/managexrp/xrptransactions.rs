@@ -63,9 +63,9 @@ impl Side {
 
     pub(crate) fn key(self) -> &'static str {
         match self {
-            Side::Sell => "sell",
-            Side::Buy => "buy",
-            Side::Trade => "trade",
+            Side::Sell => "Sell",
+            Side::Buy => "Buy",
+            Side::Trade => "Trade",
         }
     }
 }
@@ -317,11 +317,11 @@ pub(crate) fn facts(tx: &Tx, reserve: Option<f64>, p: &'static CompactPalette) -
         None => vec![Seg::mono(NA, p.muted)],
     };
     let issuer = |t: &tokens::TokenDef| {
-        plain("issuer", vec![Seg::word(t.issuer_name, p.text), Seg::mono(format!("  {}", short_issuer(t.issuer)), p.dim)])
+        plain("Issuer", vec![Seg::word(t.issuer_name, p.text), Seg::mono(format!("  {}", short_issuer(t.issuer)), p.dim)])
     };
     let fee = || {
         plain(
-            "network fee",
+            "Network fee",
             match tx.fee_drops {
                 Some(d) => vec![Seg::mono(d.to_string(), p.dim), Seg::mono(" drops", p.muted)],
                 None => vec![Seg::mono(NA, p.muted)],
@@ -333,13 +333,13 @@ pub(crate) fn facts(tx: &Tx, reserve: Option<f64>, p: &'static CompactPalette) -
     match tx.kind {
         Kind::Payment => {
             if !tx.sender.is_empty() {
-                rows.push(address("from", &tx.sender));
+                rows.push(address("From", &tx.sender));
             }
             if !tx.receiver.is_empty() {
-                rows.push(address("to", &tx.receiver));
+                rows.push(address("To", &tx.receiver));
             }
             if let Some(tag) = tx.destination_tag {
-                rows.push(plain("destination tag", vec![Seg::mono(tag.to_string(), p.text)]));
+                rows.push(plain("Destination tag", vec![Seg::mono(tag.to_string(), p.text)]));
             }
             if let Some(t) = tokens::by_code(&tx.currency) {
                 rows.push(issuer(t));
@@ -347,7 +347,7 @@ pub(crate) fn facts(tx: &Tx, reserve: Option<f64>, p: &'static CompactPalette) -
             if tx.status == TransactionStatus::Failed
                 && let Some(code) = &tx.result
             {
-                rows.push(plain("result", vec![Seg::mono(code.clone(), p.text)]));
+                rows.push(plain("Result", vec![Seg::mono(code.clone(), p.text)]));
             }
             if !tx.incoming {
                 rows.push(fee());
@@ -355,13 +355,13 @@ pub(crate) fn facts(tx: &Tx, reserve: Option<f64>, p: &'static CompactPalette) -
         }
         Kind::Trustline => {
             let unit = unit_of(&tx.currency);
-            rows.push(plain("token", vec![Seg::mono(unit.clone(), p.text)]));
+            rows.push(plain("Token", vec![Seg::mono(unit.clone(), p.text)]));
             if let Some(t) = tokens::by_code(&tx.currency) {
                 rows.push(issuer(t));
             }
             let limit = tx.amount.parse::<f64>().ok().map(limit_text);
             rows.push(plain(
-                "limit",
+                "Limit",
                 match limit {
                     Some(l) => vec![Seg::mono(l, p.text), Seg::mono(format!(" {unit}"), p.muted)],
                     None => vec![Seg::mono(NA, p.muted)],
@@ -372,29 +372,29 @@ pub(crate) fn facts(tx: &Tx, reserve: Option<f64>, p: &'static CompactPalette) -
         Kind::Cancel | Kind::Other => rows.push(fee()),
         Kind::Offer => {
             let base_unit = tx.base_unit();
-            rows.push(plain("limit price", rate(tx.price)));
-            rows.push(plain("filled", value(tx.filled_base(), &base_unit)));
+            rows.push(plain("Limit price", rate(tx.price)));
+            rows.push(plain("Filled", value(tx.filled_base(), &base_unit)));
             if tx.open() {
                 let (rest, unit) = tx.rest();
-                rows.push(plain(if tx.sell() { "receive" } else { "pay" }, value(rest, &unit)));
+                rows.push(plain(if tx.sell() { "Receive" } else { "Pay" }, value(rest, &unit)));
             } else {
                 let (moved, unit) = tx.moved();
-                rows.push(plain(if tx.sell() { "received" } else { "paid" }, value(moved, &unit)));
+                rows.push(plain(if tx.sell() { "Received" } else { "Paid" }, value(moved, &unit)));
                 if tx.fill_price.is_some() {
-                    rows.push(plain("filled price", rate(tx.fill_price)));
+                    rows.push(plain("Filled price", rate(tx.fill_price)));
                 }
             }
-            rows.push(plain("time in force", vec![Seg::word(tif_name(tx.tif()), p.text)]));
+            rows.push(plain("Time in force", vec![Seg::word(tif_name(tx.tif()), p.text)]));
             for t in tx.issuers() {
                 rows.push(issuer(t));
             }
             if tx.open() {
-                rows.push(plain("reserve", value(reserve, "XRP")));
+                rows.push(plain("Reserve", value(reserve, "XRP")));
             }
             rows.push(fee());
         }
     }
-    rows.push(address("hash", &tx.hash));
+    rows.push(address("Hash", &tx.hash));
     rows
 }
 
@@ -570,11 +570,11 @@ mod tests {
         let mut raw = tx("payment", TransactionStatus::Success, THEM, OWN, "10", "XRP");
         raw.destination_tag = Some(11747);
         let f = facts(&Tx::from(&raw, OWN), None, P);
-        assert_eq!(keys(&f), ["from", "to", "destination tag", "hash"]);
+        assert_eq!(keys(&f), ["From", "To", "Destination tag", "Hash"]);
         assert_eq!(f[0].copy.as_deref(), Some(THEM));
         assert_eq!(f[3].copy.as_deref(), Some(raw.tx_id.as_str()));
         let out = facts(&Tx::from(&tx("payment", TransactionStatus::Success, OWN, THEM, "1", "XRP"), OWN), None, P);
-        assert!(flat(&out).contains("network fee=12 drops"), "{}", flat(&out));
+        assert!(flat(&out).contains("Network fee=12 drops"), "{}", flat(&out));
     }
 
     #[test]
@@ -583,7 +583,7 @@ mod tests {
         raw.result = Some("tecPATH_DRY".to_string());
         let t = Tx::from(&raw, OWN);
         let f = facts(&t, None, P);
-        assert!(keys(&f).contains(&"result") && keys(&f).contains(&"issuer"), "{:?}", keys(&f));
+        assert!(keys(&f).contains(&"Result") && keys(&f).contains(&"Issuer"), "{:?}", keys(&f));
         let n = note(&t, None).unwrap();
         assert!(n.starts_with("Nothing was sent: no RLUSD path"), "{n}");
         assert!(n.ends_with("usually a missing trustline."), "{n}");
@@ -593,15 +593,15 @@ mod tests {
     fn a_trustline_row_shows_the_reserve_and_its_card_the_limit() {
         let t = Tx::from(&tx("trustset", TransactionStatus::Success, OWN, "", "1000000", "RLUSD"), OWN);
         assert_eq!(t.amount_parts(Some(0.2)), Some(("0.200000".to_string(), "XRP".to_string())));
-        assert_eq!(keys(&facts(&t, Some(0.2), P)), ["token", "issuer", "limit", "network fee", "hash"]);
-        assert!(flat(&facts(&t, Some(0.2), P)).contains("limit=1,000,000 RLUSD"));
+        assert_eq!(keys(&facts(&t, Some(0.2), P)), ["Token", "Issuer", "Limit", "Network fee", "Hash"]);
+        assert!(flat(&facts(&t, Some(0.2), P)).contains("Limit=1,000,000 RLUSD"));
     }
 
     #[test]
     fn a_cancel_has_no_amount_and_shows_its_fee() {
         let t = Tx::from(&tx("offercancel", TransactionStatus::Success, OWN, "", "0", "XRP"), OWN);
         assert_eq!(t.amount_parts(None), None);
-        assert_eq!(keys(&facts(&t, None, P)), ["network fee", "hash"]);
+        assert_eq!(keys(&facts(&t, None, P)), ["Network fee", "Hash"]);
         assert_eq!(t.word(), "Cancel");
     }
 
@@ -612,12 +612,12 @@ mod tests {
         assert_eq!(t.word(), "Sell");
         assert_eq!(t.amount_parts(None), Some(("388.000000".to_string(), "XRP".to_string())));
         let f = facts(&t, Some(0.2), P);
-        assert_eq!(keys(&f), ["limit price", "filled", "receive", "time in force", "issuer", "reserve", "network fee", "hash"]);
-        assert!(flat(&f).contains("limit price=1.3714 RLUSD"), "{}", flat(&f));
-        assert!(flat(&f).contains("filled=612.000000 XRP"));
-        assert!(flat(&f).contains("receive=532.190000 RLUSD"));
-        assert!(flat(&f).contains("time in force=Good til Cancelled"));
-        assert!(!keys(&f).contains(&"sequence"));
+        assert_eq!(keys(&f), ["Limit price", "Filled", "Receive", "Time in force", "Issuer", "Reserve", "Network fee", "Hash"]);
+        assert!(flat(&f).contains("Limit price=1.3714 RLUSD"), "{}", flat(&f));
+        assert!(flat(&f).contains("Filled=612.000000 XRP"));
+        assert!(flat(&f).contains("Receive=532.190000 RLUSD"));
+        assert!(flat(&f).contains("Time in force=Good til Cancelled"));
+        assert!(!keys(&f).contains(&"Sequence"));
         let n = note(&t, Some(0.2)).unwrap();
         assert_eq!(n, "612.000000 XRP has filled and stays yours. Cancelling takes the rest off the book and returns the 0.20 XRP reserve.");
         assert_eq!(t.cancellable(), Some(41));
@@ -640,8 +640,8 @@ mod tests {
         assert_eq!(t.cancellable(), None);
         assert_eq!(t.amount_parts(None), Some(("1,000.000000".to_string(), "XRP".to_string())));
         let f = facts(&t, Some(0.2), P);
-        assert_eq!(keys(&f), ["limit price", "filled", "received", "filled price", "time in force", "issuer", "network fee", "hash"]);
-        assert!(flat(&f).contains("received=839.210000 RLUSD"));
+        assert_eq!(keys(&f), ["Limit price", "Filled", "Received", "Filled price", "Time in force", "Issuer", "Network fee", "Hash"]);
+        assert!(flat(&f).contains("Received=839.210000 RLUSD"));
         assert_eq!(note(&t, None), None);
         assert_eq!((t.state_label(), t.state_color(P)), ("partial", P.dim));
     }
@@ -650,7 +650,7 @@ mod tests {
     fn a_cancelled_order_reads_cancelled_with_its_fill_and_no_line() {
         let t = Tx::from(&sell(TransactionStatus::Cancelled), OWN);
         assert_eq!((t.state_label(), t.state_color(P)), ("cancelled", P.dim));
-        assert!(flat(&facts(&t, None, P)).contains("filled=612.000000 XRP"));
+        assert!(flat(&facts(&t, None, P)).contains("Filled=612.000000 XRP"));
         assert_eq!(note(&t, None), None);
     }
 
@@ -672,9 +672,9 @@ mod tests {
         assert_eq!(t.word(), "Buy");
         assert_eq!(t.state_label(), "filled");
         let f = flat(&facts(&t, None, P));
-        assert!(f.contains("filled=2.000000 XRP"), "{f}");
-        assert!(f.contains("paid=2.802100 RLUSD"), "{f}");
-        assert!(f.contains("limit price=1.4011 RLUSD"), "{f}");
+        assert!(f.contains("Filled=2.000000 XRP"), "{f}");
+        assert!(f.contains("Paid=2.802100 RLUSD"), "{f}");
+        assert!(f.contains("Limit price=1.4011 RLUSD"), "{f}");
     }
 
     #[test]

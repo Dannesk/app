@@ -16,10 +16,6 @@ const BID_HUE: Color = Color { r: 95.0 / 255.0, g: 192.0 / 255.0, b: 138.0 / 255
 
 pub const ASK_WASH: Color = Color { a: 0.13, ..ASK_HUE };
 pub const BID_WASH: Color = Color { a: 0.13, ..BID_HUE };
-pub const BUY_FILL: Color = Color { a: 0.12, ..BID_HUE };
-pub const BUY_BORDER: Color = Color { a: 0.42, ..BID_HUE };
-pub const SELL_FILL: Color = Color { a: 0.12, ..ASK_HUE };
-pub const SELL_BORDER: Color = Color { a: 0.42, ..ASK_HUE };
 
 pub fn disp(code: &str) -> &str {
     if code == "XRP" { "XRP" } else { tokens::by_code(code).map(|t| t.display).unwrap_or(code) }

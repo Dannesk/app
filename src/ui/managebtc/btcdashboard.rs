@@ -483,7 +483,7 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
     if !addr.is_empty() {
         head = head
             .push(Space::new().width(Length::Fill).boxed())
-            .push(xrp_panes::link("clear", cp.dim, Message::BtcSendRecipientCleared, cp, scale));
+            .push(xrp_panes::link("Clear", cp.dim, Message::BtcSendRecipientCleared, cp, scale));
     }
     let mut to_block = column![
         head,
@@ -517,7 +517,7 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
     };
     let fee_line = choice_button(
         fee_choice(
-            "network fee",
+            "Network fee",
             Some(state.btc_send_fee_tier.label()),
             caption,
             fee.map_or(RateCell::Dash, |f| RateCell::Text(rate_text(f.rate), f.vsize)),
@@ -589,7 +589,7 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
         ("available".to_string(), cp.muted)
     };
     let avail_value: Vec<(String, Color)> = match spendable {
-        Some(s) => vec![(format_token_amount(s as f64 / 1e8, 8), cp.text), (" btc".to_string(), cp.faint)],
+        Some(s) => vec![(format_token_amount(s as f64 / 1e8, 8), cp.text), (" BTC".to_string(), cp.faint)],
         None => vec![(NA.to_string(), cp.faint)],
     };
     let mut avail_row = row![
@@ -602,7 +602,7 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
     if spendable.is_some() && fee.is_some_and(|f| f.max > 0) {
         avail_row = avail_row
             .push(Space::new().width(6.0 * scale).boxed())
-            .push(xrp_panes::link("max", cp.dim, Message::BtcSendMaxClicked, cp, scale));
+            .push(xrp_panes::link("Max", cp.dim, Message::BtcSendMaxClicked, cp, scale));
     }
 
     column![
@@ -677,14 +677,14 @@ fn fee_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
             cp,
             scale,
         );
-        let body = fee_choice("custom", None, Some(caption), RateCell::Field(field), fee_cost(typed, price, ccy, cp), Gutter::Check(false), cp, scale);
+        let body = fee_choice("Custom", None, Some(caption), RateCell::Field(field), fee_cost(typed, price, ccy, cp), Gutter::Check(false), cp, scale);
         choice_button(body, true, None, cp, scale)
     } else if let (BtcFeeTier::Custom, Some(f)) = (state.btc_send_fee_tier, quote.as_ref().and_then(|q| q.custom)) {
         let caption = tiers.map(|t| Caption::from(btcsend::custom_read(f.fee, &t)));
-        let body = fee_choice("custom", None, caption, RateCell::Text(rate_text(f.rate), f.vsize), fee_cost(Some(f), price, ccy, cp), Gutter::Check(true), cp, scale);
+        let body = fee_choice("Custom", None, caption, RateCell::Text(rate_text(f.rate), f.vsize), fee_cost(Some(f), price, ccy, cp), Gutter::Check(true), cp, scale);
         choice_button(body, true, Some(Message::BtcSendFeeTierSelected(BtcFeeTier::Custom)), cp, scale)
     } else {
-        let body = fee_choice("custom", None, Some(Caption::Plain(btcsend::OWN_RATE)), RateCell::Empty, Vec::new(), Gutter::Chevron, cp, scale);
+        let body = fee_choice("Custom", None, Some(Caption::Plain(btcsend::OWN_RATE)), RateCell::Empty, Vec::new(), Gutter::Chevron, cp, scale);
         choice_button(body, false, tiers.is_some().then_some(Message::BtcSendFeeTierSelected(BtcFeeTier::Custom)), cp, scale)
     };
     col = col.push(custom_row);
@@ -724,9 +724,9 @@ fn send_review<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
         ]
         .width(Length::Fill);
         facts = facts.push(drow(
-            "amount",
+            "Amount",
             match amount {
-                Some(a) => vec![(btc(a), cp.text), (" btc".to_string(), cp.faint)],
+                Some(a) => vec![(btc(a), cp.text), (" BTC".to_string(), cp.faint)],
                 None => vec![(NA.to_string(), cp.faint)],
             },
             2.0,
@@ -746,7 +746,7 @@ fn send_review<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
         facts = facts.push(
             container(
                 row![
-                    text("network fee").size(ROW_KEY * scale).color(cp.dim),
+                    text("Network fee").size(ROW_KEY * scale).color(cp.dim),
                     Space::new().width(5.0 * scale),
                     text(state.btc_send_fee_tier.label()).font(MONO).size(HINT * scale).color(cp.faint),
                     Space::new().width(Length::Fill),
@@ -761,7 +761,7 @@ fn send_review<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
         let total = match (amount, fee) {
             (Some(a), Some(f)) => {
                 let sum = a + f;
-                let mut runs = vec![(btc(sum), cp.text), (" btc".to_string(), cp.faint)];
+                let mut runs = vec![(btc(sum), cp.text), (" BTC".to_string(), cp.faint)];
                 if rate > 0.0 {
                     runs.push((format!("  \u{b7}  {} {}", fiat_amount(sum as f64 / 1e8 * rate), ccy), cp.faint));
                 }
@@ -771,7 +771,7 @@ fn send_review<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
         };
         facts = facts.push(group_rule(cp, scale)).push(
             row![
-                text("total").size(ROW_KEY * scale).color(cp.dim),
+                text("Total").size(ROW_KEY * scale).color(cp.dim),
                 Space::new().width(Length::Fill),
                 compact::mono_runs(total, ROW_TOTAL * scale),
             ]
@@ -1009,17 +1009,17 @@ fn blocks_body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(Padding::new(0.0).top(2.0 * scale).bottom(10.0 * scale)),
-        drow("status", vec![(format!("\u{25cf} {word}"), dot)], 3.0, cp, scale),
+        drow("Status", vec![(format!("\u{25cf} {word}"), dot)], 3.0, cp, scale),
         drow(
-            "block",
+            "Block",
             vec![(node.tip_height.map_or(NA.to_string(), |h| add_commas(h as i64)), cp.text)],
             3.0,
             cp,
             scale,
         ),
-        drow("since last block", since, 3.0, cp, scale),
-        drow("weight", weight, 3.0, cp, scale),
-        drow("peers", vec![(node.peers.map_or(NA.to_string(), |n| n.to_string()), cp.dim)], 3.0, cp, scale),
+        drow("Since last block", since, 3.0, cp, scale),
+        drow("Weight", weight, 3.0, cp, scale),
+        drow("Peers", vec![(node.peers.map_or(NA.to_string(), |n| n.to_string()), cp.dim)], 3.0, cp, scale),
     ]
     .width(Length::Fill)
     .height(Length::Fill)

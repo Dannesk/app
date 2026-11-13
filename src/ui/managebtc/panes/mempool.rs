@@ -82,9 +82,9 @@ fn body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Ele
             .height(Length::Fill)
             .padding(Padding::new(0.0).top(CHART_PAD_TOP * scale).bottom(CHART_PAD_BOTTOM * scale)),
         axis_row(left, right, cp, scale),
-        drow("pending", pending_row, 0.0, cp, scale),
-        drow("transactions", count_row, 3.0, cp, scale),
-        drow("blocks to clear", clear_row, 3.0, cp, scale),
+        drow("Pending", pending_row, 0.0, cp, scale),
+        drow("Transactions", count_row, 3.0, cp, scale),
+        drow("Blocks to clear", clear_row, 3.0, cp, scale),
     ]
     .width(Length::Fill)
     .height(Length::Fill)

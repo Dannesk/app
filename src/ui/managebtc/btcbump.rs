@@ -19,7 +19,7 @@ use crate::utils::theme::CompactPalette;
 use crate::utils::{add_commas, fiat_amount, fiat_cost, price};
 pub use crate::utils::btc_bump::{BtcBumpDraft, BtcBumpQuote, BumpFee};
 
-const NO_QUOTE: &str = "waiting for this send\u{2019}s details and today\u{2019}s rates";
+const NO_QUOTE: &str = "Waiting for this send\u{2019}s details and today\u{2019}s rates";
 
 pub fn draft(state: &AppState) -> Option<BtcBumpDraft> {
     let txid = state.btc_bump_txid.clone()?;
@@ -115,7 +115,7 @@ pub(crate) fn rates<'a>(state: &'a AppState, cp: &'static CompactPalette, scale:
                     scale,
                 );
                 let body = fee_choice(
-                    "custom",
+                    "Custom",
                     None,
                     Some(custom_caption(&q, typed, tiers)),
                     RateCell::Field(field),
@@ -127,7 +127,7 @@ pub(crate) fn rates<'a>(state: &'a AppState, cp: &'static CompactPalette, scale:
                 choice_button(body, true, None, cp, scale)
             } else {
                 let body = fee_choice(
-                    "custom",
+                    "Custom",
                     None,
                     Some(custom_caption(&q, None, tiers)),
                     RateCell::Empty,
@@ -178,7 +178,7 @@ pub(crate) fn sign<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
         });
         let locked = state.btc_bump_locked;
         let with_fiat = |sats: u64, value: String| -> Vec<(String, iced::Color)> {
-            let mut runs = vec![(value, cp.text), (" btc".to_string(), cp.faint)];
+            let mut runs = vec![(value, cp.text), (" BTC".to_string(), cp.faint)];
             if fx > 0.0 {
                 runs.push((format!("  \u{b7}  {} {}", fiat_cost(sats as f64 / 1e8 * fx), ccy), cp.faint));
             }
@@ -192,8 +192,8 @@ pub(crate) fn sign<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
         .width(Length::Fill);
         let amount = send.as_ref().map(|t| t.sats());
         facts = facts.push(drow(
-            "amount",
-            amount.map_or(vec![(NA.to_string(), cp.faint)], |a| vec![(btc(a), cp.text), (" btc".to_string(), cp.faint)]),
+            "Amount",
+            amount.map_or(vec![(NA.to_string(), cp.faint)], |a| vec![(btc(a), cp.text), (" BTC".to_string(), cp.faint)]),
             2.0,
             cp,
             scale,
@@ -202,7 +202,7 @@ pub(crate) fn sign<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
         facts = facts.push(
             container(
                 row![
-                    text("new fee").size(ROW_KEY * scale).color(cp.dim),
+                    text("New fee").size(ROW_KEY * scale).color(cp.dim),
                     Space::new().width(5.0 * scale),
                     text(state.btc_bump_fee_tier.label()).font(MONO).size(HINT * scale).color(cp.faint),
                     Space::new().width(Length::Fill),
@@ -215,9 +215,9 @@ pub(crate) fn sign<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
             .boxed(),
         );
         facts = facts.push(drow(
-            "fee now",
+            "Fee now",
             locked.map_or(vec![(NA.to_string(), cp.faint)], |f| {
-                vec![(btc(f.fee - f.extra), cp.dim), (" btc".to_string(), cp.faint)]
+                vec![(btc(f.fee - f.extra), cp.dim), (" BTC".to_string(), cp.faint)]
             }),
             2.0,
             cp,
@@ -225,7 +225,7 @@ pub(crate) fn sign<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
         ));
         let total = match (amount, locked) {
             (Some(a), Some(f)) => {
-                let mut runs = vec![(btc(a + f.fee), cp.text), (" btc".to_string(), cp.faint)];
+                let mut runs = vec![(btc(a + f.fee), cp.text), (" BTC".to_string(), cp.faint)];
                 if fx > 0.0 {
                     runs.push((format!("  \u{b7}  {} {}", fiat_amount((a + f.fee) as f64 / 1e8 * fx), ccy), cp.faint));
                 }
@@ -235,7 +235,7 @@ pub(crate) fn sign<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: 
         };
         facts = facts.push(group_rule(cp, scale)).push(
             row![
-                text("total").size(ROW_KEY * scale).color(cp.dim),
+                text("Total").size(ROW_KEY * scale).color(cp.dim),
                 Space::new().width(Length::Fill),
                 compact::mono_runs(total, ROW_TOTAL * scale),
             ]

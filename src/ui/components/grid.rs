@@ -409,43 +409,22 @@ pub fn rule_label<'a>(word: &str, cp: &'static CompactPalette, scale: f32) -> El
     .boxed()
 }
 
-pub fn pane_button<'a>(word: &str, enabled: bool, primary: bool, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    button(
-        text(word.to_string())
-            .size(BUTTON * scale)
-            .width(Length::Fill)
-            .align_x(Alignment::Center)
-            .color(if enabled { cp.text } else { cp.faint }),
-    )
-    .on_press_maybe(enabled.then_some(msg))
-    .width(Length::Fill)
-    .padding(Padding::new(0.0).top(5.0 * scale).bottom(5.0 * scale))
-    .style(move |_, status| {
-        if !enabled {
-            return button::Style {
-                background: None,
-                border: Border { color: cp.border_soft, width: 1.0, radius: (6.0 * scale).into() },
-                text_color: cp.faint,
-                shadow: Shadow::default(),
-                snap: false,
-            };
-        }
-        let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-        let fill = if hot { cp.hover } else if primary { cp.pill } else { cp.neutral };
-        button::Style {
-            background: Some(fill.into()),
-            border: Border { color: cp.border, width: 1.0, radius: (6.0 * scale).into() },
-            text_color: cp.text,
-            shadow: Shadow::default(),
-            snap: false,
-        }
-    })
-    .boxed()
+pub fn pane_button<'a>(word: &str, enabled: bool, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    button(text(word.to_string()).size(BUTTON * scale).width(Length::Fill).align_x(Alignment::Center))
+        .on_press_maybe(enabled.then_some(msg))
+        .width(Length::Fill)
+        .padding(Padding::new(0.0).top(5.0 * scale).bottom(5.0 * scale))
+        .style(move |_, status| crate::ui::components::compact::button_style(cp, 6.0 * scale, enabled, status))
+        .boxed()
 }
 
 
 pub fn quiet_button<'a>(word: &str, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     outline_button(word, true, cp.dim, cp.hover, msg, cp, scale)
+}
+
+pub fn outline<'a>(word: &str, enabled: bool, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    outline_button(word, enabled, cp.text, cp.hover, msg, cp, scale)
 }
 
 pub fn danger_button<'a>(word: &str, enabled: bool, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -627,7 +606,7 @@ pub fn sign_block<'a>(
 }
 
 pub fn primary<'a>(word: &str, live: bool, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    pane_button(word, live, true, msg, cp, scale)
+    pane_button(word, live, msg, cp, scale)
 }
 
 
@@ -716,7 +695,7 @@ pub fn chart_pane<'a>(
                     .height(Length::Fill)
                     .boxed()
             } else {
-                container(text("waiting for data\u{2026}").size(ROW_KEY * scale).color(cp.muted))
+                container(text("Waiting for data\u{2026}").size(ROW_KEY * scale).color(cp.muted))
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .align_x(Alignment::Center)
@@ -949,7 +928,7 @@ pub fn swap_glyph<'a>(text_size: f32, color: Color) -> Element<'a, Message> {
 
 pub fn copy_glyph<'a>(copied: bool, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     if copied {
-        return text("\u{2713} copied").size(ROW_KEY * scale).color(cp.green).boxed();
+        return text("\u{2713} Copied").size(ROW_KEY * scale).color(cp.green).boxed();
     }
     let g = COPY_GLYPH * scale;
     button(
@@ -1004,15 +983,15 @@ pub fn tag_line<'a>(tag: Option<u32>, pane: TagPane, cp: &'static CompactPalette
 
 pub fn tag_word(tag: Option<u32>) -> String {
     match tag {
-        None => "set destination tag".to_string(),
-        Some(t) => format!("tag {t}"),
+        None => "Set destination tag".to_string(),
+        Some(t) => format!("Tag {t}"),
     }
 }
 
 
 pub fn pane_link<'a>(word: &str, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     button(
-        text(format!("{} \u{203a}", word.to_uppercase()))
+        text(format!("{} \u{203a}", word))
             .font(MONO)
             .size(HINT * scale),
     )
@@ -1151,7 +1130,7 @@ fn receive_body<'a>(
     if let Some(msg) = drop {
         address_row = address_row
             .push(Space::new().width(6.0 * scale).boxed())
-            .push(line_button("drop", STRIP, cp.muted, cp.text, Some(msg), cp, scale));
+            .push(line_button("Drop", STRIP, cp.muted, cp.text, Some(msg), cp, scale));
     }
     address_row = address_row.push(Space::new().width(Length::Fill).boxed());
 

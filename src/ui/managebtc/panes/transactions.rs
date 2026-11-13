@@ -30,7 +30,7 @@ pub fn meta<'a>(state: &AppState, cp: &'static CompactPalette, scale: f32) -> Op
         return None;
     }
     let t = selected(state)?;
-    Some(text(t.state_label()).font(MONO).size(STRIP * scale).color(t.state_color(cp)).boxed())
+    Some(text(t.state_label().to_uppercase()).font(MONO).size(STRIP * scale).color(t.state_color(cp)).boxed())
 }
 
 fn selected(state: &AppState) -> Option<Tx> {
@@ -115,7 +115,7 @@ fn details<'a>(state: &'a AppState, t: &Tx, cp: &'static CompactPalette, scale: 
 
     let back = grid::quiet_button("Back", Message::BtcTxBack, cp, scale);
     let buttons = if t.can_bump() {
-        let bump = grid::pane_button("Bump fee", true, false, Message::BtcBumpClicked(t.txid.clone()), cp, scale);
+        let bump = grid::pane_button("Bump fee", true, Message::BtcBumpClicked(t.txid.clone()), cp, scale);
         grid::button_pair(back, bump, scale)
     } else {
         back

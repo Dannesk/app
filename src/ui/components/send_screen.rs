@@ -41,7 +41,7 @@ pub fn chip_reserve(label: &str) -> f32 {
 }
 
 
-const REVIEW_EMPTY_ADDR: &str = "no recipient yet";
+const REVIEW_EMPTY_ADDR: &str = "No recipient yet";
 
 
 #[allow(clippy::too_many_arguments)]

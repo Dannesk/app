@@ -191,7 +191,7 @@ pub fn book<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         }
 
         let list: Element<'a, Message> = if asks.is_empty() && bids.is_empty() {
-            container(text("waiting for the book\u{2026}").size(super::ISSUER * scale).color(cp.muted))
+            container(text("Waiting for the book\u{2026}").size(super::ISSUER * scale).color(cp.muted))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .align_x(Alignment::Center)

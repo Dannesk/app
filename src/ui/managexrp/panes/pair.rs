@@ -33,7 +33,6 @@ const FIELD: f32 = 11.5;
 const FIELD_PAD_H: f32 = 8.0;
 const GUTTER: f32 = 9.0;
 const ROW_PAD_V: f32 = 7.0;
-const HEAD: f32 = 8.5;
 
 pub fn label(state: &AppState) -> Option<String> {
     let (base, quote) = trade_market_pair(state);
@@ -73,11 +72,11 @@ pub fn count_meta(state: &AppState) -> String {
     let query = state.trade_pair_query.trim();
     if query.is_empty() {
         let n = picker::all_markets().len();
-        return format!("{n} markets");
+        return format!("{n} MARKETS");
     }
     match picker::listing(query).0.len() {
-        1 => "1 match".to_string(),
-        n => format!("{n} matches"),
+        1 => "1 MATCH".to_string(),
+        n => format!("{n} MATCHES"),
     }
 }
 
@@ -174,7 +173,7 @@ fn search_field<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
         state.trade_pair_query.as_str(),
         64,
         1,
-        "search symbol or issuer",
+        "Search symbol or issuer",
         None,
         advance,
         s * 1.6,
@@ -199,22 +198,15 @@ fn search_field<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
 
 pub fn face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     let query = state.trade_pair_query.trim();
-    let (rows, resting) = picker::listing(query);
+    let (rows, _) = picker::listing(query);
     let (cur_base, cur_quote) = trade_market_pair(state);
 
     let mut list: Column<Element<'_, Message>> = column![].width(Length::Fill);
-    if resting && !rows.is_empty() {
-        list = list.push(
-            container(text("YOUR PAIRS").font(MONO).size(HEAD * scale).color(cp.muted))
-                .padding(Padding::new(0.0).top(8.0 * scale).bottom(5.0 * scale))
-                .boxed(),
-        );
-    }
     if rows.is_empty() {
         list = list.push(
             column![
                 compact::hairline(cp.rule),
-                container(text("no market found").size(ISSUER * scale).color(cp.muted))
+                container(text("No market found").size(ISSUER * scale).color(cp.muted))
                     .width(Length::Fill)
                     .padding(Padding::new(14.0 * scale)),
             ]

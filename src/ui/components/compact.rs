@@ -413,35 +413,27 @@ pub fn mono_runs<'a>(runs: Vec<Run>, size: f32) -> Element<'a, Message> {
 
 
 pub fn cta<'a>(label: &str, enabled: bool, msg: Message, p: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    button(
-        text(label.to_string())
-            .size(SEG * scale)
-            .width(Length::Fill)
-            .align_x(Alignment::Center)
-            .color(if enabled { p.text } else { p.faint }),
-    )
-    .on_press_maybe(enabled.then_some(msg))
-    .width(Length::Fill)
-    .padding(Padding::new(0.0).top(6.0 * scale).bottom(6.0 * scale))
-    .style(move |_, status| {
-        if !enabled {
-            return button::Style {
-                background: None,
-                border: Border { color: p.border_soft, width: 1.0, radius: (6.0 * scale).into() },
-                text_color: p.faint,
-                shadow: Shadow::default(),
-                snap: false,
-            };
-        }
-        let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-        button::Style {
-            background: Some(if hot { p.hover } else { p.neutral }.into()),
-            border: Border { color: p.border, width: 1.0, radius: (6.0 * scale).into() },
-            text_color: p.text,
-            shadow: Shadow::default(),
-            snap: false,
-        }
-    })
-    .boxed()
+    button(text(label.to_string()).size(SEG * scale).width(Length::Fill).align_x(Alignment::Center))
+        .on_press_maybe(enabled.then_some(msg))
+        .width(Length::Fill)
+        .padding(Padding::new(0.0).top(6.0 * scale).bottom(6.0 * scale))
+        .style(move |_, status| button_style(p, 6.0 * scale, enabled, status))
+        .boxed()
+}
+
+pub fn button_style(p: &'static CompactPalette, radius: f32, enabled: bool, status: button::Status) -> button::Style {
+    let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    let (fill, line, ink) = match (enabled, hot) {
+        (false, _) => (None, p.border_soft, p.faint),
+        (true, false) => (Some(iced::Background::Color(p.button)), p.button_line, p.button_ink),
+        (true, true) => (Some(iced::Background::Color(p.button_hover)), p.button_line, p.button_ink),
+    };
+    button::Style {
+        background: fill,
+        border: Border { color: line, width: 1.0, radius: radius.into() },
+        text_color: ink,
+        shadow: Shadow::default(),
+        snap: false,
+    }
 }
 

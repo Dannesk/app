@@ -186,15 +186,15 @@ pub(crate) fn recipient_fault(addr: &str) -> Option<&'static str> {
 
 pub(crate) const PLACEHOLDER: &str = "bc1q\u{2026}  \u{b7}  bc1p\u{2026}  \u{b7}  1\u{2026}  \u{b7}  3\u{2026}";
 
-pub const OVER_AVAILABLE: &str = "more than available";
-pub(crate) const SELF_ERROR: &str = "you cannot send to yourself";
-pub(crate) const PREFIX_ERROR: &str = "a bitcoin address starts with 1, 3 or bc1";
+pub const OVER_AVAILABLE: &str = "More than available";
+pub(crate) const SELF_ERROR: &str = "You cannot send to yourself";
+pub(crate) const PREFIX_ERROR: &str = "A bitcoin address starts with 1, 3 or bc1";
 
-pub(crate) const CHECKSUM_ERROR: &str = "that address fails its checksum";
+pub(crate) const CHECKSUM_ERROR: &str = "That address fails its checksum";
 pub(crate) const OWN_RATE: &str = "your own rate, in sat/vB";
 
 pub(crate) fn dust_words(dust: u64) -> String {
-    format!("minimum {} sat", crate::utils::add_commas(dust as i64))
+    format!("Minimum {} sat", crate::utils::add_commas(dust as i64))
 }
 
 

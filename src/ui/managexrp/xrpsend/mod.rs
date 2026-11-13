@@ -14,13 +14,13 @@ use crate::ui::managexrp::tokens as tokens_page;
 use crate::ui::components::grid;
 use crate::utils::{format_token_amount, theme, tokens};
 
-pub(crate) const SELF_ERROR: &str = "you cannot send to yourself";
+pub(crate) const SELF_ERROR: &str = "You cannot send to yourself";
 
-pub(crate) const OVER_AVAILABLE: &str = "more than available";
-pub(crate) const NO_XRP_FOR_FEE: &str = "no xrp available for the network fee";
-pub(crate) const PREFIX_ERROR: &str = "an xrp address starts with r, or X for an x-address";
-pub(crate) const TAG_ERROR: &str = "a destination tag is a whole number up to 4294967295";
-pub(crate) const CHECKSUM_ERROR: &str = "that address fails its checksum";
+pub(crate) const OVER_AVAILABLE: &str = "More than available";
+pub(crate) const NO_XRP_FOR_FEE: &str = "No XRP available for the network fee";
+pub(crate) const PREFIX_ERROR: &str = "An XRP address starts with r, or X for an X-address";
+pub(crate) const TAG_ERROR: &str = "A destination tag is a whole number up to 4294967295";
+pub(crate) const CHECKSUM_ERROR: &str = "That address fails its checksum";
 
 const CLASSIC_MIN: usize = 25;
 const XADDRESS_MIN: usize = 46;
@@ -70,7 +70,7 @@ pub(crate) fn holdings() -> Vec<Holding> {
     let mut out = vec![Holding {
         tab: XrpTokenTab::Xrp,
         symbol: "XRP",
-        issuer: "native asset".to_string(),
+        issuer: "Native asset".to_string(),
         balance: xrp_balance,
         rate_key: "XRP",
     }];

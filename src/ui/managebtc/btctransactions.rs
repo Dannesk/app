@@ -157,11 +157,11 @@ pub(crate) fn facts(tx: &Tx, tiers: Option<[f32; 4]>, tip: Option<u64>, p: &'sta
         segs: vec![value.map_or(Seg::mono(NA, p.muted), |v| Seg::mono(elide_addr(v), p.text))],
         copy: value.map(str::to_string),
     };
-    let mut rows = vec![copyable("from", tx.from.as_deref()), copyable("to", tx.to.as_deref()), block(tx, tiers, tip, p)];
+    let mut rows = vec![copyable("From", tx.from.as_deref()), copyable("To", tx.to.as_deref()), block(tx, tiers, tip, p)];
     if !tx.incoming && !tx.evicted && !tx.replaced {
-        rows.push(Fact { key: "network fee", dot: None, segs: fee_segs(tx, p), copy: None });
+        rows.push(Fact { key: "Network fee", dot: None, segs: fee_segs(tx, p), copy: None });
     }
-    rows.push(copyable("txid", Some(&tx.txid)));
+    rows.push(copyable("Txid", Some(&tx.txid)));
     rows
 }
 
@@ -189,7 +189,7 @@ fn block(tx: &Tx, tiers: Option<[f32; 4]>, tip: Option<u64>, p: &'static Compact
             _ => (None, vec![Seg::mono(NA, p.muted)]),
         }
     };
-    Fact { key: "block", dot, segs, copy: None }
+    Fact { key: "Block", dot, segs, copy: None }
 }
 
 fn fee_segs(tx: &Tx, p: &'static CompactPalette) -> Vec<Seg> {
@@ -314,7 +314,7 @@ mod tests {
         assert_eq!(inc.from.as_deref(), Some(THEM));
         assert_eq!(inc.to.as_deref(), Some(OWN), "the destination is this wallet, never the payer's leftover");
         let f = facts(&inc, Some(TODAY), Some(974_753), P);
-        assert_eq!(f.iter().map(|f| f.key).collect::<Vec<_>>(), ["from", "to", "block", "txid"]);
+        assert_eq!(f.iter().map(|f| f.key).collect::<Vec<_>>(), ["From", "To", "Block", "Txid"]);
         assert!(flat(&f).contains("973,947| \u{b7} 807 confirmations"), "{}", flat(&f));
         assert_eq!(f[0].copy.as_deref(), Some(THEM));
         assert_eq!(f[3].copy.as_deref(), Some("b"));
@@ -337,7 +337,7 @@ mod tests {
         raw.vsize = Some(141);
         let t = Tx::from(&raw, &ours());
         let b = &facts(&t, Some(TODAY), None, P)[2];
-        assert_eq!((b.key, b.dot), ("block", Some(P.red)));
+        assert_eq!((b.key, b.dot), ("Block", Some(P.red)));
         assert_eq!(b.segs[0].s, "back of the queue");
         raw.fees = "74".into();
         let b = &facts(&Tx::from(&raw, &ours()), Some(TODAY), None, P)[2];

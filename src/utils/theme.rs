@@ -44,7 +44,11 @@ pub struct CompactPalette {
     pub mint: Color,
     pub mint_line: Color,
     pub mint_ink: Color,
-    pub mint_glyph: Color,
+    pub lead: Color,
+    pub button: Color,
+    pub button_hover: Color,
+    pub button_line: Color,
+    pub button_ink: Color,
 }
 
 pub const COMPACT_PAPER: CompactPalette = CompactPalette {
@@ -63,13 +67,17 @@ pub const COMPACT_PAPER: CompactPalette = CompactPalette {
     border_soft: cp(0xDFE4E9),
     rule: cp(0xE7EBEF),
     focus: cp(0x6E7781),
-    green: cp(0x1F8A4C),
+    green: cp(0x599576),
     amber: cp(0x9A6A14),
     red: cp(0xC93A3A),
     mint: cp(0xEAF8ED),
     mint_line: cp(0xD3E7D8),
     mint_ink: cp(0x1C2128),
-    mint_glyph: cp(0x59636E),
+    lead: Color::TRANSPARENT,
+    button: cp(0xEAF8ED),
+    button_hover: cp(0xDFF4E3),
+    button_line: cp(0xD3E7D8),
+    button_ink: cp(0x1C2128),
 };
 
 pub const COMPACT_CHALK: CompactPalette = CompactPalette {
@@ -88,13 +96,17 @@ pub const COMPACT_CHALK: CompactPalette = CompactPalette {
     border_soft: cp(0xE3E4E6),
     rule: cp(0xECECEE),
     focus: cp(0x8A8F98),
-    green: cp(0x3E8E63),
+    green: cp(0x599576),
     amber: cp(0xA97A2F),
     red: cp(0xBF4F4A),
     mint: cp(0xEAF8ED),
     mint_line: cp(0xD3E7D8),
     mint_ink: cp(0x22262C),
-    mint_glyph: cp(0x8A8F98),
+    lead: Color::TRANSPARENT,
+    button: cp(0xEAF8ED),
+    button_hover: cp(0xDFF4E3),
+    button_line: cp(0xD3E7D8),
+    button_ink: cp(0x22262C),
 };
 
 pub const COMPACT_OBSIDIAN: CompactPalette = CompactPalette {
@@ -119,7 +131,11 @@ pub const COMPACT_OBSIDIAN: CompactPalette = CompactPalette {
     mint: cp(0xEAF8ED),
     mint_line: cp(0xD3E7D8),
     mint_ink: cp(0x1B1E24),
-    mint_glyph: cp(0x1B1E24),
+    lead: Color::TRANSPARENT,
+    button: cp(0x242932),
+    button_hover: cpa(0xFFFFFF, 0.045),
+    button_line: cpa(0xFFFFFF, 0.11),
+    button_ink: cp(0xE7E9EC),
 };
 
 pub const COMPACT_GRAPHITE: CompactPalette = CompactPalette {
@@ -144,7 +160,11 @@ pub const COMPACT_GRAPHITE: CompactPalette = CompactPalette {
     mint: cp(0xEAF8ED),
     mint_line: cp(0xD3E7D8),
     mint_ink: cp(0x1E2227),
-    mint_glyph: cp(0x1E2227),
+    lead: Color::TRANSPARENT,
+    button: cp(0x30353D),
+    button_hover: cpa(0xFFFFFF, 0.05),
+    button_line: cpa(0xFFFFFF, 0.13),
+    button_ink: cp(0xF2F4F7),
 };
 
 impl CompactPalette {

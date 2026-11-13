@@ -639,19 +639,10 @@ fn eyebrow<'a>(left: &str, right: &str, done: bool, cp: &'static theme::CompactP
 }
 
 fn line_button<'a>(label: &str, msg: Message, cp: &'static theme::CompactPalette, s: f32) -> Element<'a, Message> {
-    button(text(label.to_string()).size(compact::SEG * s).color(cp.text))
+    button(text(label.to_string()).size(compact::SEG * s))
         .padding(Padding::new(0.0).top(5.0 * s).bottom(5.0 * s).left(12.0 * s).right(12.0 * s))
         .on_press(msg)
-        .style(move |_, status| {
-            let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: Some(if hot { cp.hover } else { cp.neutral }.into()),
-                border: Border { color: cp.border, width: 1.0, radius: (6.0 * s).into() },
-                text_color: cp.text,
-                shadow: Shadow::default(),
-                snap: false,
-            }
-        })
+        .style(move |_, status| compact::button_style(cp, 6.0 * s, true, status))
         .boxed()
 }
 
@@ -889,9 +880,9 @@ struct ListRow {
     msg:    Message,
 }
 
-fn list<'a>(rows: Vec<ListRow>, cp: &'static theme::CompactPalette, s: f32) -> Element<'a, Message> {
+fn list<'a>(rows: Vec<ListRow>, edged: bool, cp: &'static theme::CompactPalette, s: f32) -> Element<'a, Message> {
     let plain = rows.iter().all(|r| r.prefix.is_none());
-    let mut col: Column<Element<'a, Message>> = column![].spacing(2.0 * s).width(Length::Fill);
+    let mut col: Column<Element<'a, Message>> = column![].spacing(if edged { 5.0 } else { 2.0 } * s).width(Length::Fill);
     for r in rows {
         let ink = if r.on { cp.text } else { cp.dim };
         let mut line: Row<Element<'a, Message>> = row![].spacing(10.0 * s).align_y(Alignment::Center);
@@ -915,9 +906,15 @@ fn list<'a>(rows: Vec<ListRow>, cp: &'static theme::CompactPalette, s: f32) -> E
                 .on_press(r.msg)
                 .style(move |_, status| {
                     let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                    let (fill, border) = if edged {
+                        let edge = if on { cp.focus } else { cp.border_soft };
+                        (if hot { cp.hover } else { Color::TRANSPARENT }, Border { color: edge, width: 1.0, radius: (6.0 * s).into() })
+                    } else {
+                        (if on { cp.pill } else if hot { cp.hover } else { Color::TRANSPARENT }, Border { radius: (6.0 * s).into(), ..Default::default() })
+                    };
                     button::Style {
-                        background: Some(if on { cp.pill } else if hot { cp.hover } else { Color::TRANSPARENT }.into()),
-                        border: Border { radius: (6.0 * s).into(), ..Default::default() },
+                        background: Some(fill.into()),
+                        border,
                         text_color: ink,
                         shadow: Shadow::default(),
                         snap: false,
@@ -967,7 +964,7 @@ fn address_task<'a>(prm: &SetupScreenParams<'a>, cp: &'static theme::CompactPale
         .collect();
     task_block(
         eyebrow("address type", chosen.map_or("required", |t| t.bip()), chosen.is_some(), cp, s),
-        list(rows, cp, s),
+        list(rows, false, cp, s),
         None,
         s,
     )
@@ -1002,7 +999,7 @@ fn word25_task<'a>(prm: &SetupScreenParams<'a>, cp: &'static theme::CompactPalet
     });
     task_block(
         eyebrow("25th word", "optional", word25_done(prm.word25, prm.w25), cp, s),
-        list(rows, cp, s),
+        list(rows, true, cp, s),
         Some(zone.unwrap_or_else(|| Space::new().boxed())),
         s,
     )
@@ -1044,7 +1041,7 @@ fn storage_task<'a>(
     };
     task_block(
         eyebrow("key storage", "required", storage_done(prm.mode, prm.enc), cp, s),
-        list(rows, cp, s),
+        list(rows, true, cp, s),
         Some(zone),
         s,
     )

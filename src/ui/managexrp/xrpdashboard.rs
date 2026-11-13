@@ -320,7 +320,7 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
     let inner = (size.width / scale).max(1.0);
     let is_xrp = matches!(state.xrp_token_tab, XrpTokenTab::Xrp);
     let display = xrpsend::asset_display(&state.xrp_token_tab);
-    let unit = display.to_lowercase();
+    let unit = display.to_string();
     let ccy = state.base_currency.code();
     let (_, own_xrp, _, _) = CHANNEL.wallet_balance_rx.borrow().clone();
 
@@ -342,7 +342,7 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
     if !addr.is_empty() {
         head = head
             .push(Space::new().width(Length::Fill).boxed())
-            .push(panes_ui::link("clear", cp.dim, Message::SendRecipientCleared, cp, scale));
+            .push(panes_ui::link("Clear", cp.dim, Message::SendRecipientCleared, cp, scale));
     }
     let mut to_block = column![
         head,
@@ -462,7 +462,7 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
     if can_max {
         avail_row = avail_row
             .push(Space::new().width(6.0 * scale).boxed())
-            .push(panes_ui::link("max", cp.dim, Message::SendMaxClicked, cp, scale));
+            .push(panes_ui::link("Max", cp.dim, Message::SendMaxClicked, cp, scale));
     }
 
     column![
@@ -530,7 +530,7 @@ fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
     responsive(move |size: Size| {
         let inner = (size.width / scale).max(1.0);
         let is_xrp = matches!(state.send_tab, XrpTokenTab::Xrp);
-        let unit = xrpsend::asset_display(&state.send_tab).to_lowercase();
+        let unit = xrpsend::asset_display(&state.send_tab);
         let ccy = state.base_currency.code();
         let (_, _, key_deleted, key_mode) = CHANNEL.wallet_balance_rx.borrow().clone();
         let addr = state.send_recipient.trim();
@@ -550,10 +550,10 @@ fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
         ]
         .width(Length::Fill);
         if let Some(t) = tag {
-            facts = facts.push(drow("destination tag", vec![(t.to_string(), cp.text)], 2.0, cp, scale));
+            facts = facts.push(drow("Destination tag", vec![(t.to_string(), cp.text)], 2.0, cp, scale));
         }
         facts = facts.push(drow(
-            "amount",
+            "Amount",
             match amount {
                 Some(_) => vec![(state.send_amount.trim().to_string(), cp.text), (format!(" {unit}"), cp.faint)],
                 None => vec![(NA.to_string(), cp.faint)],
@@ -566,7 +566,7 @@ fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
             && let Some(t) = tokens::by_code(code)
         {
             facts = facts.push(drow(
-                "issuer",
+                "Issuer",
                 vec![
                     (t.issuer_name.to_string(), cp.text),
                     (format!("  \u{b7}  {}", crate::ui::managexrp::tokens::short_issuer(t.issuer)), cp.muted),
@@ -577,7 +577,7 @@ fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
             ));
         }
         facts = facts.push(drow(
-            "network fee",
+            "Network fee",
             vec![(fee_drops.map_or(NA.to_string(), |d| format!("{d} drops")), panes_ui::fee_ink(fee_drops, cp))],
             2.0,
             cp,
@@ -586,7 +586,7 @@ fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
         if is_xrp {
             let total = match amount {
                 Some(a) => {
-                    let mut runs = vec![(format_token_amount(a + fee, 6), cp.text), (" xrp".to_string(), cp.faint)];
+                    let mut runs = vec![(format_token_amount(a + fee, 6), cp.text), (" XRP".to_string(), cp.faint)];
                     if rate > 0.0 {
                         runs.push((format!("  \u{b7}  {} {}", fiat_amount((a + fee) * rate), ccy), cp.faint));
                     }
@@ -596,7 +596,7 @@ fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
             };
             facts = facts.push(group_rule(cp, scale)).push(
                 row![
-                    text("total").size(ROW_KEY * scale).color(cp.dim),
+                    text("Total").size(ROW_KEY * scale).color(cp.dim),
                     Space::new().width(Length::Fill),
                     compact::mono_runs(total, ROW_TOTAL * scale),
                 ]
@@ -663,7 +663,7 @@ fn receive_line<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
     }
 
     match xrp::tag_of(&state.receive_tag) {
-        None => grid::pane_link("set destination tag", Message::TagEdit(TagPane::Receive), cp, scale),
+        None => grid::pane_link("Set destination tag", Message::TagEdit(TagPane::Receive), cp, scale),
         Some(tag) => row![
             grid::line_label("tag", cp, scale),
             grid::line_value(tag.to_string(), Message::TagEdit(TagPane::Receive), cp, scale),
@@ -712,7 +712,7 @@ fn tag_row<'a>(
         col.boxed()
     } else {
         match xrp::tag_of(&state.send_destination_tag) {
-            None => grid::pane_link("set destination tag", Message::TagEdit(TagPane::Send), cp, scale),
+            None => grid::pane_link("Set destination tag", Message::TagEdit(TagPane::Send), cp, scale),
             Some(tag) => row![
                 grid::line_label("tag", cp, scale),
                 grid::line_value(tag.to_string(), Message::TagEdit(TagPane::Send), cp, scale),
@@ -792,15 +792,15 @@ fn network_body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(Padding::new(0.0).top(6.0 * scale).bottom(9.0 * scale)),
-        drow("status", vec![(format!("\u{25cf} {word}"), dot)], 3.0, cp, scale),
+        drow("Status", vec![(format!("\u{25cf} {word}"), dot)], 3.0, cp, scale),
         drow(
-            "ledger",
+            "Ledger",
             vec![(node.ledger_index.map_or(NA.to_string(), |h| add_commas(h as i64)), cp.dim)],
             3.0,
             cp,
             scale,
         ),
-        drow("peers", vec![(node.peers.map_or(NA.to_string(), |n| n.to_string()), cp.dim)], 3.0, cp, scale),
+        drow("Peers", vec![(node.peers.map_or(NA.to_string(), |n| n.to_string()), cp.dim)], 3.0, cp, scale),
     ]
     .width(Length::Fill)
     .height(Length::Fill);
@@ -809,15 +809,15 @@ fn network_body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
             Some(r) => {
                 col = col
                     .push(drow(
-                        "reserved",
-                        vec![(format!("{:.6}", r.total), cp.dim), (" xrp".to_string(), cp.faint)],
+                        "Reserved",
+                        vec![(format!("{:.6}", r.total), cp.dim), (" XRP".to_string(), cp.faint)],
                         3.0,
                         cp,
                         scale,
                     ))
                     .push(drow(
-                        "available",
-                        vec![(mask(format!("{:.6}", r.available)), cp.text), (" xrp".to_string(), cp.faint)],
+                        "Available",
+                        vec![(mask(format!("{:.6}", r.available)), cp.text), (" XRP".to_string(), cp.faint)],
                         3.0,
                         cp,
                         scale,
@@ -825,12 +825,12 @@ fn network_body<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
             }
             None => {
                 col = col
-                    .push(drow("reserved", vec![(NA.to_string(), cp.muted)], 3.0, cp, scale))
-                    .push(drow("available", vec![(NA.to_string(), cp.muted)], 3.0, cp, scale));
+                    .push(drow("Reserved", vec![(NA.to_string(), cp.muted)], 3.0, cp, scale))
+                    .push(drow("Available", vec![(NA.to_string(), cp.muted)], 3.0, cp, scale));
             }
         }
     } else {
-        col = col.push(drow("account", vec![("inactive".to_string(), cp.dim)], 3.0, cp, scale));
+        col = col.push(drow("Account", vec![("inactive".to_string(), cp.dim)], 3.0, cp, scale));
     }
     col.boxed()
 }

@@ -191,7 +191,7 @@ fn quiet_word(word: &str, color: Color, scale: f32) -> Element<'static, Message>
 }
 
 pub fn link(label: &str, color: Color, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'static, Message> {
-    let word = format!("{} \u{203a}", label.to_uppercase());
+    let word = format!("{} \u{203a}", label);
     link_word(word, color, Some(msg), cp, scale)
 }
 
@@ -307,7 +307,7 @@ pub fn pressable<'a>(content: Element<'a, Message>, msg: Option<Message>, cp: &'
 
 pub fn fee_row<'a>(fee: Option<u64>, top: f32, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     fact(
-        "network fee",
+        "Network fee",
         vec![(fee.map_or(NA.to_string(), |d| format!("{d} drops")), fee_ink(fee, cp))],
         top,
         cp,

@@ -40,20 +40,20 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
     let mut rows = column![
         text(if cold { COLD } else { STANDARD }).font(MONO).size(BIG * scale).color(cp.text),
         group_rule(cp, scale),
-        drow("seed", vec![((if cold { COLD_SEED } else { STANDARD_SEED }).to_string(), cp.dim)], 0.0, cp, scale),
+        drow("Seed", vec![((if cold { COLD_SEED } else { STANDARD_SEED }).to_string(), cp.dim)], 0.0, cp, scale),
     ]
     .width(Length::Fill);
     if !cold {
         rows = rows
-            .push(drow("cipher", vec![(STANDARD_CIPHER.to_string(), cp.dim)], 3.0, cp, scale))
-            .push(drow("kdf", vec![(STANDARD_KDF.to_string(), cp.dim)], 3.0, cp, scale));
+            .push(drow("Cipher", vec![(STANDARD_CIPHER.to_string(), cp.dim)], 3.0, cp, scale))
+            .push(drow("KDF", vec![(STANDARD_KDF.to_string(), cp.dim)], 3.0, cp, scale));
     }
     rows = rows
         .push(
         
             container(
                 row![
-                    text("address").size(ROW_KEY * scale).color(cp.dim),
+                    text("Address").size(ROW_KEY * scale).color(cp.dim),
                     Space::new().width(Length::Fill),
                     text(grid::elide_addr(&address)).font(MONO).size(ROW_VALUE * scale).color(cp.dim).wrapping(Wrapping::Glyph),
                     grid::copy_glyph(state.btc_master_copy_feedback, Message::BtcCopyMasterAddress, cp, scale),
@@ -67,9 +67,9 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
 
  
     let mode: Element<'a, Message> = if cold {
-        pane_button("Restore key", true, false, Message::BtcKeyMgmtRestoreToggled, cp, scale)
+        grid::outline("Restore key", true, Message::BtcKeyMgmtRestoreToggled, cp, scale)
     } else {
-        pane_button("Remove key", !state.btc_key_purge_requested, false, Message::BtcDeleteKey, cp, scale)
+        grid::outline("Remove key", !state.btc_key_purge_requested, Message::BtcDeleteKey, cp, scale)
     };
     let remove = danger_button("Remove wallet", !state.btc_remove_wallet_requested, Message::BtcRemoveWallet, cp, scale);
 
@@ -156,7 +156,7 @@ fn restore<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> 
 
         let buttons = button_pair(
             quiet_button("Cancel", Message::BtcKeyMgmtRestoreToggled, cp, scale),
-            pane_button("Restore key", armed, true, Message::BtcReimportConfirm, cp, scale),
+            pane_button("Restore key", armed, Message::BtcReimportConfirm, cp, scale),
             scale,
         );
 

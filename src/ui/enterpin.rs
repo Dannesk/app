@@ -64,13 +64,13 @@ pub fn render_gate(state: &AppState) -> Element<'_, Message> {
 
     let confirming = !state.gate_exists && state.gate_pin_draft.is_some();
     let title = if state.gate_asking.is_some() {
-        "enter pin"
+        "Enter PIN"
     } else if state.gate_exists {
-        "welcome back"
+        "Welcome back"
     } else if confirming {
-        "confirm"
+        "Confirm"
     } else {
-        "choose a pin"
+        "Choose a PIN"
     };
 
   

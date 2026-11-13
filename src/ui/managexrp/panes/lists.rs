@@ -38,7 +38,7 @@ pub fn meta<'a>(state: &AppState, cp: &'static CompactPalette, scale: f32) -> Op
         return None;
     }
     let t = selected(state)?;
-    Some(text(t.state_label()).font(MONO).size(STRIP * scale).color(t.state_color(cp)).boxed())
+    Some(text(t.state_label().to_uppercase()).font(MONO).size(STRIP * scale).color(t.state_color(cp)).boxed())
 }
 
 fn own() -> String {
@@ -159,30 +159,30 @@ fn cancel<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> E
     responsive(move |size: Size| {
         let inner = (size.width / scale).max(1.0);
         let order = selected(state).filter(|t| t.kind == Kind::Offer);
-        let lower = |u: &str| format!(" {}", u.to_lowercase());
+        let spaced = |u: &str| format!(" {u}");
         let (key, base_runs) = match &order {
             Some(t) => {
                 let (v, unit) = t.base();
                 let runs = match v {
-                    Some(v) => vec![(six(v), cp.text), (lower(&unit), cp.faint)],
+                    Some(v) => vec![(six(v), cp.text), (spaced(&unit), cp.faint)],
                     None => vec![(NA.to_string(), cp.faint)],
                 };
                 (t.side().key(), runs)
             }
-            None => ("order", vec![(NA.to_string(), cp.faint)]),
+            None => ("Order", vec![(NA.to_string(), cp.faint)]),
         };
         let price_runs = match order.as_ref().and_then(|t| t.price().map(|p| (p, t.rate_unit()))) {
             Some((p, unit)) => {
                 let mut runs = vec![(fmt_price(p), cp.text)];
                 if !unit.is_empty() {
-                    runs.push((lower(&unit), cp.faint));
+                    runs.push((spaced(&unit), cp.faint));
                 }
                 runs
             }
             None => vec![(NA.to_string(), cp.faint)],
         };
         let reserve_runs = match reserve() {
-            Some(r) => vec![(six(r), cp.text), (" xrp".to_string(), cp.faint)],
+            Some(r) => vec![(six(r), cp.text), (" XRP".to_string(), cp.faint)],
             None => vec![(NA.to_string(), cp.faint)],
         };
 
@@ -220,8 +220,8 @@ fn cancel<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> E
 
         let body = column![
             fact(key, base_runs, 0.0, cp, scale),
-            drow("limit price", price_runs, 3.0, cp, scale),
-            drow("reserve returned", reserve_runs, 3.0, cp, scale),
+            drow("Limit price", price_runs, 3.0, cp, scale),
+            drow("Reserve returned", reserve_runs, 3.0, cp, scale),
             fee_row(state.cancel_fee, 3.0, cp, scale),
             sign,
             Space::new().height(2.0 * scale),

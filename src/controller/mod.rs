@@ -96,18 +96,18 @@ fn gate_wrong_attempt(state: &mut AppState) -> Task<Message> {
         0 => {
             wipe_wallet_data();
             state.gate_wiping = true;
-            gate_fail(state, "wiping data \u{2014} goodbye".to_string());
+            gate_fail(state, "Wiping data \u{2014} goodbye".to_string());
             Task::perform(
                 async { tokio::time::sleep(Duration::from_millis(1800)).await },
                 |_| Message::GateWipeDone,
             )
         }
         1 => {
-            gate_fail(state, "wrong pin \u{2014} 1 attempt left".to_string());
+            gate_fail(state, "Wrong PIN \u{2014} 1 attempt left".to_string());
             Task::none()
         }
         n => {
-            gate_fail(state, format!("wrong pin \u{2014} {n} attempts left"));
+            gate_fail(state, format!("Wrong PIN \u{2014} {n} attempts left"));
             Task::none()
         }
     }
@@ -241,11 +241,11 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
                                     set_gate_enabled(state, true);
                                 }
                             }
-                            Err(e) => gate_fail(state, format!("could not save pin: {e}")),
+                            Err(e) => gate_fail(state, format!("Could not save PIN: {e}")),
                         }
                     }
                     Some(_) => {
-                        gate_fail(state, "pins don\u{2019}t match".to_string());
+                        gate_fail(state, "PINs don\u{2019}t match".to_string());
                     }
                 }
             }
