@@ -41,14 +41,7 @@ pub struct CompactPalette {
     pub green: Color,
     pub amber: Color,
     pub red: Color,
-    pub mint: Color,
-    pub mint_line: Color,
-    pub mint_ink: Color,
-    pub lead: Color,
-    pub button: Color,
-    pub button_hover: Color,
-    pub button_line: Color,
-    pub button_ink: Color,
+    pub accent: Color,
 }
 
 pub const COMPACT_PAPER: CompactPalette = CompactPalette {
@@ -67,17 +60,10 @@ pub const COMPACT_PAPER: CompactPalette = CompactPalette {
     border_soft: cp(0xDFE4E9),
     rule: cp(0xE7EBEF),
     focus: cp(0x6E7781),
-    green: cp(0x599576),
+    green: cp(0x1F8A4C),
     amber: cp(0x9A6A14),
     red: cp(0xC93A3A),
-    mint: cp(0xEAF8ED),
-    mint_line: cp(0xD3E7D8),
-    mint_ink: cp(0x1C2128),
-    lead: Color::TRANSPARENT,
-    button: cp(0xEAF8ED),
-    button_hover: cp(0xDFF4E3),
-    button_line: cp(0xD3E7D8),
-    button_ink: cp(0x1C2128),
+    accent: cp(0x1F8A4C),
 };
 
 pub const COMPACT_CHALK: CompactPalette = CompactPalette {
@@ -96,17 +82,10 @@ pub const COMPACT_CHALK: CompactPalette = CompactPalette {
     border_soft: cp(0xE3E4E6),
     rule: cp(0xECECEE),
     focus: cp(0x8A8F98),
-    green: cp(0x599576),
+    green: cp(0x3E8E63),
     amber: cp(0xA97A2F),
     red: cp(0xBF4F4A),
-    mint: cp(0xEAF8ED),
-    mint_line: cp(0xD3E7D8),
-    mint_ink: cp(0x22262C),
-    lead: Color::TRANSPARENT,
-    button: cp(0xEAF8ED),
-    button_hover: cp(0xDFF4E3),
-    button_line: cp(0xD3E7D8),
-    button_ink: cp(0x22262C),
+    accent: cp(0x3E8E63),
 };
 
 pub const COMPACT_OBSIDIAN: CompactPalette = CompactPalette {
@@ -128,14 +107,7 @@ pub const COMPACT_OBSIDIAN: CompactPalette = CompactPalette {
     green: cp(0x5FC08A),
     amber: cp(0xD9A35E),
     red: cp(0xE0696B),
-    mint: cp(0xEAF8ED),
-    mint_line: cp(0xD3E7D8),
-    mint_ink: cp(0x1B1E24),
-    lead: Color::TRANSPARENT,
-    button: cp(0x242932),
-    button_hover: cpa(0xFFFFFF, 0.045),
-    button_line: cpa(0xFFFFFF, 0.11),
-    button_ink: cp(0xE7E9EC),
+    accent: cp(0x5FC08A),
 };
 
 pub const COMPACT_GRAPHITE: CompactPalette = CompactPalette {
@@ -157,14 +129,7 @@ pub const COMPACT_GRAPHITE: CompactPalette = CompactPalette {
     green: cp(0x5FC08A),
     amber: cp(0xD9A35E),
     red: cp(0xE0696B),
-    mint: cp(0xEAF8ED),
-    mint_line: cp(0xD3E7D8),
-    mint_ink: cp(0x1E2227),
-    lead: Color::TRANSPARENT,
-    button: cp(0x30353D),
-    button_hover: cpa(0xFFFFFF, 0.05),
-    button_line: cpa(0xFFFFFF, 0.13),
-    button_ink: cp(0xF2F4F7),
+    accent: cp(0x5FC08A),
 };
 
 impl CompactPalette {

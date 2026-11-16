@@ -159,19 +159,20 @@ fn segmented<'a>(items: Vec<Segment>, cp: &'static CompactPalette, scale: f32) -
         let Segment { label, active, msg, colour } = s;
         let live = msg.is_some();
         let (line, ink) = match (active, colour) {
-            (true, Some(c)) => (c, c),
-            (true, None) => (cp.focus, cp.text),
+            (true, Some(c)) => (cp.border, c),
+            (true, None) => (cp.border, cp.text),
             (false, _) if !live => (cp.border_soft, cp.faint),
             (false, _) => (cp.border, cp.muted),
         };
+        let face = container(text(label).size(SEG * scale).color(ink))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .boxed();
+        let face = if active { compact::cornered(face, colour.unwrap_or(cp.focus), 7.0 * scale, scale) } else { face };
         r = r.push(
-            button(
-                container(text(label).size(SEG * scale).color(ink))
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .align_x(Alignment::Center)
-                    .align_y(Alignment::Center),
-            )
+            button(face)
             .on_press_maybe(msg)
             .width(Length::Fill)
             .height(Length::Fixed(SEG_H * scale))
@@ -224,7 +225,7 @@ fn figure<'a>(
         s,
         MONO,
         if red { cp.red } else { cp.text },
-        cp.text,
+        cp.accent,
         cp.faint,
         None,
         autofocus,
@@ -586,7 +587,8 @@ fn ticket_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette,
     let action = if pricing {
         grid::primary("Set price", typed_price.is_some(), Message::TradeLimitSet, cp, scale)
     } else {
-        grid::primary("Review", ready, Message::TradeReviewPressed, cp, scale)
+        let mark = if state.trade_side == TradeSide::Buy { cp.green } else { cp.red };
+        grid::marked_button("Review", ready, Message::TradeReviewPressed, mark, cp, scale)
     };
     let mut face: Column<Element<'_, Message>> = column![
         pair_row(state, cp, scale),

@@ -4,6 +4,7 @@ pub mod btctransactions;
 pub mod btcsend;
 pub mod btcbump;
 pub mod btcdashboard;
+pub mod feeeditor;
 pub mod panes;
 
 use iced::Widget as _;

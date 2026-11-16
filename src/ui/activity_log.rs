@@ -106,7 +106,7 @@ pub fn render_activity_log<'a>(
     } else {
         (log.title, cp.text)
     };
-    let lit = if failed { cp.red } else { cp.green };
+    let lit = if failed { cp.red } else { cp.accent };
     let d = Length::Fixed(RING_D * scale);
     let ring = container(stack![
         canvas(Ring {
@@ -204,7 +204,7 @@ pub fn render_activity_log<'a>(
     };
 
 
-    let footer = container(compact::cta("Continue", terminal, Message::ActivityDismiss, cp, scale))
+    let footer = container(compact::cta_marked("Continue", terminal, Message::ActivityDismiss, if failed { cp.red } else { cp.accent }, cp, scale))
         .width(Length::Fill)
         .padding(Padding::new(0.0).top(13.0 * scale).left(PAD_H * scale).right(PAD_H * scale));
 

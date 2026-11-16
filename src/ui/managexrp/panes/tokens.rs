@@ -8,7 +8,7 @@ use crate::channel::CHANNEL;
 use crate::controller::app_state::AppState;
 use crate::controller::message::{Message, SecureField};
 use crate::controller::xrp::{xrp_available, xrp_fee, xrp_reserve};
-use crate::ui::components::grid::{self, HINT, ROW_KEY};
+use crate::ui::components::grid::{self, ROW_KEY};
 use crate::ui::components::signing::SignFields;
 use crate::utils::money;
 use crate::ui::managexrp::tokens::short_issuer;
@@ -22,7 +22,7 @@ use super::{button_pair, danger_button, empty, fee_row, pressable, primary, quie
 const MASK: &str = "\u{2022}\u{2022}\u{2022}\u{2022}";
 
 pub fn available_title(state: &AppState) -> String {
-    if state.show_enable && let Some(t) = state.xrp_token_tab.code().and_then(tokens::by_code) {
+    if state.show_enable && let Some(t) = state.enable_token.and_then(tokens::by_code) {
         format!("enable {}", t.display.to_lowercase())
     } else {
         "available tokens".to_string()
@@ -105,7 +105,7 @@ pub fn held<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
 }
 
 pub fn available<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    if state.show_enable && let Some(t) = state.xrp_token_tab.code().and_then(tokens::by_code) {
+    if state.show_enable && let Some(t) = state.enable_token.and_then(tokens::by_code) {
         return enable_face(state, t, cp, scale);
     }
     let available: Vec<&'static tokens::TokenDef> = tokens::TOKENS.iter().filter(|t| !CHANNEL.token(t.code).1).collect();
@@ -211,19 +211,6 @@ fn details_face<'a>(state: &'a AppState, t: &'static tokens::TokenDef, cp: &'sta
     };
     let hero = grid::hero(bal_str, t.display.to_uppercase(), cp, scale);
     let own = CHANNEL.wallet_balance_rx.borrow().1.clone();
-    let reserve_word = match xrp_reserve() {
-        Some(r) => format!("{} XRP reserve", format_token_amount(r.per_object, 6)),
-        None => "reserve".to_string(),
-    };
-    let note = if balance == 0.0 {
-        format!("Removing it returns the {reserve_word}. You can enable {} again any time.", t.ticker)
-    } else {
-        format!(
-            "A trustline can only be removed at zero balance. Send or trade the {} {} first, then the {reserve_word} comes back.",
-            format_token_amount(balance, 6),
-            t.ticker
-        )
-    };
     let can_pay = xrp_available().is_some_and(|a| a >= xrp_fee());
     let live = balance == 0.0 && can_pay;
 
@@ -250,8 +237,6 @@ fn details_face<'a>(state: &'a AppState, t: &'static tokens::TokenDef, cp: &'sta
             scale,
         ))
         .push(drow("Reserve", reserve_runs(cp), 3.0, cp, scale))
-        .push(Space::new().height(8.0 * scale).boxed())
-        .push(text(note).font(MONO).size(HINT * scale).color(cp.dim).boxed())
         .push(Space::new().height(12.0 * scale).boxed())
         .push(button_pair(
             quiet_button("Cancel", Message::TokenDetailsDismissed, cp, scale),

@@ -7,6 +7,7 @@ use crate::controller::app_state::{
 };
 use crate::ui::managebtc::btcbump;
 use crate::ui::managebtc::btcsend::{self, FeeQuote};
+use crate::ui::managebtc::node::rate_text;
 use crate::secure::SecureString;
 use crate::channel::CHANNEL;
 use crate::bridge::btc_import_logic::BTCImportLogic;
@@ -238,35 +239,45 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             state.btc_master_copy_feedback = false;
         }
         Message::BtcSendFeeFaceToggled => {
-            state.btc_send_fee_face = !state.btc_send_fee_face;
-            close_custom(state);
+            if state.btc_send_fee_face {
+                close_fee_editor(state);
+            } else {
+                open_fee_editor(state);
+            }
             push_send_draft(state);
         }
         Message::BtcSendFeeTierSelected(tier) => {
-            match tier {
-                BtcFeeTier::Custom => {
-                    let tiers_known = btcsend::quote().is_some_and(|q| q.tiers.is_some());
-                    if tiers_known && !state.btc_send_custom_open {
-                        state.btc_send_fee = state.btc_send_custom.clone();
-                        state.btc_send_custom_open = true;
-                    }
-                }
-                named => {
-                    state.btc_send_fee_tier = named;
-                    state.btc_send_fee_face = false;
-                    close_custom(state);
-                    follow_max(state);
-                }
+            let rate = tier.index().and_then(|i| btcsend::quote().and_then(|q| q.tiers).map(|t| t[i].rate));
+            if let (true, Some(r)) = (state.btc_send_fee_face, rate) {
+                state.btc_send_fee_lit = Some(tier);
+                state.btc_send_fee = rate_text(r);
+                state.btc_send_fee_fresh = true;
+                state.request_focus(PlainField::BtcSendFee);
             }
             push_send_draft(state);
         }
         Message::BtcSendSetFee => {
-            if let Some(rate) = state.btc_send_fee.trim().parse::<f32>().ok().filter(|r| r.is_finite() && *r > 0.0) {
-                state.btc_send_custom = crate::ui::managebtc::node::rate_text(rate);
-                state.btc_send_fee_tier = BtcFeeTier::Custom;
-                state.btc_send_fee_face = false;
-                close_custom(state);
-                follow_max(state);
+            let quote = btcsend::quote();
+            let editor = btcsend::editor(state, quote.as_ref());
+            if !state.btc_send_fee_face || !editor.ready {
+                return Task::none();
+            }
+            match state.btc_send_fee_lit {
+                Some(tier) => {
+                    state.btc_send_fee_tier = tier;
+                    state.btc_send_custom.clear();
+                }
+                None => {
+                    let Some(rate) = state.btc_send_fee.trim().parse::<f32>().ok().filter(|r| r.is_finite() && *r > 0.0) else {
+                        return Task::none();
+                    };
+                    state.btc_send_custom = rate_text(rate);
+                    state.btc_send_fee_tier = BtcFeeTier::Custom;
+                }
+            }
+            close_fee_editor(state);
+            if let Some(max) = editor.cost.map(|f| f.max).filter(|_| state.btc_send_max_on) {
+                set_max_amount(state, max);
             }
             push_send_draft(state);
         }
@@ -286,6 +297,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             push_send_draft(state);
         }
         Message::BtcSendRecipientCleared => {
+            unlock_send_review(state);
             state.btc_send_recipient.clear();
             push_send_draft(state);
         }
@@ -297,22 +309,21 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                 state.btc_send_recipient = state.btc_send_recipient.trim().to_string();
                 state.btc_send_locked = Some(f.fee);
                 state.btc_send_locked_vsize = Some(f.vsize);
+                state.btc_send_locked_rate = Some(f.rate);
                 state.btc_send_step = 2;
             }
         }
+        Message::BtcSendReviewContinued => {
+            if state.btc_send_step == 2 {
+                state.btc_send_step = 3;
+            }
+        }
         Message::BtcSendReviewCancelled => {
-            state.btc_send_step = 0;
-            state.btc_send_locked = None;
-            state.btc_send_locked_vsize = None;
-            state.btc_send_passphrase.clear();
-            state.btc_send_passphrase_reveal = false;
-            state.btc_send_bip39.clear();
-            state.btc_send_bip39_reveal = false;
-            state.btc_send_seed_text.clear();
-            state.btc_send_seed_reveal = true;
+            unlock_send_review(state);
+            state.request_focus(amount_field(state));
         }
         Message::BtcSendSubmitClicked => {
-            if state.btc_send_step != 2 {
+            if state.btc_send_step != 3 {
                 return Task::none();
             }
             let (Some(locked), Some(vsize), Some(sats)) = (state.btc_send_locked, state.btc_send_locked_vsize, btcsend::amount_sats(state)) else {
@@ -379,27 +390,25 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             clear_btc_bump_form(state);
             state.btc_tx_selected = None;
             state.btc_bump_txid = Some(txid);
+            state.request_focus(PlainField::BtcBumpFee);
             push_bump_draft(state);
         }
         Message::BtcBumpDismissed => {
             clear_btc_bump_form(state);
         }
-        Message::BtcBumpFeeTierSelected(BtcFeeTier::Custom) => {
-            if state.btc_bump_locked.is_none() && !state.btc_bump_custom_open {
-                state.btc_bump_custom_open = true;
+        Message::BtcBumpFeeTierSelected(tier) => {
+            let fee = tier.index().and_then(|i| btcbump::quote(state).and_then(|q| q.tiers[i]));
+            if let (None, Some(f)) = (state.btc_bump_locked, fee) {
+                state.btc_bump_lit = Some(tier);
+                state.btc_bump_fee = rate_text(f.rate);
+                state.btc_bump_fresh = true;
+                state.request_focus(PlainField::BtcBumpFee);
                 push_bump_draft(state);
             }
         }
-        Message::BtcBumpFeeTierSelected(named) => {
-            let picked = btcbump::live_quote(state).and_then(|q| named.index().and_then(|i| q.tiers[i]));
-            if let Some(fee) = picked.filter(|_| state.btc_bump_locked.is_none()) {
-                state.btc_bump_fee_tier = named;
-                state.btc_bump_locked = Some(fee);
-            }
-        }
         Message::BtcBumpReviewClicked => {
-            if let Some(fee) = btcbump::custom_ready(state) {
-                state.btc_bump_fee_tier = BtcFeeTier::Custom;
+            if let Some(fee) = btcbump::ready(state).filter(|_| state.btc_bump_locked.is_none()) {
+                state.btc_bump_fee_tier = state.btc_bump_lit.unwrap_or(BtcFeeTier::Custom);
                 state.btc_bump_locked = Some(fee);
             }
         }
@@ -407,6 +416,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             if state.btc_bump_locked.is_some() {
                 state.btc_bump_locked = None;
                 clear_bump_key(state);
+                state.request_focus(PlainField::BtcBumpFee);
             } else {
                 state.btc_tx_selected = state.btc_bump_txid.clone();
                 clear_btc_bump_form(state);
@@ -584,6 +594,7 @@ pub fn after_plain_edit(state: &mut AppState, field: PlainField) {
             push_bump_draft(state);
             return;
         }
+        PlainField::BtcSendRecipient if state.btc_send_step >= 2 => unlock_send_review(state),
         _ => {}
     }
     push_send_draft(state);
@@ -613,9 +624,77 @@ pub fn push_send_draft(state: &AppState) {
     });
 }
 
-fn close_custom(state: &mut AppState) {
-    state.btc_send_custom_open = false;
+fn open_fee_editor(state: &mut AppState) {
+    unlock_send_review(state);
+    state.btc_send_fee_face = true;
+    state.btc_send_fee_fresh = true;
+    state.request_focus(PlainField::BtcSendFee);
+    match state.btc_send_fee_tier {
+        BtcFeeTier::Custom => {
+            state.btc_send_fee_lit = None;
+            state.btc_send_fee = state.btc_send_custom.clone();
+        }
+        tier => {
+            state.btc_send_fee_lit = Some(tier);
+            state.btc_send_fee = tier
+                .index()
+                .and_then(|i| btcsend::quote().and_then(|q| q.tiers).map(|t| rate_text(t[i].rate)))
+                .unwrap_or_default();
+        }
+    }
+}
+
+fn close_fee_editor(state: &mut AppState) {
+    state.btc_send_fee_face = false;
+    state.btc_send_fee_lit = None;
+    state.btc_send_fee_fresh = false;
     state.btc_send_fee.clear();
+    state.request_focus(amount_field(state));
+}
+
+fn amount_field(state: &AppState) -> PlainField {
+    match state.btc_send_anchor {
+        SendAnchor::Amount => PlainField::BtcSendAmount,
+        SendAnchor::Fiat => PlainField::BtcSendFiat,
+    }
+}
+
+fn follow_send_tier(state: &mut AppState) {
+    let Some(i) = state.btc_send_fee_lit.and_then(BtcFeeTier::index).filter(|_| state.btc_send_fee_face) else {
+        return;
+    };
+    if let Some(t) = btcsend::quote().and_then(|q| q.tiers) {
+        state.btc_send_fee = rate_text(t[i].rate);
+    }
+}
+
+pub fn follow_bump_tier(state: &mut AppState) {
+    let Some(i) = state.btc_bump_lit.and_then(BtcFeeTier::index).filter(|_| state.btc_bump_locked.is_none()) else {
+        return;
+    };
+    let Some(q) = btcbump::quote(state) else { return };
+    match q.tiers[i] {
+        Some(f) => state.btc_bump_fee = rate_text(f.rate),
+        None => {
+            state.btc_bump_lit = None;
+            state.btc_bump_fresh = false;
+            state.btc_bump_fee.clear();
+            push_bump_draft(state);
+        }
+    }
+}
+
+fn unlock_send_review(state: &mut AppState) {
+    state.btc_send_step = 0;
+    state.btc_send_locked = None;
+    state.btc_send_locked_vsize = None;
+    state.btc_send_locked_rate = None;
+    state.btc_send_passphrase.clear();
+    state.btc_send_passphrase_reveal = false;
+    state.btc_send_bip39.clear();
+    state.btc_send_bip39_reveal = false;
+    state.btc_send_seed_text.clear();
+    state.btc_send_seed_reveal = true;
 }
 
 fn in_use_now(state: &AppState) -> Option<FeeQuote> {
@@ -657,7 +736,8 @@ fn sync_amount_from_fiat(state: &mut AppState) {
 }
 
 pub fn resync_send_twin(state: &mut AppState) {
-    if state.btc_send_step == 2 {
+    follow_send_tier(state);
+    if state.btc_send_step >= 2 {
         return;
     }
     if crate::utils::price::cross("BTC", state.base_currency.code()) > 0.0 {
@@ -683,7 +763,8 @@ pub(crate) fn clear_btc_bump_form(state: &mut AppState) {
     state.btc_bump_txid = None;
     state.btc_bump_fee_tier = BtcFeeTier::default();
     state.btc_bump_fee = String::new();
-    state.btc_bump_custom_open = false;
+    state.btc_bump_lit = None;
+    state.btc_bump_fresh = false;
     state.btc_bump_locked = None;
     clear_bump_key(state);
     push_bump_draft(state);
@@ -698,10 +779,12 @@ pub(crate) fn clear_btc_send_form(state: &mut AppState) {
     state.btc_send_fee = String::new();
     state.btc_send_fee_tier = BtcFeeTier::Med;
     state.btc_send_custom = String::new();
-    state.btc_send_custom_open = false;
     state.btc_send_fee_face = false;
+    state.btc_send_fee_lit = None;
+    state.btc_send_fee_fresh = false;
     state.btc_send_locked = None;
     state.btc_send_locked_vsize = None;
+    state.btc_send_locked_rate = None;
     state.btc_send_max_on = false;
     state.btc_send_passphrase.clear();
     state.btc_send_passphrase_reveal = false;

@@ -51,8 +51,6 @@ pub const IDLE_PUMP_MS: u64 = 120;
 pub fn pump_ms(state: &AppState) -> Option<u64> {
     if state.gate_error_at.is_some_and(|t| t.elapsed().as_secs_f32() < ERROR_SECS) {
         Some(FAST_PUMP_MS)
-    } else if state.gate_pin_input.is_empty() {
-        None
     } else {
         Some(IDLE_PUMP_MS)
     }
@@ -84,13 +82,17 @@ pub fn render_gate(state: &AppState) -> Element<'_, Message> {
     let clock = bloom::clock_secs();
 
     let rule_colour = if erroring { cp.red } else { cp.focus };
+    let lit = (clock / BLINK_SECS).fract() < 0.5;
+    let blink = caret(if lit { cp.accent } else { Color::TRANSPARENT }, scale);
 
     let contents: Element<'_, Message> = if typed == 0 && !erroring {
-        text(PLACEHOLDER)
-            .font(MONO)
-            .size(PLACEHOLDER_SIZE * scale)
-            .color(cp.faint)
-            .boxed()
+        row![
+            blink,
+            Space::new().width(CARET_GAP * scale),
+            text(PLACEHOLDER).font(MONO).size(PLACEHOLDER_SIZE * scale).color(cp.faint),
+        ]
+        .align_y(Alignment::Center)
+        .boxed()
     } else {
         let dot_colour = if erroring { cp.red } else { cp.text };
         let mut r: Row<Element<'_, Message>> = row![].align_y(Alignment::Center);
@@ -100,11 +102,7 @@ pub fn render_gate(state: &AppState) -> Element<'_, Message> {
             }
             r = r.push(dot(dot_colour, scale));
         }
-      
-        let lit = (clock / BLINK_SECS).fract() < 0.5;
-        r = r
-            .push(Space::new().width(CARET_GAP * scale).boxed())
-            .push(caret(if lit { cp.dim } else { Color::TRANSPARENT }, scale));
+        r = r.push(Space::new().width(CARET_GAP * scale).boxed()).push(blink);
         r.boxed()
     };
 

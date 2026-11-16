@@ -53,9 +53,6 @@ pub fn render_dashboard(state: &AppState) -> Element<'_, Message> {
 
 const DOCK_LABEL: f32 = 11.0;
 const DOCK_PAD_V: f32 = 8.0;
-const DOCK_BAR_H: f32 = 2.0;
-const DOCK_BAR_INSET: u16 = 41;
-const DOCK_BAR_SPAN: u16 = 18;
 const DOCK_ICON: f32 = 17.0;
 const DOCK_MARK: f32 = 14.0;
 const DOCK_ICON_GAP: f32 = 6.0;
@@ -86,25 +83,8 @@ fn dock_tab(
     let label = tab_label(&target);
     let ink = if is_active { p.text } else { p.dim };
 
-    let bar_h = DOCK_BAR_H * scale;
-    let bar: Element<'static, Message> = if is_active {
-        row![
-            Space::new().width(Length::FillPortion(DOCK_BAR_INSET)),
-            container(Space::new())
-                .width(Length::FillPortion(DOCK_BAR_SPAN))
-                .height(Length::Fixed(bar_h))
-                .style(move |_| container::Style { background: Some(p.dim.into()), ..Default::default() }),
-            Space::new().width(Length::FillPortion(DOCK_BAR_INSET)),
-        ]
-        .width(Length::Fill)
-        .boxed()
-    } else {
-        Space::new().height(Length::Fixed(bar_h)).boxed()
-    };
-
     let cell = column![
-        bar,
-        Space::new().height(Length::Fixed(DOCK_PAD_V * scale - bar_h)),
+        Space::new().height(Length::Fixed(DOCK_PAD_V * scale)),
         container(
             row![
                 dock_icon(&target, is_active, ink, dark, p, scale),
@@ -162,7 +142,7 @@ fn dock_icon(
         (true, false) => p.faint,
     };
     let glyph = match tab {
-        Tab::Balance => Canvas::new(DockRing { track, arc: p.mint })
+        Tab::Balance => Canvas::new(DockRing { track, arc: p.accent })
             .width(icon)
             .height(icon)
             .boxed(),

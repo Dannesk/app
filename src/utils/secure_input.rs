@@ -1,5 +1,6 @@
 
 use std::ops::Range;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer::{self, Renderer as _};
@@ -47,6 +48,13 @@ impl State {
     fn touch(&mut self) {
         self.blink_anchor = Instant::now();
     }
+}
+
+static FOCUS_SEEN: AtomicU32 = AtomicU32::new(0);
+
+// a focus request is honoured once, by the first field that carries it
+fn claims(token: Option<u32>) -> bool {
+    token.is_some_and(|t| FOCUS_SEEN.swap(t, Ordering::Relaxed) != t)
 }
 
 #[derive(Clone, Copy)]
@@ -123,6 +131,7 @@ pub struct SecureInput<'a, Message> {
     word_mask: Vec<bool>,
     word_gaps: bool,
     revealed: Option<&'a str>,
+    underline_tail: usize,
     grid: Option<Grid>,
     placeholder: String,
     placeholder_color: Color,
@@ -134,6 +143,7 @@ pub struct SecureInput<'a, Message> {
     on_paste: Box<dyn Fn(usize, String) -> Message + 'a>,
     on_submit: Option<Message>,
     autofocus: bool,
+    focus_token: Option<u32>,
 }
 
 impl<'a, Message> SecureInput<'a, Message> {
@@ -157,6 +167,7 @@ impl<'a, Message> SecureInput<'a, Message> {
             word_gaps: true,
             grid: None,
             revealed: None,
+            underline_tail: 0,
             placeholder: String::new(),
             placeholder_color: Color::from_rgb(0.5, 0.5, 0.5),
             placeholder_font: None,
@@ -167,6 +178,7 @@ impl<'a, Message> SecureInput<'a, Message> {
             on_paste: Box::new(on_paste),
             on_submit: None,
             autofocus: false,
+            focus_token: None,
         }
     }
 
@@ -200,6 +212,11 @@ impl<'a, Message> SecureInput<'a, Message> {
         self
     }
 
+    pub fn underline_tail(mut self, n: usize) -> Self {
+        self.underline_tail = n;
+        self
+    }
+
     pub fn placeholder(mut self, text: impl Into<String>) -> Self {
         self.placeholder = text.into();
         self
@@ -217,6 +234,11 @@ impl<'a, Message> SecureInput<'a, Message> {
 
     pub fn autofocus(mut self) -> Self {
         self.autofocus = true;
+        self
+    }
+
+    pub fn focus_on(mut self, token: u32) -> Self {
+        self.focus_token = Some(token);
         self
     }
 
@@ -391,6 +413,21 @@ impl<'a, Message> SecureInput<'a, Message> {
                             bounds,
                         );
                     }
+                    let from = self.char_len.saturating_sub(self.underline_tail).max(origin);
+                    if self.underline_tail > 0 && self.char_len >= self.underline_tail && from < end {
+                        renderer.fill_quad(
+                            renderer::Quad {
+                                bounds: Rectangle {
+                                    x: col_x(from - origin),
+                                    y: (row_y(r) + self.text_size * 0.5).round(),
+                                    width: (end - from) as f32 * g.advance,
+                                    height: (self.text_size * 0.07).max(1.0).round(),
+                                },
+                                ..Default::default()
+                            },
+                            self.dot_color,
+                        );
+                    }
                 }
                 None => {
                     for s in origin..end {
@@ -450,11 +487,23 @@ where
 
     fn state(&self) -> tree::State {
       
+        let focused = self.autofocus || claims(self.focus_token);
         tree::State::new(State {
-            focused: self.autofocus,
-            cursor: if self.autofocus { self.char_len } else { 0 },
+            focused,
+            cursor: if focused { self.char_len } else { 0 },
             ..State::default()
         })
+    }
+
+    fn diff(&mut self, tree: &mut Tree) {
+        tree.children.clear();
+        if claims(self.focus_token) {
+            let state = tree.state.downcast_mut::<State>();
+            state.focused = true;
+            state.window_focused = true;
+            state.cursor = self.char_len;
+            state.touch();
+        }
     }
 
     fn layout(&mut self, tree: &mut Tree, _renderer: &iced::Renderer, limits: &layout::Limits) {

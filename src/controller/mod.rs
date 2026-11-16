@@ -129,6 +129,10 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
                 close_settings(state);
             }
         }
+        Message::FocusField(field) => {
+            state.request_focus(field);
+            return Task::none();
+        }
         Message::PlainEdit(field, op) => {
             if state.apply_plain_edit(field, op) {
                 after_plain_edit(state, field);
@@ -278,6 +282,7 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
             xrp::trade_expiry_check();
             crate::controller::xrp::resync_send_twin(state);
             crate::controller::btc::resync_send_twin(state);
+            crate::controller::btc::follow_bump_tier(state);
             state.xrp_grid.flush_if_settled(panes::XRP_KEY);
             state.btc_grid.flush_if_settled(panes::BTC_KEY);
             if state.xrp_view == XrpView::Menu {
@@ -436,6 +441,7 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::BtcSendAnchorToggled
         | Message::BtcSendRecipientCleared
         | Message::BtcSendReviewCancelled
+        | Message::BtcSendReviewContinued
         | Message::BtcSendContinueClicked
         | Message::BtcSendSubmitClicked
         | Message::BtcSendCompleted

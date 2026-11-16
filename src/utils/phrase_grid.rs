@@ -31,6 +31,7 @@ pub struct Look {
     pub faint: Color,
     pub rule: Color,
     pub focus: Color,
+    pub caret: Color,
     pub red: Color,
     pub pill: Color,
 }
@@ -585,7 +586,7 @@ where
                         },
                         ..Default::default()
                     },
-                    if bad { look.red } else { look.text },
+                    if bad { look.red } else { look.caret },
                 );
             }
         }

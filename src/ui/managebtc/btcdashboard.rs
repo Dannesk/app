@@ -5,7 +5,7 @@ use iced::Widget as _;
 use iced::widget::canvas::Canvas;
 use iced::widget::pane_grid::Pane;
 use iced::widget::text::{Ellipsis, Span, Wrapping};
-use iced::widget::{button, column, container, responsive, rich_text, row, span, stack, text, Space};
+use iced::widget::{button, column, container, rich_text, row, span, stack, text, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow, Size};
 
 use crate::channel::{BtcNodeStats as NodeFrame, Socket, CHANNEL};
@@ -13,10 +13,11 @@ use crate::controller::app_state::{AppState, BtcFeeTier, ChartPeriod, EnableInpu
 use crate::controller::message::{Message, PlainField, SecureField};
 use crate::controller::panes::{Chain, GridMsg, PaneKind};
 use crate::ui::components::grid::{
-    self, drow, group_rule, label, DashedWell, ADDR, FIELD_VALUE, HERO_UNIT, HINT, NA,
+    self, drow, group_rule, label, DashedWell, ADDR, HERO_UNIT, HINT, NA,
     ROW_KEY, ROW_TOTAL, STRIP,
 };
-use crate::ui::components::send_screen::{self as screen};
+use crate::ui::components::send_screen::{self as screen, stage_box, status_row, GUTTER_W, STAGE_MIN, STAGE_PAD, STATUS_H};
+use crate::ui::components::phrase_entry;
 use crate::ui::components::signing::SignFields;
 use crate::utils::{fiat_amount, money};
 use crate::ui::components::compact;
@@ -24,6 +25,7 @@ use crate::ui::components::orbit::{self, Middle, Status};
 use crate::ui::components::tui::MONO_ADVANCE;
 use crate::ui::managebtc::node::{band_color, fee_band, is_quiet, rate_text, tip_age, NodeFrameView, Verdict};
 use crate::ui::managebtc::btcsend::{self, FeeQuote};
+use crate::ui::managebtc::feeeditor;
 use crate::ui::managexrp::panes as xrp_panes;
 use crate::ui::managexrp::xrpdashboard;
 use crate::ui::managebtc::panes as panes_ui;
@@ -87,7 +89,7 @@ fn pane_content<'a>(
                     row![
                         strip("chart"),
                         Space::new().width(9.0 * scale),
-                        grid::period_pill(state.btc_grid.chart_period, Message::BtcGrid, cp, scale),
+                        grid::period_links(state.btc_grid.chart_period, Message::BtcGrid, cp, scale),
                     ]
                     .align_y(Alignment::Center)
                     .boxed(),
@@ -281,7 +283,7 @@ fn block_line<'a>(state: &'a AppState, btc: orbit::Node, cp: &'static CompactPal
             text(add_commas(h as i64))
                 .font(MONO)
                 .size(grid::ROW_VALUE * scale)
-                .color(if fresh { cp.green } else { cp.dim })
+                .color(if fresh { cp.accent } else { cp.dim })
                 .boxed(),
         );
     }
@@ -429,29 +431,40 @@ fn chart_series(state: &AppState) -> Vec<(u64, f32)> {
 
 
 fn send_title(state: &AppState) -> &'static str {
-    if state.btc_send_step == 2 {
-        "review"
-    } else if state.btc_send_fee_face {
-        "select fee"
-    } else {
-        "send"
+    if state.btc_send_step >= 2 { "review" } else { "send" }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Face {
+    Amount,
+    Fee,
+    Review,
+    Sign,
+}
+
+fn send_face(state: &AppState) -> Face {
+    match state.btc_send_step {
+        3 => Face::Sign,
+        2 => Face::Review,
+        _ if state.btc_send_fee_face => Face::Fee,
+        _ => Face::Amount,
     }
 }
 
 fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    if state.btc_send_step == 2 {
-        return send_review(state, cp, scale);
-    }
-    if state.btc_send_fee_face {
-        return fee_face(state, cp, scale);
-    }
-    grid::fill_or_scroll_by(send_form_min_h(state), move |size: Size| send_form(state, size, cp, scale), cp, scale)
+    grid::fill_or_scroll_fit(
+        move |size: Size| send_min_h(state, (size.width / scale).max(1.0), cp, scale),
+        move |size: Size| send_form(state, size, cp, scale),
+        cp,
+        scale,
+    )
 }
 
-const STAGE_MIN: f32 = 104.0;
-const STAGE_PAD: f32 = 12.0;
-const FEE_ROW_H: f32 = 40.0;
-pub(crate) const GUTTER_W: f32 = 9.0;
+const FEE_ROW_H: f32 = 41.0;
+
+pub(crate) const TIERS: [BtcFeeTier; 4] = [BtcFeeTier::Minimum, BtcFeeTier::Low, BtcFeeTier::Med, BtcFeeTier::High];
+
+type FaceParts<'a> = (Element<'a, Message>, Element<'a, Message>);
 
 fn recipient_hint(state: &AppState) -> Option<&'static str> {
     let addr = state.btc_send_recipient.trim();
@@ -463,21 +476,33 @@ fn recipient_hint(state: &AppState) -> Option<&'static str> {
     }
 }
 
-fn send_form_min_h(state: &AppState) -> f32 {
+fn send_min_h(state: &AppState, inner: f32, cp: &'static CompactPalette, scale: f32) -> f32 {
     let hint = if recipient_hint(state).is_some() { 5.0 + HINT * 1.3 } else { 0.0 };
-    let wrap = if state.btc_send_recipient.trim().chars().count() > 34 { ADDR * 1.6 } else { 0.0 };
-    let to_block = STRIP * 1.3 + 4.0 + screen::box_h(ADDR) + wrap + hint;
-    to_block + 8.0 + FEE_ROW_H + STAGE_MIN + grid::ROW_VALUE * 1.3 + 10.0 + grid::BUTTON_H + 2.0
+    let top = STRIP * 1.3 + 4.0 + screen::boxed_h(&state.btc_send_recipient, inner, ADDR) + hint + 8.0 + FEE_ROW_H + 2.0;
+    let middle = match send_face(state) {
+        Face::Amount => STAGE_MIN + STATUS_H,
+        Face::Fee => feeeditor::MIN_H + 2.0 * STAGE_PAD,
+        Face::Review => 2.0 * STAGE_PAD + 2.0 * xrpdashboard::DROW_H + xrpdashboard::TOTAL_H,
+        Face::Sign => sign_h(inner, cp, scale),
+    };
+    top + middle + 10.0 + grid::BUTTON_H + 2.0
+}
+
+fn sign_h(inner: f32, cp: &'static CompactPalette, scale: f32) -> f32 {
+    let (_, _, key_deleted, key_mode) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
+    let boxed = screen::box_h(compact::ROW);
+    let credential = match EnableInputMode::detect(key_deleted, key_mode) {
+        EnableInputMode::Passphrase => boxed,
+        EnableInputMode::Seed => phrase_entry::height(&phrase_entry::pane(cp, scale), inner * scale) / scale,
+    };
+    2.0 * STAGE_PAD + STRIP * 1.3 + 4.0 + credential + 8.0 + boxed
 }
 
 fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     let inner = (size.width / scale).max(1.0);
-    let ccy = state.base_currency.code();
-    let rate = price::cross("BTC", ccy);
-    let quote = btcsend::quote();
-    let gate = btcsend::gate(state, quote.as_ref());
-    let fee = quote.as_ref().and_then(|q| btcsend::in_use(state, q));
     let addr = state.btc_send_recipient.trim();
+    let hint = recipient_hint(state);
+    let valid = hint.is_none() && btcsend::is_valid(addr);
 
     let mut head = row![label("to", cp, scale)].align_y(Alignment::Center).width(Length::Fill);
     if !addr.is_empty() {
@@ -487,58 +512,92 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
     }
     let mut to_block = column![
         head,
-        screen::boxed_plain(
+        screen::boxed_address(
             PlainField::BtcSendRecipient,
             &state.btc_send_recipient,
             btcsend::PLACEHOLDER,
             inner,
             ADDR,
-            true,
-            None,
-            0.0,
-            None,
-            0.0,
+            if valid { TAIL } else { 0 },
             None,
             cp,
             scale,
         ),
     ]
     .width(Length::Fill);
-    if let Some(note) = recipient_hint(state) {
+    if let Some(note) = hint {
         to_block = to_block
             .push(Space::new().height(5.0 * scale).boxed())
             .push(compact::mono_runs(vec![(note.to_string(), cp.red)], HINT * scale));
     }
 
+    let (middle, action) = match send_face(state) {
+        Face::Amount => amount_face(state, inner, cp, scale),
+        Face::Fee => fee_face(state, inner, cp, scale),
+        Face::Review => review_face(state, cp, scale),
+        Face::Sign => sign_face(state, inner, cp, scale),
+    };
+
+    column![
+        to_block,
+        Space::new().height(8.0 * scale),
+        compact::hairline(cp.rule),
+        send_fee_row(state, cp, scale),
+        compact::hairline(cp.rule),
+        middle,
+        Space::new().height(10.0 * scale),
+        action,
+        Space::new().height(2.0 * scale),
+    ]
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .boxed()
+}
+
+fn send_fee_row<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let ccy = state.base_currency.code();
+    let price = price::cross("BTC", ccy);
+    let quote = btcsend::quote();
     let tiers = quote.as_ref().and_then(|q| q.tiers);
+    let fee = if state.btc_send_step >= 2 {
+        match (state.btc_send_locked, state.btc_send_locked_vsize, state.btc_send_locked_rate) {
+            (Some(fee), Some(vsize), Some(rate)) => Some(FeeQuote { rate, fee, vsize, max: 0 }),
+            _ => None,
+        }
+    } else {
+        quote.as_ref().and_then(|q| btcsend::in_use(state, q))
+    };
     let caption = match state.btc_send_fee_tier {
         BtcFeeTier::Custom => fee.zip(tiers).map(|(f, t)| Caption::from(btcsend::custom_read(f.fee, &t))),
         named => tiers.and_then(|t| named.index().map(|i| Caption::Verdict(Verdict::of(&t.map(|q| q.rate), i)))),
     };
-    let fee_line = choice_button(
-        fee_choice(
-            "Network fee",
-            Some(state.btc_send_fee_tier.label()),
-            caption,
-            fee.map_or(RateCell::Dash, |f| RateCell::Text(rate_text(f.rate), f.vsize)),
-            fee_cost(fee, rate, ccy, cp),
-            Gutter::Chevron,
-            cp,
-            scale,
-        ),
-        false,
-        Some(Message::BtcSendFeeFaceToggled),
+    let body = fee_choice(
+        "Network fee",
+        Some(state.btc_send_fee_tier.label()),
+        caption,
+        fee.map_or(RateCell::Dash, |f| RateCell::Text(rate_text(f.rate), f.vsize)),
+        fee_cost(fee, price, ccy, cp),
+        state.btc_send_fee_face,
         cp,
         scale,
     );
+    screen::row_button(body, Some(Message::BtcSendFeeFaceToggled), cp, scale)
+}
+
+fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette, scale: f32) -> FaceParts<'a> {
+    let ccy = state.base_currency.code();
+    let rate = price::cross("BTC", ccy);
+    let quote = btcsend::quote();
+    let gate = btcsend::gate(state, quote.as_ref());
+    let fee = quote.as_ref().and_then(|q| btcsend::in_use(state, q));
 
     let anchor_fiat = matches!(state.btc_send_anchor, SendAnchor::Fiat);
     let (field, typed, placeholder, figure_unit) = if anchor_fiat {
         (PlainField::BtcSendFiat, state.btc_send_fiat_amount.as_str(), "0.00", ccy.to_string())
     } else {
-        (PlainField::BtcSendAmount, state.btc_send_amount.as_str(), "0.00000000", "btc".to_string())
+        (PlainField::BtcSendAmount, state.btc_send_amount.as_str(), "0.00000000", String::new())
     };
-    let figure = xrpdashboard::figure_input(
+    let figure = xrpdashboard::figure_field(
         field,
         typed,
         placeholder,
@@ -546,6 +605,7 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
         inner - 2.0 * STAGE_PAD,
         gate.red(),
         gate.ready.then_some(Message::BtcSendContinueClicked),
+        state.focus_token(field),
         cp,
         scale,
     );
@@ -573,11 +633,6 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
     ]
     .align_x(Alignment::Center)
     .width(Length::Fill);
-    let stage = container(stage)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .align_y(Alignment::Center)
-        .padding(Padding::new(STAGE_PAD * scale).left(0.0).right(0.0));
 
     let spendable = quote.as_ref().and_then(|q| q.spendable);
     let dust = quote.as_ref().and_then(|q| q.dust);
@@ -605,226 +660,168 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
             .push(xrp_panes::link("Max", cp.dim, Message::BtcSendMaxClicked, cp, scale));
     }
 
-    column![
-        to_block,
-        Space::new().height(8.0 * scale),
-        compact::hairline(cp.rule),
-        fee_line,
-        compact::hairline(cp.rule),
-        stage,
-        avail_row,
-        Space::new().height(10.0 * scale),
-        grid::primary("Review", gate.ready, Message::BtcSendContinueClicked, cp, scale),
-        Space::new().height(2.0 * scale),
-    ]
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .boxed()
+    let middle = column![screen::focus_stage(stage.boxed(), field, scale), status_row(avail_row.boxed(), scale)]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .boxed();
+    (middle, grid::primary("Review", gate.ready, Message::BtcSendContinueClicked, cp, scale))
 }
 
-fn fee_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+fn fee_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette, scale: f32) -> FaceParts<'a> {
     let ccy = state.base_currency.code();
     let price = price::cross("BTC", ccy);
     let quote = btcsend::quote();
+    let editor = btcsend::editor(state, quote.as_ref());
+    let ready = editor.ready;
     let tiers = quote.as_ref().and_then(|q| q.tiers);
-    let quiet = is_quiet(&NodeFrame::current());
-    let open = state.btc_send_custom_open;
-    let live = quote.as_ref().is_some_and(|q| q.draft == btcsend::draft(state));
-
-    let mut col: Column<Element<'_, Message>> = column![].width(Length::Fill);
-    for (i, t) in [BtcFeeTier::Minimum, BtcFeeTier::Low, BtcFeeTier::Med, BtcFeeTier::High].into_iter().enumerate() {
-        if i > 0 {
-            col = col.push(compact::hairline(cp.rule));
+    let rates = tiers.map(|t| t.map(|f| f.rate));
+    let ladder = TIERS.map(|t| {
+        let i = t.index().unwrap_or(0);
+        feeeditor::Tier {
+            name: t.label(),
+            rate: tiers.map(|ts| rate_text(ts[i].rate)),
+            dot: rates.map_or(cp.faint, |r| Verdict::of(&r, i).colour(cp)),
+            lit: state.btc_send_fee_lit == Some(t),
+            press: tiers.is_some().then_some(Message::BtcSendFeeTierSelected(t)),
         }
-        let q = tiers.map(|t| t[i]);
-        let caption = tiers.filter(|_| !quiet).map(|t| Caption::Verdict(Verdict::of(&t.map(|f| f.rate), i)));
-        let picked = !open && state.btc_send_fee_tier == t;
-        let body = fee_choice(
-            t.label(),
-            None,
-            caption,
-            q.map_or(RateCell::Dash, |f| RateCell::Text(rate_text(f.rate), f.vsize)),
-            fee_cost(q, price, ccy, cp),
-            Gutter::Check(picked),
-            cp,
-            scale,
-        );
-        col = col.push(choice_button(body, picked, tiers.is_some().then_some(Message::BtcSendFeeTierSelected(t)), cp, scale));
-    }
-    if quiet {
-        col = col.push(compact::hairline(cp.rule)).push(quiet_line(cp, scale));
-    }
-    col = col.push(compact::hairline(cp.rule));
-
-    let typed_rate = state.btc_send_fee.trim().parse::<f32>().ok().filter(|r| r.is_finite() && *r > 0.0);
-    let typed = if open && typed_rate.is_some() { quote.as_ref().and_then(|q| q.custom) } else { None };
-    let read = typed.zip(tiers).map(|(f, t)| btcsend::custom_read(f.fee, &t));
-    let can_set = open && live && typed.is_some() && !matches!(read, Some(btcsend::CustomRead::Warning(_)));
-    let custom_row = if open {
-        let caption = read.map(Caption::from).unwrap_or(Caption::Plain(btcsend::OWN_RATE));
-        let field = screen::boxed_plain(
-            PlainField::BtcSendFee,
-            &state.btc_send_fee,
-            "0.00",
-            btcsend::FEE_BOX_W,
-            FIELD_VALUE,
-            false,
-            None,
-            0.0,
-            None,
-            0.0,
-            can_set.then_some(Message::BtcSendSetFee),
-            cp,
-            scale,
-        );
-        let body = fee_choice("Custom", None, Some(caption), RateCell::Field(field), fee_cost(typed, price, ccy, cp), Gutter::Check(false), cp, scale);
-        choice_button(body, true, None, cp, scale)
-    } else if let (BtcFeeTier::Custom, Some(f)) = (state.btc_send_fee_tier, quote.as_ref().and_then(|q| q.custom)) {
-        let caption = tiers.map(|t| Caption::from(btcsend::custom_read(f.fee, &t)));
-        let body = fee_choice("Custom", None, caption, RateCell::Text(rate_text(f.rate), f.vsize), fee_cost(Some(f), price, ccy, cp), Gutter::Check(true), cp, scale);
-        choice_button(body, true, Some(Message::BtcSendFeeTierSelected(BtcFeeTier::Custom)), cp, scale)
-    } else {
-        let body = fee_choice("Custom", None, Some(Caption::Plain(btcsend::OWN_RATE)), RateCell::Empty, Vec::new(), Gutter::Chevron, cp, scale);
-        choice_button(body, false, tiers.is_some().then_some(Message::BtcSendFeeTierSelected(BtcFeeTier::Custom)), cp, scale)
+    });
+    let parts = feeeditor::Parts {
+        eyebrow: "network fee",
+        field: PlainField::BtcSendFee,
+        text: &state.btc_send_fee,
+        focus: state.focus_token(PlainField::BtcSendFee),
+        cost: editor.cost.map(|c| c.fee),
+        line: editor.line,
+        tiers: ladder,
+        on_submit: ready.then_some(Message::BtcSendSetFee),
+        price,
+        ccy,
     };
-    col = col.push(custom_row);
-
-    let buttons = if open {
-        grid::button_pair(
-            grid::quiet_button("Cancel", Message::BtcSendFeeFaceToggled, cp, scale),
-            grid::primary("Set fee", can_set, Message::BtcSendSetFee, cp, scale),
-            scale,
-        )
-    } else {
-        grid::quiet_button("Cancel", Message::BtcSendFeeFaceToggled, cp, scale)
-    };
-    column![grid::scroller(col.boxed(), cp, scale), Space::new().height(12.0 * scale), buttons]
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .boxed()
+    let middle = screen::focus_stage(feeeditor::view(parts, inner - 2.0 * STAGE_PAD, cp, scale), PlainField::BtcSendFee, scale);
+    let action = grid::button_pair(
+        grid::quiet_button("Cancel", Message::BtcSendFeeFaceToggled, cp, scale),
+        grid::primary("Set fee", ready, Message::BtcSendSetFee, cp, scale),
+        scale,
+    );
+    (middle, action)
 }
 
-fn send_review<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    responsive(move |size: Size| {
-        let inner = (size.width / scale).max(1.0);
-        let ccy = state.base_currency.code();
-        let rate = price::cross("BTC", ccy);
-        let (_, _, key_deleted, key_mode) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
-        let addr = state.btc_send_recipient.trim();
-        let amount = btcsend::amount_sats(state);
-        let fee = state.btc_send_locked;
-        let quote = btcsend::quote();
-        let spendable = quote.as_ref().and_then(|q| q.spendable);
-        let dust = quote.as_ref().and_then(|q| q.dust);
-        let btc = |s: u64| format!("{}.{:08}", s / 100_000_000, s % 100_000_000);
+fn send_armed(state: &AppState) -> bool {
+    let quote = btcsend::quote();
+    let spendable = quote.as_ref().and_then(|q| q.spendable);
+    let dust = quote.as_ref().and_then(|q| q.dust);
+    match (btcsend::amount_sats(state), state.btc_send_locked, spendable) {
+        (Some(a), Some(f), Some(s)) => a + f <= s && dust.is_none_or(|d| a >= d),
+        _ => false,
+    }
+}
 
-        let mut facts = column![
-            screen::address_block((!addr.is_empty()).then_some(addr), TAIL, cp, scale),
-            Space::new().height(7.0 * scale),
-        ]
-        .width(Length::Fill);
-        facts = facts.push(drow(
-            "Amount",
-            match amount {
-                Some(a) => vec![(btc(a), cp.text), (" BTC".to_string(), cp.faint)],
-                None => vec![(NA.to_string(), cp.faint)],
-            },
-            2.0,
-            cp,
-            scale,
-        ));
-        let fee_runs = match fee {
-            Some(f) => {
-                let mut runs = vec![(add_commas(f as i64), cp.dim), (" sat".to_string(), cp.faint)];
-                if rate > 0.0 {
-                    runs.push((format!("  \u{b7}  {} {}", fiat_cost(f as f64 / 1e8 * rate), ccy), cp.faint));
-                }
-                runs
-            }
+fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> FaceParts<'a> {
+    let ccy = state.base_currency.code();
+    let rate = price::cross("BTC", ccy);
+    let amount = btcsend::amount_sats(state);
+    let fee = state.btc_send_locked;
+    let btc = |s: u64| format!("{}.{:08}", s / 100_000_000, s % 100_000_000);
+
+    let mut facts: Column<Element<'_, Message>> = column![].width(Length::Fill);
+    facts = facts.push(drow(
+        "Amount",
+        match amount {
+            Some(a) => vec![(btc(a), cp.text), (" BTC".to_string(), cp.faint)],
             None => vec![(NA.to_string(), cp.faint)],
-        };
-        facts = facts.push(
-            container(
-                row![
-                    text("Network fee").size(ROW_KEY * scale).color(cp.dim),
-                    Space::new().width(5.0 * scale),
-                    text(state.btc_send_fee_tier.label()).font(MONO).size(HINT * scale).color(cp.faint),
-                    Space::new().width(Length::Fill),
-                    compact::mono_runs(fee_runs, grid::ROW_VALUE * scale),
-                ]
-                .align_y(Alignment::Center),
-            )
-            .width(Length::Fill)
-            .padding(Padding::new(0.0).top(2.0 * scale).bottom(3.0 * scale))
-            .boxed(),
-        );
-        let total = match (amount, fee) {
-            (Some(a), Some(f)) => {
-                let sum = a + f;
-                let mut runs = vec![(btc(sum), cp.text), (" BTC".to_string(), cp.faint)];
-                if rate > 0.0 {
-                    runs.push((format!("  \u{b7}  {} {}", fiat_amount(sum as f64 / 1e8 * rate), ccy), cp.faint));
-                }
-                runs
+        },
+        2.0,
+        cp,
+        scale,
+    ));
+    let fee_runs = match fee {
+        Some(f) => {
+            let mut runs = vec![(add_commas(f as i64), cp.dim), (" sat".to_string(), cp.faint)];
+            if rate > 0.0 {
+                runs.push((format!("  \u{b7}  {} {}", fiat_cost(f as f64 / 1e8 * rate), ccy), cp.faint));
             }
-            _ => vec![(NA.to_string(), cp.faint)],
-        };
-        facts = facts.push(group_rule(cp, scale)).push(
+            runs
+        }
+        None => vec![(NA.to_string(), cp.faint)],
+    };
+    facts = facts.push(
+        container(
             row![
-                text("Total").size(ROW_KEY * scale).color(cp.dim),
+                text("Network fee").size(ROW_KEY * scale).color(cp.dim),
+                Space::new().width(5.0 * scale),
+                text(state.btc_send_fee_tier.label()).font(MONO).size(HINT * scale).color(cp.faint),
                 Space::new().width(Length::Fill),
-                compact::mono_runs(total, ROW_TOTAL * scale),
+                compact::mono_runs(fee_runs, grid::ROW_VALUE * scale),
             ]
-            .align_y(Alignment::Center)
-            .boxed(),
-        );
+            .align_y(Alignment::Center),
+        )
+        .width(Length::Fill)
+        .padding(Padding::new(0.0).top(2.0 * scale).bottom(3.0 * scale))
+        .boxed(),
+    );
+    let total = match (amount, fee) {
+        (Some(a), Some(f)) => {
+            let sum = a + f;
+            let mut runs = vec![(btc(sum), cp.text), (" BTC".to_string(), cp.faint)];
+            if rate > 0.0 {
+                runs.push((format!("  \u{b7}  {} {}", fiat_amount(sum as f64 / 1e8 * rate), ccy), cp.faint));
+            }
+            runs
+        }
+        _ => vec![(NA.to_string(), cp.faint)],
+    };
+    facts = facts.push(group_rule(cp, scale)).push(
+        row![
+            text("Total").size(ROW_KEY * scale).color(cp.dim),
+            Space::new().width(Length::Fill),
+            compact::mono_runs(total, ROW_TOTAL * scale),
+        ]
+        .align_y(Alignment::Center)
+        .boxed(),
+    );
 
-        let sign_msg = Message::BtcGrid(GridMsg::SendSign);
-        let fields = SignFields {
-            mode: EnableInputMode::detect(key_deleted, key_mode),
-            secret: SecureField::BtcSendPassphrase,
-            secret_buf: &state.btc_send_passphrase,
-            secret_reveal: state.btc_send_passphrase_reveal,
-            phrase: SecureField::BtcSendSeed,
-            phrase_buf: &state.btc_send_seed_text,
-            phrase_reveal: state.btc_send_seed_reveal,
-            bip39: SecureField::BtcSendBip39,
-            bip39_buf: &state.btc_send_bip39,
-            bip39_reveal: state.btc_send_bip39_reveal,
-            line: &state.phrase_line,
-            on_submit: sign_msg.clone(),
-        };
-        let armed = match (amount, fee, spendable) {
-            (Some(a), Some(f), Some(s)) => a + f <= s && dust.is_none_or(|d| a >= d),
-            _ => false,
-        };
-        let buttons = grid::button_pair(
-            grid::quiet_button("Cancel", Message::BtcSendReviewCancelled, cp, scale),
-            grid::primary("Sign & send", armed && fields.can_submit(), sign_msg, cp, scale),
-            scale,
-        );
-        let sign = grid::sign_block(
-            &fields,
-            &state.btc_send_passphrase,
-            &state.btc_send_seed_text,
-            &state.btc_send_bip39,
-            armed,
-            buttons,
-            inner,
-            cp,
-            scale,
-        );
+    let action = grid::button_pair(
+        grid::quiet_button("Cancel", Message::BtcSendReviewCancelled, cp, scale),
+        grid::primary("Continue", send_armed(state), Message::BtcSendReviewContinued, cp, scale),
+        scale,
+    );
+    (screen::review_column(facts.boxed(), STAGE_PAD, scale), action)
+}
 
-        grid::scroller(column![facts, sign].width(Length::Fill).boxed(), cp, scale)
-    })
-    .boxed()
+fn sign_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette, scale: f32) -> FaceParts<'a> {
+    let (_, _, key_deleted, key_mode) = CHANNEL.bitcoin_wallet_rx.borrow().clone();
+    let sign_msg = Message::BtcGrid(GridMsg::SendSign);
+    let fields = SignFields {
+        mode: EnableInputMode::detect(key_deleted, key_mode),
+        secret: SecureField::BtcSendPassphrase,
+        secret_buf: &state.btc_send_passphrase,
+        secret_reveal: state.btc_send_passphrase_reveal,
+        phrase: SecureField::BtcSendSeed,
+        phrase_buf: &state.btc_send_seed_text,
+        phrase_reveal: state.btc_send_seed_reveal,
+        bip39: SecureField::BtcSendBip39,
+        bip39_buf: &state.btc_send_bip39,
+        bip39_reveal: state.btc_send_bip39_reveal,
+        line: &state.phrase_line,
+        on_submit: sign_msg.clone(),
+    };
+    let armed = send_armed(state);
+    let action = grid::button_pair(
+        grid::quiet_button("Cancel", Message::BtcSendReviewCancelled, cp, scale),
+        grid::primary("Sign & send", armed && fields.can_submit(), sign_msg, cp, scale),
+        scale,
+    );
+    let middle = column![
+        label("sign", cp, scale),
+        grid::sign_fields(&fields, &state.btc_send_passphrase, &state.btc_send_seed_text, &state.btc_send_bip39, armed, inner, cp, scale),
+    ]
+    .width(Length::Fill);
+    (stage_box(middle.boxed(), scale), action)
 }
 
 pub(crate) enum Caption {
     Verdict(Verdict),
     Warning(String),
-    Plain(&'static str),
-    Note(String),
 }
 
 impl From<btcsend::CustomRead> for Caption {
@@ -836,16 +833,9 @@ impl From<btcsend::CustomRead> for Caption {
     }
 }
 
-pub(crate) enum RateCell<'a> {
+pub(crate) enum RateCell {
     Text(String, u64),
     Dash,
-    Empty,
-    Field(Element<'a, Message>),
-}
-
-pub(crate) enum Gutter {
-    Check(bool),
-    Chevron,
 }
 
 fn fee_cost(q: Option<FeeQuote>, price: f64, ccy: &str, cp: &'static CompactPalette) -> Vec<(String, Color)> {
@@ -875,9 +865,9 @@ pub(crate) fn fee_choice<'a>(
     top: &str,
     prefix: Option<&str>,
     caption: Option<Caption>,
-    rate: RateCell<'a>,
+    rate: RateCell,
     cost: Vec<(String, Color)>,
-    gutter: Gutter,
+    open: bool,
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
@@ -885,8 +875,6 @@ pub(crate) fn fee_choice<'a>(
     let (dot, word, ink) = match &caption {
         Some(Caption::Verdict(v)) => (Some(v.colour(cp)), Some(v.word().to_string()), cp.dim),
         Some(Caption::Warning(w)) => (Some(cp.red), Some(w.clone()), cp.red),
-        Some(Caption::Plain(p)) => (None, Some(p.to_string()), cp.dim),
-        Some(Caption::Note(n)) => (None, Some(n.clone()), cp.dim),
         None => (None, None, cp.dim),
     };
     let line: Vec<String> = [prefix.map(str::to_string), word].into_iter().flatten().collect();
@@ -907,20 +895,7 @@ pub(crate) fn fee_choice<'a>(
     }
     let rate_line: Element<'a, Message> = match rate {
         RateCell::Text(r, vsize) => rate_and_size(r, vsize, cp, scale),
-        RateCell::Field(f) => row![
-            f,
-            Space::new().width(4.0 * scale),
-            text("sat/vB").font(MONO).size(STRIP * scale).color(cp.muted),
-        ]
-        .align_y(Alignment::Center)
-        .boxed(),
         RateCell::Dash => text(NA).font(MONO).size(ROW_TOTAL * scale).color(cp.faint).boxed(),
-        RateCell::Empty => Space::new().boxed(),
-    };
-    let mark: Element<'a, Message> = match gutter {
-        Gutter::Check(true) => text("\u{2713}").size(ROW_KEY * scale).color(cp.green).boxed(),
-        Gutter::Check(false) => Space::new().boxed(),
-        Gutter::Chevron => text("\u{203a}").font(MONO).size(ROW_KEY * scale).color(cp.faint).boxed(),
     };
     container(
         row![
@@ -928,7 +903,7 @@ pub(crate) fn fee_choice<'a>(
             column![rate_line, compact::mono_runs(cost, ROW_KEY * scale)]
                 .spacing(2.0 * scale)
                 .align_x(Alignment::End),
-            container(mark).width(Length::Fixed(GUTTER_W * scale)).align_x(Alignment::End),
+            container(screen::chevron(open, cp, scale)).width(Length::Fixed(GUTTER_W * scale)).align_x(Alignment::End),
         ]
         .spacing(10.0 * scale)
         .align_y(Alignment::Center),
@@ -936,31 +911,6 @@ pub(crate) fn fee_choice<'a>(
     .width(Length::Fill)
     .padding(Padding::new(0.0).top(4.0 * scale).bottom(4.0 * scale))
     .boxed()
-}
-
-pub(crate) fn choice_button<'a>(
-    body: Element<'a, Message>,
-    picked: bool,
-    msg: Option<Message>,
-    cp: &'static CompactPalette,
-    scale: f32,
-) -> Element<'a, Message> {
-    let live = msg.is_some();
-    button(body)
-        .on_press_maybe(msg)
-        .width(Length::Fill)
-        .padding(Padding::new(0.0).left(4.0 * scale).right(4.0 * scale))
-        .style(move |_, status| {
-            let hot = live && matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: Some(if picked { cp.pill } else if hot { cp.hover } else { Color::TRANSPARENT }.into()),
-                border: Border { color: Color::TRANSPARENT, width: 0.0, radius: (5.0 * scale).into() },
-                text_color: cp.text,
-                shadow: Shadow::default(),
-                snap: false,
-            }
-        })
-        .boxed()
 }
 
 

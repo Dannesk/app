@@ -325,32 +325,33 @@ pub fn bare(_: &iced::Theme, _: button::Status) -> button::Style {
 }
 
 
-pub fn period_pill<'a>(current: ChartPeriod, wrap: fn(GridMsg) -> Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    let seg = |label: &str, period: ChartPeriod| -> Element<'a, Message> {
+pub fn period_links<'a>(current: ChartPeriod, wrap: fn(GridMsg) -> Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let link = |label: &str, period: ChartPeriod| -> Element<'a, Message> {
         let active = current == period;
-        button(
-            text(label.to_uppercase())
-                .font(MONO)
-                .size(PILL * scale)
-                .color(if active { cp.text } else { cp.muted }),
-        )
-        .on_press(wrap(GridMsg::Period(period)))
-        .padding(Padding::new(0.0).top(2.0 * scale).bottom(2.0 * scale).left(7.0 * scale).right(7.0 * scale))
-        .style(move |_, _| button::Style {
-            background: Some(if active { cp.pill } else { Color::TRANSPARENT }.into()),
-            border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 999.0.into() },
-            text_color: if active { cp.text } else { cp.muted },
-            shadow: Shadow::default(),
-            snap: false,
-        })
-        .boxed()
+        let word = label.to_uppercase();
+        let under = container(Space::new())
+            .width(Length::Fixed(word.chars().count() as f32 * PILL * scale * MONO_ADVANCE))
+            .height(Length::Fixed(1.0))
+            .style(move |_| container::Style { background: active.then_some(cp.text.into()), ..Default::default() });
+        button(column![text(word).font(MONO).size(PILL * scale), under].spacing(2.0 * scale))
+            .on_press(wrap(GridMsg::Period(period)))
+            .padding(Padding::new(0.0).top(2.0 * scale).left(4.0 * scale).right(4.0 * scale))
+            .style(move |_, status| button::Style {
+                background: None,
+                border: Border::default(),
+                text_color: if active {
+                    cp.text
+                } else if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+                    cp.dim
+                } else {
+                    cp.muted
+                },
+                shadow: Shadow::default(),
+                snap: false,
+            })
+            .boxed()
     };
-    container(row![seg("1h", ChartPeriod::OneHour), seg("1d", ChartPeriod::OneDay)])
-        .style(move |_| container::Style {
-            border: Border { color: cp.border, width: 1.0, radius: 999.0.into() },
-            ..Default::default()
-        })
-        .boxed()
+    row![link("1h", ChartPeriod::OneHour), link("1d", ChartPeriod::OneDay)].spacing(4.0 * scale).boxed()
 }
 
 
@@ -410,10 +411,17 @@ pub fn rule_label<'a>(word: &str, cp: &'static CompactPalette, scale: f32) -> El
 }
 
 pub fn pane_button<'a>(word: &str, enabled: bool, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    button(text(word.to_string()).size(BUTTON * scale).width(Length::Fill).align_x(Alignment::Center))
+    marked_button(word, enabled, msg, cp.accent, cp, scale)
+}
+
+pub fn marked_button<'a>(word: &str, enabled: bool, msg: Message, mark: Color, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let face = container(text(word.to_string()).size(BUTTON * scale).width(Length::Fill).align_x(Alignment::Center))
+        .width(Length::Fill)
+        .padding(Padding::new(0.0).top(5.0 * scale).bottom(5.0 * scale));
+    button(crate::ui::components::compact::cornered(face.boxed(), mark, 6.0 * scale, scale))
         .on_press_maybe(enabled.then_some(msg))
         .width(Length::Fill)
-        .padding(Padding::new(0.0).top(5.0 * scale).bottom(5.0 * scale))
+        .padding(Padding::ZERO)
         .style(move |_, status| crate::ui::components::compact::button_style(cp, 6.0 * scale, enabled, status))
         .boxed()
 }
@@ -514,12 +522,22 @@ pub fn fill_or_scroll_by<'a>(
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
+    fill_or_scroll_fit(move |_| min, body, cp, scale)
+}
+
+pub fn fill_or_scroll_fit<'a>(
+    min: impl Fn(Size) -> f32 + 'a,
+    body: impl Fn(Size) -> Element<'a, Message> + 'a,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
     responsive(move |size: Size| {
-        if size.height >= min * scale {
+        let floor = min(size);
+        if size.height >= floor * scale {
             body(size)
         } else {
             scroller(
-                container(body(size)).width(Length::Fill).height(Length::Fixed(min * scale)).boxed(),
+                container(body(size)).width(Length::Fill).height(Length::Fixed(floor * scale)).boxed(),
                 cp,
                 scale,
             )
@@ -559,6 +577,27 @@ pub fn sign_block<'a>(
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
+    column![
+        rule_label("sign", cp, scale),
+        sign_fields(fields, secret_buf, phrase_buf, bip39_buf, armed, inner, cp, scale),
+        Space::new().height(10.0 * scale),
+        buttons,
+    ]
+    .width(Length::Fill)
+    .boxed()
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn sign_fields<'a>(
+    fields: &SignFields<'a>,
+    secret_buf: &'a SecureString,
+    phrase_buf: &'a SecureString,
+    bip39_buf: &'a SecureString,
+    armed: bool,
+    inner: f32,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
     let live = armed && fields.can_submit();
     let submit = live.then(|| fields.on_submit.clone());
     let credential: Element<'a, Message> = match fields.mode {
@@ -585,7 +624,6 @@ pub fn sign_block<'a>(
     };
 
     column![
-        rule_label("sign", cp, scale),
         credential,
         Space::new().height(8.0 * scale),
         compact::boxed_credential(
@@ -598,8 +636,6 @@ pub fn sign_block<'a>(
             cp,
             scale,
         ),
-        Space::new().height(10.0 * scale),
-        buttons,
     ]
     .width(Length::Fill)
     .boxed()
@@ -1190,7 +1226,8 @@ fn line_glyph<'a>(
 }
 
 pub fn line_ok<'a>(msg: Option<Message>, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    line_glyph(text("\u{2713}").size(LINE_BTN * scale), cp.green, cp.green, msg, cp, scale)
+    let ink = if msg.is_some() { cp.green } else { cp.faint };
+    line_glyph(text("\u{2713}").size(LINE_BTN * scale), ink, ink, msg, cp, scale)
 }
 
 pub fn line_no<'a>(msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -1236,7 +1273,7 @@ pub fn tag_field<'a>(pane: TagPane, draft: &'a str, cp: &'static CompactPalette,
         s,
         MONO,
         cp.text,
-        cp.text,
+        cp.accent,
         cp.faint,
         Some(fonts::SANS),
         true,

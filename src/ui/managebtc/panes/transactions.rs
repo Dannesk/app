@@ -27,7 +27,7 @@ pub fn title(state: &AppState) -> &'static str {
 
 pub fn meta<'a>(state: &AppState, cp: &'static CompactPalette, scale: f32) -> Option<Element<'a, Message>> {
     if state.btc_bump_txid.is_some() {
-        return None;
+        return btcbump::meta(state).map(|m| text(m).font(MONO).size(STRIP * scale).color(cp.faint).boxed());
     }
     let t = selected(state)?;
     Some(text(t.state_label().to_uppercase()).font(MONO).size(STRIP * scale).color(t.state_color(cp)).boxed())

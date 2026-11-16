@@ -398,51 +398,6 @@ pub(crate) fn facts(tx: &Tx, reserve: Option<f64>, p: &'static CompactPalette) -
     rows
 }
 
-pub(crate) fn note(tx: &Tx, reserve: Option<f64>) -> Option<String> {
-    match tx.kind {
-        Kind::Offer if tx.open() => {
-            let r = match reserve {
-                Some(r) => format!("{} XRP reserve", format_token_amount(r, 2)),
-                None => "reserve".to_string(),
-            };
-            Some(match tx.filled_base().filter(|f| *f > 0.0) {
-                Some(f) => format!(
-                    "{} {} has filled and stays yours. Cancelling takes the rest off the book and returns the {r}.",
-                    six(f),
-                    tx.base_unit()
-                ),
-                None => format!("Nothing has filled yet. Cancelling takes it off the book and returns the {r}."),
-            })
-        }
-        Kind::Offer => None,
-        _ if tx.status == TransactionStatus::Failed => Some(failed_note(tx)),
-        _ => None,
-    }
-}
-
-fn failed_note(tx: &Tx) -> String {
-    let unit = unit_of(&tx.currency);
-    let why = if tx.kind != Kind::Payment {
-        "The ledger rejected it.".to_string()
-    } else {
-        match tx.result.as_deref() {
-            Some("tecPATH_DRY") => format!("Nothing was sent: no {unit} path to the recipient, usually a missing trustline."),
-            Some("tecPATH_PARTIAL") => "Nothing was sent: not enough liquidity to deliver the full amount.".to_string(),
-            Some("tecNO_DST") => "Nothing was sent: the recipient account doesn\u{2019}t exist yet.".to_string(),
-            Some("tecNO_DST_INSUF_XRP") => {
-                "Nothing was sent: the recipient account doesn\u{2019}t exist, and the amount was too small to activate it.".to_string()
-            }
-            Some("tecDST_TAG_NEEDED") => "Nothing was sent: the recipient requires a destination tag.".to_string(),
-            Some("tecUNFUNDED_PAYMENT") => "Nothing was sent: the balance wasn\u{2019}t enough when it reached the ledger.".to_string(),
-            Some("tecNO_PERMISSION") => {
-                "Nothing was sent: the recipient only accepts payments from accounts it has approved.".to_string()
-            }
-            _ => "The ledger rejected it.".to_string(),
-        }
-    };
-    why
-}
-
 pub(crate) fn stamp(secs: u64) -> String {
     let Some(dt) = DateTime::from_timestamp(secs as i64, 0) else {
         return NA.to_string();
@@ -578,15 +533,12 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_payment_shows_its_code_and_what_it_means() {
+    fn a_failed_payment_shows_its_code() {
         let mut raw = tx("payment", TransactionStatus::Failed, OWN, THEM, "2.5", "RLUSD");
         raw.result = Some("tecPATH_DRY".to_string());
         let t = Tx::from(&raw, OWN);
         let f = facts(&t, None, P);
         assert!(keys(&f).contains(&"Result") && keys(&f).contains(&"Issuer"), "{:?}", keys(&f));
-        let n = note(&t, None).unwrap();
-        assert!(n.starts_with("Nothing was sent: no RLUSD path"), "{n}");
-        assert!(n.ends_with("usually a missing trustline."), "{n}");
     }
 
     #[test]
@@ -618,8 +570,6 @@ mod tests {
         assert!(flat(&f).contains("Receive=532.190000 RLUSD"));
         assert!(flat(&f).contains("Time in force=Good til Cancelled"));
         assert!(!keys(&f).contains(&"Sequence"));
-        let n = note(&t, Some(0.2)).unwrap();
-        assert_eq!(n, "612.000000 XRP has filled and stays yours. Cancelling takes the rest off the book and returns the 0.20 XRP reserve.");
         assert_eq!(t.cancellable(), Some(41));
     }
 
@@ -642,16 +592,14 @@ mod tests {
         let f = facts(&t, Some(0.2), P);
         assert_eq!(keys(&f), ["Limit price", "Filled", "Received", "Filled price", "Time in force", "Issuer", "Network fee", "Hash"]);
         assert!(flat(&f).contains("Received=839.210000 RLUSD"));
-        assert_eq!(note(&t, None), None);
         assert_eq!((t.state_label(), t.state_color(P)), ("partial", P.dim));
     }
 
     #[test]
-    fn a_cancelled_order_reads_cancelled_with_its_fill_and_no_line() {
+    fn a_cancelled_order_reads_cancelled_with_its_fill() {
         let t = Tx::from(&sell(TransactionStatus::Cancelled), OWN);
         assert_eq!((t.state_label(), t.state_color(P)), ("cancelled", P.dim));
         assert!(flat(&facts(&t, None, P)).contains("Filled=612.000000 XRP"));
-        assert_eq!(note(&t, None), None);
     }
 
     #[test]

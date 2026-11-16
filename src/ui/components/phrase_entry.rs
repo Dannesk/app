@@ -31,6 +31,7 @@ pub struct Metrics {
     pub right_w: f32,
     pub more_w: f32,
     pub clear: f32,
+    pub check: Color,
 }
 
 fn look(cp: &'static CompactPalette, word: f32, index: f32, s: f32) -> Look {
@@ -51,6 +52,7 @@ fn look(cp: &'static CompactPalette, word: f32, index: f32, s: f32) -> Look {
         faint: cp.faint,
         rule: cp.rule,
         focus: cp.focus,
+        caret: cp.accent,
         red: cp.red,
         pill: cp.pill,
     }
@@ -81,6 +83,7 @@ pub fn setup(cp: &'static CompactPalette, s: f32) -> Metrics {
         right_w: 150.0 * s,
         more_w: 56.0 * s,
         clear: 10.5 * s,
+        check: cp.accent,
     }
 }
 
@@ -109,6 +112,7 @@ pub fn pane(cp: &'static CompactPalette, s: f32) -> Metrics {
         right_w: 150.0 * s,
         more_w: 50.0 * s,
         clear: 9.5 * s,
+        check: cp.green,
     }
 }
 
@@ -198,7 +202,7 @@ pub fn view<'a>(e: Entry<'a>, m: &Metrics, cp: &'static CompactPalette, s: f32) 
                 Some((format!("Word {} isn't in the word list", first + 1), cp.red))
             } else if count == TARGET_WORDS {
                 if mnemonic_checksum_ok(text_all) {
-                    Some(("\u{2713} checksum valid".to_string(), cp.green))
+                    Some(("\u{2713} checksum valid".to_string(), m.check))
                 } else if e.revealed {
                     Some(("Checksum doesn't match \u{2014} check the order".to_string(), cp.red))
                 } else {

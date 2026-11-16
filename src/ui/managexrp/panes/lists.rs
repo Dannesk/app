@@ -8,7 +8,7 @@ use crate::channel::{CHANNEL, HistoryList, TransactionStatus};
 use crate::controller::app_state::AppState;
 use crate::controller::message::{Message, SecureField};
 use crate::controller::xrp::xrp_reserve;
-use crate::ui::components::grid::{self, group_rule, HINT};
+use crate::ui::components::grid::{self, group_rule};
 use crate::ui::components::signing::SignFields;
 use crate::ui::components::tx_panel::Fact;
 use crate::ui::managebtc::btctransactions::full_stamp;
@@ -126,11 +126,6 @@ fn details<'a>(state: &'a AppState, t: &Tx, cp: &'static CompactPalette, scale: 
         .width(Length::Fill);
     for f in tx::facts(t, reserve, cp) {
         body = body.push(fact_line(f, copied, cp, scale));
-    }
-    if let Some(note) = tx::note(t, reserve) {
-        body = body
-            .push(Space::new().height(8.0 * scale).boxed())
-            .push(text(note).font(MONO).size(HINT * scale).color(cp.dim).boxed());
     }
 
     let back = quiet_button("Back", Message::XrpTxBack, cp, scale);

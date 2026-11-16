@@ -72,7 +72,7 @@ impl Node {
     pub fn color(self, p: &CompactPalette) -> Color {
         match self {
             Node::Waiting => p.dim,
-            Node::Live => p.green,
+            Node::Live => p.accent,
             Node::CatchingUp(_) | Node::NoPeers => p.amber,
             Node::Offline => p.red,
         }

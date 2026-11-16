@@ -191,12 +191,26 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             state.xrp_token_tab = tab;
             resync_send_twin(state);
             state.send_asset_picker_open = false;
-            clear_enable_form(state);
+            state.request_focus(amount_field(state));
             if !state.send_amount.trim().is_empty() {
                 after_plain_edit(state, PlainField::XrpSendAmount);
             }
         }
         Message::TagEdit(pane) => {
+            if pane == TagPane::Send {
+                if state.send_tag_editing {
+                    state.send_tag_editing = false;
+                    state.send_tag_draft.clear();
+                    state.request_focus(amount_field(state));
+                    return Task::none();
+                }
+                if send_to_xaddress(state) {
+                    return Task::none();
+                }
+                unlock_send(state);
+                state.send_asset_picker_open = false;
+                state.request_focus(PlainField::XrpSendTag);
+            }
             let (set, editing, draft) = tag_slots(state, pane);
             *draft = set.clone();
             *editing = true;
@@ -210,14 +224,22 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             *set = d.to_string();
             draft.clear();
             *editing = false;
-            if pane == TagPane::Receive {
-                persist_receive_tag(state);
+            match pane {
+                TagPane::Receive => persist_receive_tag(state),
+                TagPane::Send => state.request_focus(amount_field(state)),
             }
         }
         Message::TagCancelled(pane) => {
             let (_, editing, draft) = tag_slots(state, pane);
             draft.clear();
             *editing = false;
+            if pane == TagPane::Send {
+                state.request_focus(amount_field(state));
+            }
+        }
+        Message::TagDraftCleared(pane) => {
+            let (_, _, draft) = tag_slots(state, pane);
+            draft.clear();
         }
         Message::TagCleared(pane) => {
             let (set, editing, draft) = tag_slots(state, pane);
@@ -245,9 +267,16 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
         }
         Message::SendAssetPickerToggled => {
             state.send_asset_picker_open = !state.send_asset_picker_open;
+            if state.send_asset_picker_open {
+                unlock_send(state);
+                state.send_tag_editing = false;
+                state.send_tag_draft.clear();
+            } else {
+                state.request_focus(amount_field(state));
+            }
         }
         Message::EnableTokenClicked(code) => {
-            state.xrp_token_tab = XrpTokenTab::Token(code);
+            state.enable_token = Some(code);
             state.show_enable = true;
             clear_enable_form(state);
             state.enable_fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
@@ -287,7 +316,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                 state.enable_error = Some("ERR: WS_NOT_READY".to_string());
                 return Task::none();
             };
-            let asset = match state.xrp_token_tab.code() {
+            let asset = match state.enable_token {
                 Some(code) => code.to_string(),
                 None => return Task::none(),
             };
@@ -413,7 +442,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             close_setup(state);
         }
         Message::SendMaxClicked => {
-            state.send_amount = match state.xrp_token_tab {
+            state.send_amount = match send_asset(state) {
                 XrpTokenTab::Xrp => {
                     let max = xrp_available().map_or(0.0, |s| (s - xrp_fee()).max(0.0));
                     crate::utils::format_token_amount(max, 6)
@@ -434,7 +463,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             };
             let fee_xrp = state.send_fee.map_or(0.0, |d| d as f64 / 1e6);
             let fits = state.send_amount.trim().parse::<f64>().ok().is_some_and(|a| send_fits_for(&state.send_tab, a, fee_xrp));
-            if state.send_step != 2 || state.send_fee.is_none() || !fits {
+            if state.send_step != 3 || state.send_fee.is_none() || !fits {
                 return Task::none();
             }
             let asset = match state.send_tab {
@@ -523,14 +552,14 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                 return Task::none();
             }
             state.send_recipient = addr;
-            state.send_amount = match state.xrp_token_tab {
+            state.send_amount = match send_asset(state) {
                 XrpTokenTab::Token(code) if state.send_amount.trim() == CHANNEL.token(code).3 => CHANNEL.token(code).3,
                 XrpTokenTab::Token(_) => crate::utils::format_token_amount(crate::utils::orderbook::floor_to(amount, 6), 6),
                 XrpTokenTab::Xrp => crate::utils::format_token_amount(amount, 6),
             };
             state.send_error = None;
             state.send_fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
-            state.send_tab = state.xrp_token_tab.clone();
+            state.send_tab = send_asset(state);
             state.send_step = 2;
         }
         Message::SendAnchorToggled => {
@@ -540,6 +569,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             };
         }
         Message::SendRecipientCleared => {
+            unlock_send(state);
             state.send_recipient.clear();
             state.send_destination_tag.clear();
             state.send_tag_editing = false;
@@ -547,14 +577,13 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             state.send_error = None;
         }
         Message::SendReviewCancelled => {
-            state.send_step = 0;
-            state.send_fee = None;
-            state.send_passphrase.clear();
-            state.send_passphrase_reveal = false;
-            state.send_bip39.clear();
-            state.send_bip39_reveal = false;
-            state.send_seed_text.clear();
-            state.send_seed_reveal = true;
+            unlock_send(state);
+            state.request_focus(amount_field(state));
+        }
+        Message::SendReviewContinued => {
+            if state.send_step == 2 {
+                state.send_step = 3;
+            }
         }
         Message::TradeSideSet(side) => {
             state.trade_side_chosen = true;
@@ -1121,7 +1150,19 @@ pub fn send_fits(state: &AppState, amount: f64) -> bool {
 }
 
 pub fn send_fits_at(state: &AppState, amount: f64, fee: f64) -> bool {
-    send_fits_for(&state.xrp_token_tab, amount, fee)
+    send_fits_for(&send_asset(state), amount, fee)
+}
+
+pub(crate) fn holds(code: &str) -> bool {
+    let (balance, held, _, _) = CHANNEL.token(code);
+    held && balance > 0.0
+}
+
+pub(crate) fn send_asset(state: &AppState) -> XrpTokenTab {
+    match state.xrp_token_tab {
+        XrpTokenTab::Token(code) if holds(code) => XrpTokenTab::Token(code),
+        _ => XrpTokenTab::Xrp,
+    }
 }
 
 pub fn send_fits_for(tab: &XrpTokenTab, amount: f64, fee: f64) -> bool {
@@ -1133,8 +1174,7 @@ pub fn send_fits_for(tab: &XrpTokenTab, amount: f64, fee: f64) -> bool {
 }
 
 pub fn send_rate(state: &AppState) -> f64 {
-    let key = state
-        .xrp_token_tab
+    let key = send_asset(state)
         .code()
         .and_then(crate::utils::tokens::by_code)
         .map_or("XRP", |t| t.rate_key);
@@ -1156,7 +1196,7 @@ fn derive_send_amount(state: &mut AppState, rate: f64) {
 }
 
 pub fn resync_send_twin(state: &mut AppState) {
-    if state.send_step == 2 {
+    if state.send_step >= 2 {
         return;
     }
     let rate = send_rate(state);
@@ -1181,12 +1221,43 @@ pub fn after_plain_edit(state: &mut AppState, field: PlainField) {
             state.send_anchor = SendAnchor::Fiat;
             derive_send_amount(state, rate);
         }
+        PlainField::XrpSendRecipient => {
+            if state.send_step >= 2 {
+                unlock_send(state);
+            }
+            if send_to_xaddress(state) {
+                state.send_tag_editing = false;
+                state.send_tag_draft.clear();
+            }
+        }
         PlainField::TradeAmount | PlainField::TradeLimit => {
             push_trade_ticket(state);
         }
         PlainField::TradePairQuery => {}
         _ => {}
     }
+}
+
+fn unlock_send(state: &mut AppState) {
+    state.send_step = 0;
+    state.send_fee = None;
+    state.send_passphrase.clear();
+    state.send_passphrase_reveal = false;
+    state.send_bip39.clear();
+    state.send_bip39_reveal = false;
+    state.send_seed_text.clear();
+    state.send_seed_reveal = true;
+}
+
+fn amount_field(state: &AppState) -> PlainField {
+    match state.send_anchor {
+        SendAnchor::Amount => PlainField::XrpSendAmount,
+        SendAnchor::Fiat => PlainField::XrpSendFiat,
+    }
+}
+
+pub(crate) fn send_to_xaddress(state: &AppState) -> bool {
+    dannesk_xrpl_codec::xaddress::resolve(state.send_recipient.trim()).is_some_and(|r| r.from_xaddress)
 }
 
 fn tag_slots(state: &mut AppState, pane: TagPane) -> (&mut String, &mut bool, &mut String) {
@@ -1205,10 +1276,6 @@ pub(crate) fn receive_address(state: &AppState, classic: &str) -> String {
 
 pub(crate) fn tag_of(buf: &str) -> Option<u32> {
     buf.trim().parse::<u32>().ok()
-}
-
-pub(crate) fn tag_wrong(buf: &str) -> bool {
-    !buf.trim().is_empty() && tag_of(buf).is_none()
 }
 
 pub(crate) fn clear_receive_form(state: &mut AppState) {
@@ -1244,6 +1311,7 @@ pub fn restore_receive_tag(state: &mut AppState) {
 }
 
 pub(crate) fn clear_send_form(state: &mut AppState) {
+    state.xrp_token_tab = XrpTokenTab::Xrp;
     state.send_step = 0;
     state.send_fee = None;
     state.send_recipient = String::new();

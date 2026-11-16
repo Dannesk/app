@@ -1,15 +1,9 @@
 
 
-use iced::Widget as _;
-use iced::widget::{button, column, container, text, Space};
-use iced::{Border, Color, Element, Length, Padding, Shadow};
-
 use crate::btc_script_type::BtcScriptType;
 use crate::channel::CHANNEL;
 use crate::controller::app_state::{AppState, BtcFeeTier};
-use crate::controller::message::Message;
 use crate::ui::managebtc::node::{rate_text, Verdict};
-use crate::utils::theme::CompactPalette;
 pub use crate::utils::btc_send::{BtcSendDraft, BtcSendQuote, FeeQuote};
 pub use crate::ws::commands::bitcoin_payment::{tier_sats_at, vsize_for};
 
@@ -25,15 +19,16 @@ pub fn typical_vsize() -> u64 {
 
 
 pub fn draft(state: &AppState) -> BtcSendDraft {
-    let custom = if state.btc_send_custom_open {
-        Some(state.btc_send_fee.trim().to_string())
-    } else {
-        (!state.btc_send_custom.is_empty()).then(|| state.btc_send_custom.clone())
-    };
+    let custom = (state.btc_send_fee_tier == BtcFeeTier::Custom && !state.btc_send_custom.is_empty())
+        .then(|| state.btc_send_custom.clone());
+    let typed = (state.btc_send_fee_face && state.btc_send_fee_lit.is_none())
+        .then(|| state.btc_send_fee.trim().to_string())
+        .filter(|t| !t.is_empty());
     BtcSendDraft {
         recipient: state.btc_send_recipient.trim().to_string(),
         amount: state.btc_send_amount.trim().to_string(),
         custom,
+        typed,
         max: state.btc_send_max_on,
     }
 }
@@ -48,10 +43,41 @@ pub fn live_quote(state: &AppState) -> Option<BtcSendQuote> {
 
 pub fn in_use(state: &AppState, q: &BtcSendQuote) -> Option<FeeQuote> {
     match state.btc_send_fee_tier {
-        BtcFeeTier::Custom if state.btc_send_custom_open => None,
         BtcFeeTier::Custom => q.custom,
         named => named.index().and_then(|i| q.tiers.map(|t| t[i])),
     }
+}
+
+pub(crate) enum Line {
+    Prompt(String),
+    Tier(Verdict),
+    Custom(Option<Verdict>),
+    Under(String),
+}
+
+pub(crate) struct Editor {
+    pub cost: Option<FeeQuote>,
+    pub line: Line,
+    pub ready: bool,
+}
+
+pub(crate) fn editor(state: &AppState, q: Option<&BtcSendQuote>) -> Editor {
+    let tiers = q.and_then(|q| q.tiers);
+    if let Some(i) = state.btc_send_fee_lit.and_then(BtcFeeTier::index) {
+        let cost = tiers.map(|t| t[i]);
+        let line = tiers.map_or(Line::Prompt(OWN_RATE.to_string()), |t| Line::Tier(Verdict::of(&t.map(|f| f.rate), i)));
+        return Editor { cost, line, ready: cost.is_some() };
+    }
+    let positive = state.btc_send_fee.trim().parse::<f32>().ok().filter(|r| r.is_finite() && *r > 0.0);
+    let cost = positive.and(q.filter(|q| q.draft == draft(state))).and_then(|q| q.typed);
+    let line = match (positive, cost.zip(tiers).map(|(c, t)| custom_read(c.fee, &t))) {
+        (None, _) => Line::Prompt(OWN_RATE.to_string()),
+        (Some(_), Some(CustomRead::Warning(w))) => Line::Under(w),
+        (Some(_), Some(CustomRead::Verdict(v))) => Line::Custom(Some(v)),
+        (Some(_), None) => Line::Custom(None),
+    };
+    let ready = cost.is_some() && !matches!(line, Line::Under(_));
+    Editor { cost, line, ready }
 }
 
 pub fn amount_sats(state: &AppState) -> Option<u64> {
@@ -75,7 +101,7 @@ pub(crate) enum CustomRead {
 pub(crate) fn custom_read(fee: u64, tiers: &[FeeQuote; 4]) -> CustomRead {
     match (0..4).rev().find(|&i| fee >= tiers[i].fee) {
         Some(reach) => CustomRead::Verdict(Verdict::of(&tiers.map(|t| t.rate), reach)),
-        None => CustomRead::Warning(format!("min {}", rate_text(tiers[0].rate))),
+        None => CustomRead::Warning(below_minimum(tiers[0].rate)),
     }
 }
 
@@ -114,8 +140,22 @@ pub fn gate(state: &AppState, q: Option<&BtcSendQuote>) -> Gate {
         && !insufficient
         && !under_dust
         && !blocked
-        && !state.btc_send_custom_open;
+        && !state.btc_send_fee_face;
     Gate { insufficient, under_dust, blocked, ready }
+}
+
+pub(crate) fn below_minimum(floor: f32) -> String {
+    format!("below the {} minimum", rate_text(floor))
+}
+
+pub fn rate_typed(candidate: &str) -> Option<String> {
+    if candidate.is_empty() {
+        return Some(String::new());
+    }
+    let raw = if candidate.starts_with('.') { format!("0{candidate}") } else { candidate.to_string() };
+    let digits = raw.trim_start_matches('0');
+    let rate = if digits.is_empty() || digits.starts_with('.') { format!("0{digits}") } else { digits.to_string() };
+    rate_accepts(&rate).then_some(rate)
 }
 
 
@@ -200,70 +240,9 @@ pub(crate) fn dust_words(dust: u64) -> String {
 
 pub(crate) const BACK_OF_QUEUE: &str = "back of the queue";
 
-
-pub const FEE_BOX_W: f32 = 96.0;
-
-pub const TIER_GAP: f32 = 15.0;
-pub const TIER_SIZE: f32 = 10.5;
-
-
-pub const INTER_ADVANCE: f32 = 0.52;
-
-
-pub fn tier_cell<'a>(
-    t:        BtcFeeTier,
-    selected: bool,
-    offered:  bool,
-    colour:   Color,
-    on_press: fn(BtcFeeTier) -> Message,
-    cp:       &'static CompactPalette,
-    scale:    f32,
-) -> Element<'a, Message> {
-    let word = t.label();
-    let (tone, live) = match (selected, offered) {
-        (true, _) => (colour, false),
-        (false, true) => (cp.muted, true),
-        (false, false) => (cp.faint, false),
-    };
-
-    let label: Element<'a, Message> = if live {
-        button(text(word.to_string()).size(TIER_SIZE * scale).color(tone))
-            .on_press(on_press(t))
-            .padding(Padding::ZERO)
-            .style(|_, _| button::Style {
-                background: None,
-                border: Border::default(),
-                text_color: Color::TRANSPARENT,
-                shadow: Shadow::default(),
-                snap: false,
-            })
-            .boxed()
-    } else {
-        text(word.to_string()).size(TIER_SIZE * scale).color(tone).boxed()
-    };
-
-    let mark: Element<'a, Message> = if selected {
-        container(Space::new())
-            .width(Length::Fixed(
-                word.chars().count() as f32 * TIER_SIZE * INTER_ADVANCE * scale,
-            ))
-            .height(Length::Fixed(2.0 * scale))
-            .style(move |_| container::Style {
-                background: Some(colour.into()),
-                ..Default::default()
-            })
-            .boxed()
-    } else {
-        Space::new().height(2.0 * scale).boxed()
-    };
-
-    column![label, Space::new().height(6.0 * scale), mark].boxed()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::components::tui::MONO_ADVANCE;
 
 
     const REAL: [&str; 5] = [
@@ -395,7 +374,7 @@ mod tests {
         assert_eq!(custom_read(154, &t), CustomRead::Verdict(Verdict::NextBlock));
         assert_eq!(custom_read(19, &t), CustomRead::Verdict(Verdict::SixBlocks));
         assert_eq!(custom_read(15, &t), CustomRead::Verdict(Verdict::BackOfQueue));
-        assert_eq!(custom_read(14, &t), CustomRead::Warning("min 0.10".to_string()));
+        assert_eq!(custom_read(14, &t), CustomRead::Warning("below the 0.10 minimum".to_string()));
         assert_eq!(custom_read(1_540, &t), CustomRead::Verdict(Verdict::NextBlock));
     }
 
@@ -411,13 +390,12 @@ mod tests {
 
 
     #[test]
-    fn the_tier_row_fits_the_pane() {
-        const PANE_CONTENT_W: f32 = 299.0 - 2.0 * crate::ui::components::grid::PANE_PAD_H;
-        let words: f32 = BtcFeeTier::ALL
-            .iter()
-            .map(|t| t.label().chars().count() as f32 * TIER_SIZE * MONO_ADVANCE)
-            .sum();
-        let widest = words + 4.0 * TIER_GAP;
-        assert!(widest <= PANE_CONTENT_W, "the tier row is {widest}px");
+    fn a_typed_rate_reads_as_the_rate_format_prints_it() {
+        for (typed, want) in [("", ""), (".", "0."), (".5", "0.5"), ("0", "0"), ("00", "0"), ("05", "5"), ("00.5", "0.5"), ("10.5", "10.5"), ("150", "150")] {
+            assert_eq!(rate_typed(typed).as_deref(), Some(want), "{typed:?}");
+        }
+        for bad in ["0.505", "150.5", "123456", "1.2.3", "a"] {
+            assert_eq!(rate_typed(bad), None, "{bad:?} was taken");
+        }
     }
 }

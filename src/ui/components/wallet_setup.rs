@@ -370,7 +370,7 @@ fn tool<'a>(
 }
 
 fn done_tool<'a>(cp: &'static theme::CompactPalette, s: f32) -> Element<'a, Message> {
-    container(text("\u{2713}").size(TOOL_ICON * s).color(cp.green))
+    container(text("\u{2713}").size(TOOL_ICON * s).color(cp.accent))
         .center_x(Length::Fixed(TOOL_W * s))
         .center_y(Length::Fixed(TOOL_H * s))
         .boxed()
@@ -435,12 +435,12 @@ fn task_row<'a>(
     let done = prm.done(state, task);
     let (title, sub) = task_copy(state, prm, task, cp, s);
 
-    let ring = container(text(if done { "\u{2713}" } else { "" }).size(9.0 * s).color(cp.green))
+    let ring = container(text(if done { "\u{2713}" } else { "" }).size(9.0 * s).color(cp.accent))
         .width(Length::Fixed(RING * s))
         .height(Length::Fixed(RING * s))
         .center(Length::Fixed(RING * s))
         .style(move |_| container::Style {
-            border: Border { color: if done { cp.green } else { cp.border }, width: 1.5, radius: (RING / 2.0 * s).into() },
+            border: Border { color: if done { cp.accent } else { cp.border }, width: 1.5, radius: (RING / 2.0 * s).into() },
             ..Default::default()
         });
 
@@ -565,7 +565,7 @@ fn progress_orbit<'a>(mark: Mark, done: usize, total: usize, cp: &'static theme:
         done,
         total,
         track: Color { a: 0.32, ..cp.faint },
-        arc: Color { a: 0.85, ..cp.green },
+        arc: Color { a: 0.85, ..cp.accent },
         plate: cp.border_soft,
         unit: ORBIT_UNIT * s,
         scale: s,
@@ -629,7 +629,7 @@ fn eyebrow<'a>(left: &str, right: &str, done: bool, cp: &'static theme::CompactP
     if done {
         r = r
             .push(Space::new().width(7.0 * s).boxed())
-            .push(text("\u{2713}").size(compact::EYEBROW * s).color(cp.green).boxed());
+            .push(text("\u{2713}").size(compact::EYEBROW * s).color(cp.accent).boxed());
     }
     container(r)
         .width(Length::Fill)
@@ -639,8 +639,10 @@ fn eyebrow<'a>(left: &str, right: &str, done: bool, cp: &'static theme::CompactP
 }
 
 fn line_button<'a>(label: &str, msg: Message, cp: &'static theme::CompactPalette, s: f32) -> Element<'a, Message> {
-    button(text(label.to_string()).size(compact::SEG * s))
-        .padding(Padding::new(0.0).top(5.0 * s).bottom(5.0 * s).left(12.0 * s).right(12.0 * s))
+    let face = container(text(label.to_string()).size(compact::SEG * s))
+        .padding(Padding::new(0.0).top(5.0 * s).bottom(5.0 * s).left(12.0 * s).right(12.0 * s));
+    button(compact::cornered(face.boxed(), cp.accent, 6.0 * s, s))
+        .padding(Padding::ZERO)
         .on_press(msg)
         .style(move |_, status| compact::button_style(cp, 6.0 * s, true, status))
         .boxed()
@@ -696,7 +698,7 @@ fn create_phrase<'a>(
     let left: Element<'a, Message> = if !generated {
         phrase_entry::msg("Nothing generated yet".into(), cp.muted, m.text)
     } else if checked {
-        phrase_entry::msg("\u{2713} checked".into(), cp.green, m.text)
+        phrase_entry::msg("\u{2713} checked".into(), cp.accent, m.text)
     } else if let Some(p) = state.create_mismatch {
         phrase_entry::msg(format!("Word {} didn't match. Check your copy.", p + 1), cp.red, m.text)
     } else {
@@ -728,11 +730,11 @@ fn checked_view<'a>(
     s:        f32,
 ) -> Element<'a, Message> {
     let grid_h = PhraseGrid::<Message>::height(&m.look, cols);
-    let ring = container(text("\u{2713}").size(16.0 * s).color(cp.green))
+    let ring = container(text("\u{2713}").size(16.0 * s).color(cp.accent))
         .center_x(Length::Fixed(DONE_RING * s))
         .center_y(Length::Fixed(DONE_RING * s))
         .style(move |_| container::Style {
-            border: Border { color: cp.green, width: 1.5, radius: (DONE_RING / 2.0 * s).into() },
+            border: Border { color: cp.accent, width: 1.5, radius: (DONE_RING / 2.0 * s).into() },
             ..Default::default()
         });
     column![
@@ -907,7 +909,7 @@ fn list<'a>(rows: Vec<ListRow>, edged: bool, cp: &'static theme::CompactPalette,
                 .style(move |_, status| {
                     let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
                     let (fill, border) = if edged {
-                        let edge = if on { cp.focus } else { cp.border_soft };
+                        let edge = if on { cp.accent } else { cp.border_soft };
                         (if hot { cp.hover } else { Color::TRANSPARENT }, Border { color: edge, width: 1.0, radius: (6.0 * s).into() })
                     } else {
                         (if on { cp.pill } else if hot { cp.hover } else { Color::TRANSPARENT }, Border { radius: (6.0 * s).into(), ..Default::default() })

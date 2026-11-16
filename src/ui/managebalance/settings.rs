@@ -469,7 +469,7 @@ fn value<'a>(label: Element<'a, Message>, p: &'static CompactPalette, s: f32) ->
 
 fn switch<'a>(on: bool, p: &'static CompactPalette, s: f32) -> Element<'a, Message> {
     let (track, edge, ink, d, inset) = if on {
-        (p.mint, p.mint_line, p.mint_ink, KNOB_ON, KNOB_ON_INSET)
+        (Color::TRANSPARENT, p.accent, p.accent, KNOB_ON, KNOB_ON_INSET)
     } else {
         (p.pill, p.border, p.muted, KNOB_OFF, KNOB_OFF_INSET)
     };

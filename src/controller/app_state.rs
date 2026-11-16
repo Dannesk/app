@@ -304,6 +304,7 @@ pub struct AppState {
     pub enable_error: Option<String>,
     
     pub show_enable: bool,
+    pub enable_token: Option<&'static str>,
     pub enable_fee: Option<u64>,
     pub token_details: Option<&'static str>,
     pub xrp_issuer_copied: bool,
@@ -397,10 +398,12 @@ pub struct AppState {
     pub btc_send_fee: String,
     pub btc_send_fee_tier: BtcFeeTier,
     pub btc_send_custom: String,
-    pub btc_send_custom_open: bool,
     pub btc_send_fee_face: bool,
+    pub btc_send_fee_lit: Option<BtcFeeTier>,
+    pub btc_send_fee_fresh: bool,
     pub btc_send_locked: Option<u64>,
     pub btc_send_locked_vsize: Option<u64>,
+    pub btc_send_locked_rate: Option<f32>,
     pub btc_send_max_on: bool,
     pub btc_send_passphrase: SecureString,
     pub btc_send_passphrase_reveal: bool,
@@ -412,7 +415,10 @@ pub struct AppState {
     pub btc_bump_txid: Option<String>,
     pub btc_bump_fee_tier: BtcFeeTier,
     pub btc_bump_fee: String,
-    pub btc_bump_custom_open: bool,
+    pub btc_bump_lit: Option<BtcFeeTier>,
+    pub btc_bump_fresh: bool,
+    pub focus: Option<PlainField>,
+    pub focus_seq: u32,
     pub btc_bump_locked: Option<crate::utils::btc_bump::BumpFee>,
     pub btc_bump_passphrase: SecureString,
     pub btc_bump_passphrase_reveal: bool,
@@ -656,17 +662,85 @@ impl AppState {
         }
     }
 
+    fn apply_number_edit(&mut self, field: PlainField, op: SecureOp) -> bool {
+        let tag = field == PlainField::XrpSendTag;
+        let keep = |s: &str| -> String { s.chars().filter(|c| c.is_ascii_digit() || (!tag && *c == '.')).collect() };
+        let fresh = match field {
+            PlainField::BtcSendFee => self.btc_send_fee_fresh,
+            PlainField::BtcBumpFee => self.btc_bump_fresh,
+            _ => false,
+        };
+        let buf = self.plain_field_mut(field).clone();
+        let removing = matches!(op, SecureOp::Remove(_));
+        let candidate = match op {
+            SecureOp::Insert(_, c) if fresh => keep(&c.to_string()),
+            SecureOp::Paste(_, s) if fresh => keep(&s),
+            SecureOp::Remove(_) if fresh => String::new(),
+            SecureOp::Insert(i, c) => {
+                let mut next = buf.clone();
+                next.insert_str(byte_index(&buf, i), &keep(&c.to_string()));
+                next
+            }
+            SecureOp::Paste(i, s) => {
+                let mut next = buf.clone();
+                next.insert_str(byte_index(&buf, i), &keep(&s));
+                next
+            }
+            SecureOp::Remove(i) => {
+                if i >= buf.chars().count() {
+                    return false;
+                }
+                let mut next = buf.clone();
+                next.remove(byte_index(&buf, i));
+                next
+            }
+            SecureOp::ToggleReveal => return false,
+        };
+        if (candidate == buf && !fresh) || (fresh && !removing && candidate.is_empty()) {
+            return false;
+        }
+        let typed = if tag {
+            crate::ui::managexrp::xrpsend::tag_typed(&candidate)
+        } else {
+            crate::ui::managebtc::btcsend::rate_typed(&candidate)
+        };
+        let Some(next) = typed else { return false };
+        // if user rewrites figure it puts the caret back at the end
+        if next != candidate {
+            self.request_focus(field);
+        }
+        *self.plain_field_mut(field) = next;
+        match field {
+            PlainField::BtcSendFee => {
+                self.btc_send_fee_fresh = false;
+                self.btc_send_fee_lit = None;
+            }
+            PlainField::BtcBumpFee => {
+                self.btc_bump_fresh = false;
+                self.btc_bump_lit = None;
+            }
+            _ => {}
+        }
+        true
+    }
+
+    pub fn request_focus(&mut self, field: PlainField) {
+        self.focus = Some(field);
+        self.focus_seq = self.focus_seq.wrapping_add(1);
+    }
+
+    pub fn focus_token(&self, field: PlainField) -> Option<u32> {
+        (self.focus == Some(field)).then_some(self.focus_seq)
+    }
+
     pub fn apply_plain_edit(&mut self, field: PlainField, op: SecureOp) -> bool {
+        if matches!(field, PlainField::BtcSendFee | PlainField::BtcBumpFee | PlainField::XrpSendTag) {
+            return self.apply_number_edit(field, op);
+        }
         let accepts = |s: &str, at: usize, add: &str| -> bool {
             match field {
-                PlainField::BtcSendFee | PlainField::BtcBumpFee => {
-                    let mut candidate: String = s.chars().take(at).collect();
-                    candidate.push_str(add);
-                    candidate.extend(s.chars().skip(at));
-                    crate::ui::managebtc::btcsend::rate_accepts(&candidate)
-                }
-                PlainField::XrpSendTag
-                | PlainField::XrpReceiveTag => {
+                PlainField::BtcSendFee | PlainField::BtcBumpFee | PlainField::XrpSendTag => false,
+                PlainField::XrpReceiveTag => {
                     add.chars().all(|c| c.is_ascii_digit())
                 }
                 PlainField::BtcSendAmount
@@ -832,6 +906,7 @@ impl Default for AppState {
             enable_seed_reveal: true,
             enable_error: None,
             show_enable: false,
+            enable_token: None,
             enable_fee: None,
             token_details: None,
             xrp_issuer_copied: false,
@@ -909,17 +984,22 @@ impl Default for AppState {
             btc_send_fee: String::new(),
             btc_send_fee_tier: BtcFeeTier::Med,
             btc_send_custom: String::new(),
-            btc_send_custom_open: false,
             btc_send_fee_face: false,
+            btc_send_fee_lit: None,
+            btc_send_fee_fresh: false,
             btc_send_locked: None,
             btc_send_locked_vsize: None,
+            btc_send_locked_rate: None,
             btc_send_max_on: false,
             btc_send_passphrase: SecureString::input(),
             btc_send_passphrase_reveal: false,
             btc_bump_txid: None,
             btc_bump_fee_tier: BtcFeeTier::default(),
             btc_bump_fee: String::new(),
-            btc_bump_custom_open: false,
+            btc_bump_lit: None,
+            btc_bump_fresh: false,
+            focus: None,
+            focus_seq: 0,
             btc_bump_locked: None,
             btc_bump_passphrase: SecureString::input(),
             btc_bump_passphrase_reveal: false,

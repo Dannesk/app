@@ -2,8 +2,9 @@
 
 use iced::widget::Row;
 use iced::Widget as _;
-use iced::widget::{button, column, container, row, svg, text, Space};
-use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow};
+use iced::widget::canvas::{self, Canvas, Frame, LineCap, Path, Stroke};
+use iced::widget::{button, column, container, row, stack, svg, text, Space};
+use iced::{mouse, Alignment, Border, Color, Element, Length, Padding, Point, Rectangle, Shadow};
 
 use crate::controller::message::{Message, SecureField, SecureOp};
 use crate::secure::SecureString;
@@ -33,6 +34,9 @@ pub const CORNER_LEFT: f32 = 14.0;
 pub const METER_KEY_W: f32 = 62.0;
 pub const METER_BAR_W: f32 = 66.0;
 pub const METER_BAR_H: f32 = 8.0;
+const ACCENT_RUN: f32 = 24.0;
+const ACCENT_DROP: f32 = 4.0;
+const ACCENT_W: f32 = 1.5;
 
 
 
@@ -224,8 +228,8 @@ pub fn segmented_many<'a>(
         .style(move |_, status| {
             let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
             button::Style {
-                background: Some(if active { p.neutral } else { Color::TRANSPARENT }.into()),
-                border: Border { color: p.border, width: 1.0, radius: (6.0 * scale).into() },
+                background: Some(if hot && !active { p.hover } else { Color::TRANSPARENT }.into()),
+                border: Border { color: if active { p.accent } else { p.border }, width: 1.0, radius: (6.0 * scale).into() },
                 text_color: if active {
                     p.text
                 } else if hot {
@@ -303,7 +307,7 @@ fn boxed_at<'a>(
     .size(size)
     .width(Length::Fill)
     .dot_color(p.text)
-    .caret_color(p.focus)
+    .caret_color(p.accent)
     .placeholder_color(p.faint)
     .placeholder(placeholder.to_owned())
     .grid(advance, size * 1.6, MONO)
@@ -413,27 +417,71 @@ pub fn mono_runs<'a>(runs: Vec<Run>, size: f32) -> Element<'a, Message> {
 
 
 pub fn cta<'a>(label: &str, enabled: bool, msg: Message, p: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    button(text(label.to_string()).size(SEG * scale).width(Length::Fill).align_x(Alignment::Center))
+    cta_marked(label, enabled, msg, p.accent, p, scale)
+}
+
+pub fn cta_marked<'a>(label: &str, enabled: bool, msg: Message, mark: Color, p: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let face = container(text(label.to_string()).size(SEG * scale).width(Length::Fill).align_x(Alignment::Center))
+        .width(Length::Fill)
+        .padding(Padding::new(0.0).top(6.0 * scale).bottom(6.0 * scale));
+    button(cornered(face.boxed(), mark, 6.0 * scale, scale))
         .on_press_maybe(enabled.then_some(msg))
         .width(Length::Fill)
-        .padding(Padding::new(0.0).top(6.0 * scale).bottom(6.0 * scale))
+        .padding(Padding::ZERO)
         .style(move |_, status| button_style(p, 6.0 * scale, enabled, status))
         .boxed()
 }
 
 pub fn button_style(p: &'static CompactPalette, radius: f32, enabled: bool, status: button::Status) -> button::Style {
-    let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-    let (fill, line, ink) = match (enabled, hot) {
-        (false, _) => (None, p.border_soft, p.faint),
-        (true, false) => (Some(iced::Background::Color(p.button)), p.button_line, p.button_ink),
-        (true, true) => (Some(iced::Background::Color(p.button_hover)), p.button_line, p.button_ink),
-    };
+    let hot = enabled && matches!(status, button::Status::Hovered | button::Status::Pressed);
     button::Style {
-        background: fill,
-        border: Border { color: line, width: 1.0, radius: radius.into() },
-        text_color: ink,
+        background: hot.then_some(iced::Background::Color(p.hover)),
+        border: Border { color: p.border, width: 1.0, radius: radius.into() },
+        text_color: if enabled { p.text } else { p.faint },
         shadow: Shadow::default(),
         snap: false,
+    }
+}
+
+pub fn cornered<'a>(face: Element<'a, Message>, color: Color, radius: f32, scale: f32) -> Element<'a, Message> {
+    stack![face, Canvas::new(Corners { color, radius, scale }).width(Length::Fill).height(Length::Fill)].boxed()
+}
+
+struct Corners {
+    color: Color,
+    radius: f32,
+    scale: f32,
+}
+
+impl<M> canvas::Program<M> for Corners {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state:   &(),
+        renderer: &iced::Renderer,
+        _theme:   &iced::Theme,
+        bounds:   Rectangle,
+        _cursor:  mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let (w, h) = (bounds.width, bounds.height);
+        let i = 0.5;
+        let r = (self.radius - i).max(0.0);
+        let run = (ACCENT_RUN * self.scale).min(w / 4.0);
+        let drop = (ACCENT_DROP * self.scale).min(h / 4.0);
+        let corners = Path::new(|b| {
+            b.move_to(Point::new(i, i + r + drop));
+            b.line_to(Point::new(i, i + r));
+            b.arc_to(Point::new(i, i), Point::new(i + r, i), r);
+            b.line_to(Point::new(i + r + run, i));
+            b.move_to(Point::new(w - i, h - i - r - drop));
+            b.line_to(Point::new(w - i, h - i - r));
+            b.arc_to(Point::new(w - i, h - i), Point::new(w - i - r, h - i), r);
+            b.line_to(Point::new(w - i - r - run, h - i));
+        });
+        frame.stroke(&corners, Stroke::default().with_color(self.color).with_width(ACCENT_W).with_line_cap(LineCap::Round));
+        vec![frame.into_geometry()]
     }
 }
 

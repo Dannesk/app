@@ -21,6 +21,18 @@ pub static CHEVRON_LEFT: LazyLock<svg::Handle> = LazyLock::new(|| {
     svg::Handle::from_memory(include_bytes!("chevron-left.svg").as_ref())
 });
 
+pub static CHEVRON_RIGHT: LazyLock<svg::Handle> = LazyLock::new(|| {
+    svg::Handle::from_memory(include_bytes!("chevron-right.svg").as_ref())
+});
+
+pub static CHEVRON_DOWN: LazyLock<svg::Handle> = LazyLock::new(|| {
+    svg::Handle::from_memory(include_bytes!("chevron-down.svg").as_ref())
+});
+
+pub static LOCK: LazyLock<svg::Handle> = LazyLock::new(|| {
+    svg::Handle::from_memory(include_bytes!("lock.svg").as_ref())
+});
+
 pub static EMPTY_LIST: LazyLock<svg::Handle> = LazyLock::new(|| {
     svg::Handle::from_memory(include_bytes!("empty-list.svg").as_ref())
 });

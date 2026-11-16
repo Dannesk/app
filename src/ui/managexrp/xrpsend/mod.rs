@@ -2,13 +2,14 @@
 use iced::widget::Column;
 use iced::Widget as _;
 use iced::widget::{button, column, container, row, text, Space};
-use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow};
+use iced::{Alignment, Element, Length, Padding};
 
 use crate::channel::CHANNEL;
 use crate::controller::app_state::XrpTokenTab;
 use crate::controller::message::Message;
 use crate::utils::money;
 use crate::ui::components::compact;
+use crate::ui::components::send_screen as screen;
 use crate::ui::managexrp::panes;
 use crate::ui::managexrp::tokens as tokens_page;
 use crate::ui::components::grid;
@@ -19,8 +20,18 @@ pub(crate) const SELF_ERROR: &str = "You cannot send to yourself";
 pub(crate) const OVER_AVAILABLE: &str = "More than available";
 pub(crate) const NO_XRP_FOR_FEE: &str = "No XRP available for the network fee";
 pub(crate) const PREFIX_ERROR: &str = "An XRP address starts with r, or X for an X-address";
-pub(crate) const TAG_ERROR: &str = "A destination tag is a whole number up to 4294967295";
+pub(crate) const TAG_NONE: &str = "None";
+pub(crate) const X_TAG_NOTE: &str = "Tag from the X-address";
 pub(crate) const CHECKSUM_ERROR: &str = "That address fails its checksum";
+
+pub(crate) fn tag_typed(candidate: &str) -> Option<String> {
+    if !candidate.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let digits = candidate.trim_start_matches('0');
+    let tag = if digits.is_empty() && !candidate.is_empty() { "0" } else { digits };
+    (tag.is_empty() || tag.parse::<u32>().is_ok()).then(|| tag.to_string())
+}
 
 const CLASSIC_MIN: usize = 25;
 const XADDRESS_MIN: usize = 46;
@@ -56,6 +67,7 @@ pub(crate) fn asset_display(tab: &XrpTokenTab) -> &'static str {
 const CHECK_W: f32 = 9.0;
 const CHECK: f32 = 10.0;
 const ROW_GAP: f32 = 14.0;
+const ROW_RADIUS: f32 = 5.0;
 
 pub(crate) struct Holding {
     tab:      XrpTokenTab,
@@ -75,8 +87,8 @@ pub(crate) fn holdings() -> Vec<Holding> {
         rate_key: "XRP",
     }];
     for t in tokens::TOKENS.iter() {
-        let (balance, held, _, _) = CHANNEL.token(t.code);
-        if held && balance > 0.0 {
+        let (balance, _, _, _) = CHANNEL.token(t.code);
+        if crate::controller::xrp::holds(t.code) {
             out.push(Holding {
                 tab: XrpTokenTab::Token(t.code),
                 symbol: t.display,
@@ -89,7 +101,7 @@ pub(crate) fn holdings() -> Vec<Holding> {
     out
 }
 
-pub fn asset_face<'a>(
+pub fn asset_list<'a>(
     selected: &XrpTokenTab,
     ccy: &'static str,
     cp: &'static theme::CompactPalette,
@@ -104,14 +116,7 @@ pub fn asset_face<'a>(
             list = list.push(compact::hairline(cp.rule));
         }
     }
-    column![
-        grid::scroller(list.boxed(), cp, scale),
-        Space::new().height(12.0 * scale),
-        grid::quiet_button("Cancel", Message::SendAssetPickerToggled, cp, scale),
-    ]
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .boxed()
+    grid::scroller(list.boxed(), cp, scale)
 }
 
 fn picker_row<'a>(
@@ -148,7 +153,7 @@ fn picker_row<'a>(
     ]
     .align_y(Alignment::Center);
 
-    button(body)
+    let row_button = button(body)
         .width(Length::Fill)
         .padding(
             Padding::new(0.0)
@@ -158,23 +163,10 @@ fn picker_row<'a>(
                 .right(panes::TOKEN_ROW_PAD_H * scale),
         )
         .on_press(Message::XrpTokenTabChanged(h.tab.clone()))
-        .style(move |_, status| {
-            let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            let bg = if selected {
-                cp.pill
-            } else if hot {
-                cp.hover
-            } else {
-                Color::TRANSPARENT
-            };
-            button::Style {
-                background: Some(bg.into()),
-                border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 0.0.into() },
-                text_color: cp.text,
-                shadow: Shadow::default(),
-                snap: false,
-            }
-        })
+        .style(move |_, status| screen::row_style(true, status, ROW_RADIUS * scale, cp));
+    container(row_button)
+        .width(Length::Fill)
+        .padding(Padding::new(0.0).top(screen::ROW_INSET * scale).bottom(screen::ROW_INSET * scale))
         .boxed()
 }
 
@@ -216,6 +208,19 @@ mod tests {
         assert_eq!(recipient_fault("b"), Some(PREFIX_ERROR));
         assert_eq!(recipient_fault("0x1234"), Some(PREFIX_ERROR));
         assert_eq!(recipient_fault("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"), Some(PREFIX_ERROR));
+    }
+
+    #[test]
+    fn a_tag_is_typed_as_a_u32_with_its_zeros_collapsed() {
+        assert_eq!(tag_typed(""), Some(String::new()));
+        assert_eq!(tag_typed("0"), Some("0".to_string()), "0 is a tag");
+        assert_eq!(tag_typed("000"), Some("0".to_string()));
+        assert_eq!(tag_typed("0104857"), Some("104857".to_string()));
+        assert_eq!(tag_typed("4294967295"), Some("4294967295".to_string()));
+        assert_eq!(tag_typed("4294967296"), None, "past a u32 is refused");
+        assert_eq!(tag_typed("12345678901"), None);
+        assert_eq!(tag_typed("12a"), None);
+        assert_eq!(tag_typed("1.5"), None);
     }
 
     #[test]
