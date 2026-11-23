@@ -1,6 +1,7 @@
 use iced::Task;
 use crate::controller::message::{Message, PlainField, SecureField, TagPane};
 use crate::controller::app_state::{AppState, EnableInputMode, SendAnchor, XrpTokenTab, XrpView, TradeKind, TradeSide, TradeTif, TradeView};
+use crate::controller::panes::PaneKind;
 use crate::secure::SecureString;
 use crate::channel::CHANNEL;
 use crate::bridge::xrp_import_logic::XRPImportLogic;
@@ -586,20 +587,29 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             }
         }
         Message::TradeSideSet(side) => {
-            state.trade_side_chosen = true;
-            if state.trade_side != side {
-                let (base, quote) = trade_market_pair(state);
-                let (base, quote) = (base.to_string(), quote.to_string());
-                orient_trade_pair(state, side, &base, &quote);
+            if state.trade_side != Some(side) {
+                unlock_trade(state);
+                state.trade_side = Some(side);
             }
             push_trade_ticket(state);
         }
+        Message::TradePairSwapped => {
+            if !trade_locked(state) {
+                std::mem::swap(&mut state.trade_base, &mut state.trade_quote);
+                state.trade_amount.clear();
+                state.trade_limit_price.clear();
+                state.trade_limit_draft.clear();
+                state.request_focus(PlainField::TradeAmount);
+                persist_trade_pair(state);
+                push_trade_ticket(state);
+            }
+        }
         Message::TradeMaxClicked => {
-            let max = CHANNEL.trade_quote_rx.borrow().as_ref().and_then(|q| q.max_base).filter(|m| *m > 0.0);
+            let max = answering_quote(state).and_then(|q| q.max_base).filter(|m| *m > 0.0);
             if let Some(m) = max {
-                let (base, _) = trade_market_pair(state);
-                state.trade_amount = if state.trade_side == TradeSide::Sell && base != "XRP" {
-                    CHANNEL.token(base).3
+                let base = state.trade_base.clone();
+                state.trade_amount = if state.trade_side == Some(TradeSide::Sell) && base != "XRP" {
+                    CHANNEL.token(&base).3
                 } else {
                     crate::utils::format_token_amount(m, SIGN_PLACES)
                 };
@@ -611,76 +621,85 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             push_trade_ticket(state);
         }
         Message::TradePairSelected(base, quote) => {
-            let side = trade_default_side(&base, &quote);
-            state.trade_side_chosen = false;
-            orient_trade_pair(state, side, &base, &quote);
-            state.trade_amount.clear();
-            state.trade_limit_price.clear();
-            state.trade_tif = TradeTif::Gtc;
-            state.trade_mode = TradeKind::Limit;
-            state.trade_view = TradeView::Ticket;
-            state.trade_review_fee = None;
+            let from_ticket = state.trade_pair_list == Some(PaneKind::Ticket);
+            state.trade_base = base;
+            state.trade_quote = quote;
+            reset_ticket(state);
             state.trade_pair_list = None;
             state.trade_pair_query.clear();
-            clear_trade_secrets(state);
+            if from_ticket {
+                state.request_focus(PlainField::TradeAmount);
+            }
             persist_trade_pair(state);
             push_trade_ticket(state);
         }
         Message::TradeMarketSelected => {
-            let offered = CHANNEL.trade_quote_rx.borrow().as_ref().is_some_and(|q| q.market_ok);
-            if offered {
-                state.trade_side_chosen = true;
-                state.trade_mode = TradeKind::Market;
+            if pair_quote(state).is_some_and(|q| q.market_ok) && state.trade_mode != Some(TradeKind::Market) {
+                unlock_trade(state);
+                if state.trade_view == TradeView::Limit {
+                    close_price_editor(state);
+                }
+                state.trade_mode = Some(TradeKind::Market);
                 state.trade_limit_price.clear();
                 state.trade_tif = TradeTif::Gtc;
                 push_trade_ticket(state);
             }
         }
         Message::TradeLimitOpened => {
-            state.trade_side_chosen = true;
-            if state.trade_mode == TradeKind::Limit {
-                state.trade_view = TradeView::Limit;
+            if state.trade_mode != Some(TradeKind::Limit) {
+                unlock_trade(state);
+                state.trade_mode = Some(TradeKind::Limit);
+            } else if state.trade_view == TradeView::Limit {
+                close_price_editor(state);
             } else {
-                state.trade_mode = TradeKind::Limit;
-                state.trade_view = TradeView::Ticket;
+                unlock_trade(state);
+                open_price_editor(state);
             }
             push_trade_ticket(state);
         }
         Message::TradeLimitSet => {
-            if state.trade_limit_price.trim().parse::<f64>().ok().filter(|p| *p > 0.0).is_some() {
-                state.trade_view = TradeView::Ticket;
+            if state.trade_view == TradeView::Limit && typed_price(&state.trade_limit_draft).is_some() {
+                state.trade_limit_price = state.trade_limit_draft.trim().to_string();
+                close_price_editor(state);
+                push_trade_ticket(state);
             }
         }
         Message::TradeLimitCancelled => {
-            state.trade_limit_price.clear();
-            state.trade_view = TradeView::Ticket;
-            push_trade_ticket(state);
+            close_price_editor(state);
+        }
+        Message::TradeLimitCleared => {
+            state.trade_limit_draft.clear();
+            state.request_focus(PlainField::TradeLimit);
         }
         Message::TradeReviewPressed => {
-            let quote = CHANNEL.trade_quote_rx.borrow().clone();
             let fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
-            if let Some(q) = quote.filter(|q| review_ready(q, fee)) {
+            if state.trade_view == TradeView::Ticket
+                && let Some(q) = answering_quote(state).filter(|q| review_ready(q, fee))
+            {
                 state.trade_review_fee = fee;
                 state.trade_view = TradeView::Review(Box::new(q));
             }
         }
+        Message::TradeReviewContinued => {
+            if let TradeView::Review(q) = &state.trade_view {
+                state.trade_view = TradeView::Sign(q.clone());
+            }
+        }
         Message::TradeReviewCancelled => {
-            state.trade_view = TradeView::Ticket;
-            state.trade_review_fee = None;
-            clear_trade_secrets(state);
+            unlock_trade(state);
+            state.request_focus(PlainField::TradeAmount);
         }
         Message::TradeBookPriceClicked(val) => {
-            let reviewing = matches!(state.trade_view, TradeView::Review(_));
-            if state.trade_mode == TradeKind::Limit && !reviewing {
+            if state.trade_mode == Some(TradeKind::Limit) && !trade_locked(state) {
                 state.trade_limit_price = val;
                 if state.trade_view == TradeView::Limit {
-                    state.trade_view = TradeView::Ticket;
+                    close_price_editor(state);
                 }
                 push_trade_ticket(state);
             }
         }
         Message::TradeSubmitClicked => {
-            let TradeView::Review(quote) = &state.trade_view else { return Task::none() };
+            let TradeView::Sign(quote) = &state.trade_view else { return Task::none() };
             let q = (**quote).clone();
             let (_, wallet_address, key_deleted, key_mode) = CHANNEL.wallet_balance_rx.borrow().clone();
             let Some(address) = wallet_address else { return Task::none() };
@@ -695,11 +714,12 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
 
             let pay_f: f64 = pay.parse().unwrap_or(0.0);
             let receive_f: f64 = receive.parse().unwrap_or(0.0);
-            let anchor_is_pay = q.ticket.side == TradeSide::Sell;
-            let expected_vwap = (q.ticket.kind == TradeKind::Market)
+            let anchor_is_pay = q.ticket.anchor_is_pay();
+            let selling = q.ticket.side == Some(TradeSide::Sell);
+            let expected_vwap = (q.ticket.kind == Some(TradeKind::Market))
                 .then(|| {
                     q.price_row
-                        .map(|p| if anchor_is_pay { p } else if p > 0.0 { 1.0 / p } else { 0.0 })
+                        .map(|p| if selling { p } else if p > 0.0 { 1.0 / p } else { 0.0 })
                 })
                 .flatten()
                 .filter(|v| *v > 0.0);
@@ -900,9 +920,77 @@ pub fn current_ticket(state: &AppState) -> Option<crate::utils::trade::TradeTick
         side: state.trade_side,
         kind: state.trade_mode,
         amount: state.trade_amount.trim().to_string(),
-        limit: state.trade_limit_price.trim().parse::<f64>().ok().filter(|p| *p > 0.0),
+        limit: typed_price(&state.trade_limit_price),
         tif: state.trade_tif,
     })
+}
+
+pub fn typed_price(s: &str) -> Option<f64> {
+    s.trim().parse::<f64>().ok().filter(|p| *p > 0.0)
+}
+
+pub fn answering_quote(state: &AppState) -> Option<crate::utils::trade::TradeQuote> {
+    let ticket = current_ticket(state)?;
+    CHANNEL.trade_quote_rx.borrow().as_ref().filter(|q| q.ticket == ticket).cloned()
+}
+
+fn pair_quote(state: &AppState) -> Option<crate::utils::trade::TradeQuote> {
+    CHANNEL
+        .trade_quote_rx
+        .borrow()
+        .as_ref()
+        .filter(|q| q.ticket.base == state.trade_base && q.ticket.quote == state.trade_quote)
+        .cloned()
+}
+
+pub fn trade_locked(state: &AppState) -> bool {
+    matches!(state.trade_view, TradeView::Review(_) | TradeView::Sign(_))
+}
+
+pub(crate) fn unlock_trade(state: &mut AppState) {
+    if trade_locked(state) {
+        state.trade_view = TradeView::Ticket;
+    }
+    state.trade_review_fee = None;
+    clear_trade_secrets(state);
+}
+
+pub(crate) fn ticket_to_amount(state: &mut AppState) {
+    unlock_trade(state);
+    if state.trade_view == TradeView::Limit {
+        state.trade_view = TradeView::Ticket;
+        state.trade_limit_draft.clear();
+    }
+}
+
+fn open_price_editor(state: &mut AppState) {
+    if state.trade_pair_list == Some(PaneKind::Ticket) {
+        state.trade_pair_list = None;
+        state.trade_pair_query.clear();
+    }
+    state.trade_limit_draft = state.trade_limit_price.clone();
+    state.trade_view = TradeView::Limit;
+    state.request_focus(PlainField::TradeLimit);
+}
+
+fn close_price_editor(state: &mut AppState) {
+    state.trade_limit_draft.clear();
+    if state.trade_view == TradeView::Limit {
+        state.trade_view = TradeView::Ticket;
+    }
+    state.request_focus(PlainField::TradeAmount);
+}
+
+fn reset_ticket(state: &mut AppState) {
+    state.trade_side = None;
+    state.trade_mode = None;
+    state.trade_amount.clear();
+    state.trade_limit_price.clear();
+    state.trade_limit_draft.clear();
+    state.trade_tif = TradeTif::Gtc;
+    state.trade_view = TradeView::Ticket;
+    state.trade_review_fee = None;
+    clear_trade_secrets(state);
 }
 
 pub fn push_trade_ticket(state: &AppState) {
@@ -918,7 +1006,6 @@ pub fn push_trade_ticket(state: &AppState) {
 }
 
 pub fn sync_trade(state: &mut AppState) {
-    follow_wallet_side(state);
     push_trade_ticket(state);
 }
 
@@ -932,10 +1019,10 @@ pub fn review_ready(q: &crate::utils::trade::TradeQuote, fee: Option<u64>) -> bo
 }
 
 pub fn trade_fee_xrp_ok(q: &crate::utils::trade::TradeQuote) -> bool {
-    if q.pay_asset == "XRP" {
+    if q.pay_asset == "XRP" || q.pay_asset.is_empty() {
         return true;
     }
-    let resting = q.ticket.kind == TradeKind::Limit && q.ticket.tif == TradeTif::Gtc;
+    let resting = q.ticket.kind == Some(TradeKind::Limit) && q.ticket.tif == TradeTif::Gtc;
     xrp_reserve().is_some_and(|r| r.available >= xrp_fee() + if resting { r.per_object } else { 0.0 })
 }
 
@@ -964,10 +1051,9 @@ fn persist_trade_pair(state: &AppState) {
 }
 
 pub fn clear_trade_pair(state: &mut AppState) {
-    state.trade_pay_asset.clear();
-    state.trade_receive_asset.clear();
-    state.trade_amount.clear();
-    state.trade_limit_price.clear();
+    state.trade_base.clear();
+    state.trade_quote.clear();
+    reset_ticket(state);
     state.trade_pair_list = None;
     state.trade_pair_query.clear();
     let _ = crate::bridge::json_storage::update_json::<serde_json::Value>("settings.json", |json| {
@@ -991,9 +1077,8 @@ pub fn ensure_trade_pair(state: &mut AppState) {
         .next()
         .or_else(|| picker::all_markets().into_iter().next())
         .unwrap_or(("XRP", "RLUSD"));
-    let side = trade_default_side(base, quote);
-    state.trade_side_chosen = false;
-    orient_trade_pair(state, side, base, quote);
+    state.trade_base = base.to_string();
+    state.trade_quote = quote.to_string();
 }
 
 pub fn restore_trade_pair(state: &mut AppState) {
@@ -1006,70 +1091,24 @@ pub fn restore_trade_pair(state: &mut AppState) {
     if base == quote || !known(base) || !known(quote) {
         return;
     }
-    let side = trade_default_side(base, quote);
-    state.trade_side_chosen = false;
-    orient_trade_pair(state, side, base, quote);
-}
-
-pub fn trade_default_side(base: &str, quote: &str) -> TradeSide {
-    if trade_can_pay(quote) {
-        TradeSide::Buy
-    } else if trade_can_pay(base) {
-        TradeSide::Sell
-    } else {
-        TradeSide::Buy
-    }
-}
-
-fn trade_can_pay(asset: &str) -> bool {
-    if asset == "XRP" {
-        xrp_available().is_some_and(|a| a > xrp_fee())
-    } else {
-        CHANNEL.token(asset).0 > 0.0
-    }
-}
-
-fn orient_trade_pair(state: &mut AppState, side: TradeSide, base: &str, quote: &str) {
-    state.trade_side = side;
-    let (pay, recv) = match side {
-        TradeSide::Sell => (base, quote),
-        TradeSide::Buy => (quote, base),
-    };
-    state.trade_pay_asset = pay.to_string();
-    state.trade_receive_asset = recv.to_string();
-}
-
-pub fn follow_wallet_side(state: &mut AppState) {
-    if state.trade_side_chosen
-        || !state.trade_amount.trim().is_empty()
-        || !state.trade_limit_price.trim().is_empty()
-    {
-        return;
-    }
-    let (base, quote) = trade_market_pair(state);
-    if base.is_empty() || quote.is_empty() {
-        return;
-    }
-    let (base, quote) = (base.to_string(), quote.to_string());
-    let side = trade_default_side(&base, &quote);
-    if side != state.trade_side {
-        orient_trade_pair(state, side, &base, &quote);
-    }
+    state.trade_base = base.to_string();
+    state.trade_quote = quote.to_string();
 }
 
 pub fn trade_market_pair(state: &AppState) -> (&str, &str) {
-    match state.trade_side {
-        TradeSide::Sell => (state.trade_pay_asset.as_str(), state.trade_receive_asset.as_str()),
-        TradeSide::Buy => (state.trade_receive_asset.as_str(), state.trade_pay_asset.as_str()),
+    (state.trade_base.as_str(), state.trade_quote.as_str())
+}
+
+pub fn trade_pay_asset(state: &AppState) -> Option<&str> {
+    match state.trade_side? {
+        TradeSide::Sell => Some(state.trade_base.as_str()),
+        TradeSide::Buy => Some(state.trade_quote.as_str()),
     }
 }
 
 pub fn trade_available(state: &AppState) -> Option<f64> {
-    if state.trade_pay_asset == "XRP" {
-        xrp_available()
-    } else {
-        Some(CHANNEL.token(state.trade_pay_asset.as_str()).0)
-    }
+    let pay = trade_pay_asset(state)?;
+    if pay == "XRP" { xrp_available() } else { Some(CHANNEL.token(pay).0) }
 }
 
 pub fn trade_expiry_check() {
@@ -1109,24 +1148,11 @@ pub fn trade_expiry_check() {
 }
 
 pub(crate) fn clear_trade_inputs(state: &mut AppState) {
-    state.trade_amount = String::new();
-    state.trade_limit_price = String::new();
-    state.trade_tif = crate::utils::trade::TradeTif::Gtc;
-    state.trade_mode = crate::utils::trade::TradeKind::Limit;
-    state.trade_view = TradeView::Ticket;
-    state.trade_review_fee = None;
-    state.trade_pair_query.clear();
-    if state.trade_pair_list == Some(crate::controller::panes::PaneKind::Ticket) {
+    reset_ticket(state);
+    if state.trade_pair_list == Some(PaneKind::Ticket) {
         state.trade_pair_list = None;
+        state.trade_pair_query.clear();
     }
-    let (base, quote) = trade_market_pair(state);
-    let (base, quote) = (base.to_string(), quote.to_string());
-    if !base.is_empty() && !quote.is_empty() {
-        let side = trade_default_side(&base, &quote);
-        state.trade_side_chosen = false;
-        orient_trade_pair(state, side, &base, &quote);
-    }
-    clear_trade_secrets(state);
     push_trade_ticket(state);
 }
 
@@ -1230,7 +1256,7 @@ pub fn after_plain_edit(state: &mut AppState, field: PlainField) {
                 state.send_tag_draft.clear();
             }
         }
-        PlainField::TradeAmount | PlainField::TradeLimit => {
+        PlainField::TradeAmount => {
             push_trade_ticket(state);
         }
         PlainField::TradePairQuery => {}
@@ -1424,7 +1450,6 @@ pub(crate) fn clear_disable_form(state: &mut AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller::panes::PaneKind;
     use crate::utils::trade::{TradeQuote, TradeTicket, Verdict};
 
     fn frozen_quote() -> TradeQuote {
@@ -1432,8 +1457,8 @@ mod tests {
             ticket: TradeTicket {
                 base: "XRP".to_string(),
                 quote: "RLUSD".to_string(),
-                side: TradeSide::Sell,
-                kind: TradeKind::Limit,
+                side: Some(TradeSide::Sell),
+                kind: Some(TradeKind::Limit),
                 amount: "500".to_string(),
                 limit: Some(1.3004),
                 tif: TradeTif::Gtc,
@@ -1461,30 +1486,30 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_finished_order_keeps_the_market_the_right_way_round() {
-        for side in [TradeSide::Sell, TradeSide::Buy] {
-            let mut state = AppState::default();
-            orient_trade_pair(&mut state, side, "XRP", "RLUSD");
-            state.trade_side_chosen = true;
-            state.trade_amount = "1".to_string();
-
-            clear_trade_inputs(&mut state);
-
-            assert_eq!(trade_market_pair(&state), ("XRP", "RLUSD"), "after a {side:?}");
-            let (base, quote) = trade_market_pair(&state);
-            let fresh = trade_default_side(base, quote);
-            assert_eq!(state.trade_side, fresh, "after a {side:?}");
-            assert!(!state.trade_side_chosen, "after a {side:?}");
-            assert_eq!(state.trade_amount, "", "after a {side:?}");
-        }
+    fn on_pair(side: Option<TradeSide>, mode: Option<TradeKind>) -> AppState {
+        let mut state = AppState::default();
+        state.trade_base = "XRP".to_string();
+        state.trade_quote = "RLUSD".to_string();
+        state.trade_side = side;
+        state.trade_mode = mode;
+        state
     }
 
     #[test]
-    fn picking_a_pair_drops_the_review_lock_and_resets_the_ticket() {
-        let mut state = AppState::default();
-        orient_trade_pair(&mut state, TradeSide::Sell, "XRP", "RLUSD");
-        state.trade_mode = TradeKind::Market;
+    fn a_finished_order_keeps_the_pair_and_picks_nothing() {
+        let mut state = on_pair(Some(TradeSide::Sell), Some(TradeKind::Market));
+        state.trade_amount = "1".to_string();
+
+        clear_trade_inputs(&mut state);
+
+        assert_eq!(trade_market_pair(&state), ("XRP", "RLUSD"));
+        assert_eq!((state.trade_side, state.trade_mode), (None, None), "a side or kind survived");
+        assert_eq!(state.trade_amount, "");
+    }
+
+    #[test]
+    fn picking_a_pair_drops_the_review_lock_and_picks_nothing() {
+        let mut state = on_pair(Some(TradeSide::Sell), Some(TradeKind::Market));
         state.trade_tif = TradeTif::Fok;
         state.trade_amount = "500".to_string();
         state.trade_view = TradeView::Review(Box::new(frozen_quote()));
@@ -1495,7 +1520,7 @@ mod tests {
 
         assert_eq!(state.trade_view, TradeView::Ticket, "the lock survived a pair pick");
         assert_eq!(state.trade_review_fee, None);
-        assert_eq!(state.trade_mode, TradeKind::Limit, "the mode is reset to Limit, the settled rule");
+        assert_eq!((state.trade_side, state.trade_mode), (None, None), "a pick preselected something");
         assert_eq!(state.trade_tif, TradeTif::Gtc);
         assert_eq!(state.trade_amount, "");
         assert_eq!(state.trade_pair_list, None);
@@ -1503,50 +1528,116 @@ mod tests {
     }
 
     #[test]
-    fn a_book_press_is_inert_while_the_review_is_open() {
-        let mut state = AppState::default();
-        orient_trade_pair(&mut state, TradeSide::Sell, "XRP", "RLUSD");
-        state.trade_mode = TradeKind::Limit;
+    fn a_book_press_is_inert_while_the_order_is_locked() {
+        let mut state = on_pair(Some(TradeSide::Sell), Some(TradeKind::Limit));
         state.trade_limit_price = "1.3004".to_string();
-        state.trade_view = TradeView::Review(Box::new(frozen_quote()));
-
-        let _ = handle(&mut state, Message::TradeBookPriceClicked("1.3016".to_string()));
-
-        assert_eq!(state.trade_limit_price, "1.3004", "a level press reached a locked ticket");
-        assert!(matches!(state.trade_view, TradeView::Review(_)));
+        for locked in [TradeView::Review(Box::new(frozen_quote())), TradeView::Sign(Box::new(frozen_quote()))] {
+            state.trade_view = locked;
+            let _ = handle(&mut state, Message::TradeBookPriceClicked("1.3016".to_string()));
+            assert_eq!(state.trade_limit_price, "1.3004", "a level press reached a locked ticket");
+            assert!(trade_locked(&state));
+        }
 
         state.trade_view = TradeView::Limit;
         let _ = handle(&mut state, Message::TradeBookPriceClicked("1.3016".to_string()));
         assert_eq!(state.trade_limit_price, "1.3016");
-        assert_eq!(state.trade_view, TradeView::Ticket, "a picked level closes the price swap");
+        assert_eq!(state.trade_view, TradeView::Ticket, "a picked level closes the price editor");
     }
 
     #[test]
-    fn leaving_market_lands_on_the_ticket_not_the_price_swap() {
-        let mut state = AppState::default();
-        orient_trade_pair(&mut state, TradeSide::Sell, "XRP", "RLUSD");
-        state.trade_mode = TradeKind::Market;
+    fn the_limit_segment_switches_the_mode_then_toggles_the_price_editor() {
+        let mut state = on_pair(Some(TradeSide::Sell), Some(TradeKind::Market));
 
         let _ = handle(&mut state, Message::TradeLimitOpened);
-        assert_eq!(state.trade_mode, TradeKind::Limit);
-        assert_eq!(state.trade_view, TradeView::Ticket, "a mode switch opened the price swap");
+        assert_eq!(state.trade_mode, Some(TradeKind::Limit));
+        assert_eq!(state.trade_view, TradeView::Ticket, "a mode switch opened the price editor");
 
         let _ = handle(&mut state, Message::TradeLimitOpened);
-        assert_eq!(state.trade_view, TradeView::Limit, "Limit while already on opens the swap");
+        assert_eq!(state.trade_view, TradeView::Limit, "Limit while already on opens the editor");
+
+        let _ = handle(&mut state, Message::TradeLimitOpened);
+        assert_eq!(state.trade_view, TradeView::Ticket, "a second press closes it");
     }
 
     #[test]
-    fn cancelling_the_price_swap_leaves_limit_with_no_price() {
-        let mut state = AppState::default();
-        orient_trade_pair(&mut state, TradeSide::Sell, "XRP", "RLUSD");
-        let _ = handle(&mut state, Message::TradeLimitOpened);
-        assert_eq!(state.trade_view, TradeView::Limit);
-        state.trade_limit_price = "1.3050".to_string();
+    fn the_price_editor_keeps_the_price_until_set() {
+        let mut state = on_pair(Some(TradeSide::Sell), Some(TradeKind::Limit));
+        state.trade_limit_price = "1.3004".to_string();
 
+        let _ = handle(&mut state, Message::TradeLimitOpened);
+        assert_eq!(state.trade_limit_draft, "1.3004", "the editor opens on the price in use");
+        state.trade_limit_draft = "1.3050".to_string();
         let _ = handle(&mut state, Message::TradeLimitCancelled);
-
         assert_eq!(state.trade_view, TradeView::Ticket);
-        assert_eq!(state.trade_mode, TradeKind::Limit, "Limit stays on");
-        assert_eq!(state.trade_limit_price, "", "no price survives a cancel");
+        assert_eq!(state.trade_limit_price, "1.3004", "Cancel changed the price");
+
+        let _ = handle(&mut state, Message::TradeLimitOpened);
+        let _ = handle(&mut state, Message::TradeLimitCleared);
+        assert_eq!(state.trade_limit_draft, "");
+        let _ = handle(&mut state, Message::TradeLimitSet);
+        assert_eq!(state.trade_view, TradeView::Limit, "Set took an empty price");
+
+        state.trade_limit_draft = "1.3050".to_string();
+        let _ = handle(&mut state, Message::TradeLimitSet);
+        assert_eq!(state.trade_view, TradeView::Ticket);
+        assert_eq!(state.trade_limit_price, "1.3050");
+        assert_eq!(state.trade_mode, Some(TradeKind::Limit));
+    }
+
+    #[test]
+    fn review_continues_to_sign_and_cancel_drops_the_lock() {
+        let mut state = on_pair(Some(TradeSide::Sell), Some(TradeKind::Limit));
+        state.trade_view = TradeView::Review(Box::new(frozen_quote()));
+        state.trade_review_fee = Some(12);
+
+        let _ = handle(&mut state, Message::TradeReviewContinued);
+        assert!(matches!(state.trade_view, TradeView::Sign(_)), "{:?}", state.trade_view);
+
+        let _ = handle(&mut state, Message::TradeReviewCancelled);
+        assert_eq!(state.trade_view, TradeView::Ticket);
+        assert_eq!(state.trade_review_fee, None);
+    }
+
+    #[test]
+    fn a_new_side_or_kind_drops_the_lock_and_the_same_one_keeps_it() {
+        let mut state = on_pair(Some(TradeSide::Sell), Some(TradeKind::Limit));
+        state.trade_view = TradeView::Sign(Box::new(frozen_quote()));
+        state.trade_review_fee = Some(12);
+
+        let _ = handle(&mut state, Message::TradeSideSet(TradeSide::Sell));
+        assert!(trade_locked(&state), "the same side dropped the lock");
+
+        let _ = handle(&mut state, Message::TradeSideSet(TradeSide::Buy));
+        assert_eq!(state.trade_view, TradeView::Ticket);
+        assert_eq!(state.trade_review_fee, None);
+        assert_eq!(state.trade_side, Some(TradeSide::Buy));
+
+        state.trade_view = TradeView::Review(Box::new(frozen_quote()));
+        let _ = handle(&mut state, Message::TradeLimitOpened);
+        assert_eq!(state.trade_view, TradeView::Limit, "Limit while locked opens the price editor");
+    }
+
+    #[test]
+    fn the_swap_reverses_the_pair_and_keeps_the_side_and_kind() {
+        let mut state = on_pair(Some(TradeSide::Buy), Some(TradeKind::Limit));
+        state.trade_amount = "100".to_string();
+        state.trade_limit_price = "1.3004".to_string();
+        state.trade_tif = TradeTif::Ioc;
+
+        let _ = handle(&mut state, Message::TradePairSwapped);
+
+        assert_eq!(trade_market_pair(&state), ("RLUSD", "XRP"));
+        assert_eq!(trade_pay_asset(&state), Some("XRP"), "a buy of the reversed pair pays XRP");
+        assert_eq!((state.trade_side, state.trade_mode), (Some(TradeSide::Buy), Some(TradeKind::Limit)));
+        assert_eq!(state.trade_tif, TradeTif::Ioc);
+        assert_eq!(state.trade_amount, "", "an XRP figure survived into the RLUSD field");
+        assert_eq!(state.trade_limit_price, "", "a price in RLUSD per XRP survived the reversal");
+
+        let _ = handle(&mut state, Message::TradePairSwapped);
+        assert_eq!(trade_market_pair(&state), ("XRP", "RLUSD"));
+
+        state.trade_view = TradeView::Review(Box::new(frozen_quote()));
+        let _ = handle(&mut state, Message::TradePairSwapped);
+        assert_eq!(trade_market_pair(&state), ("XRP", "RLUSD"), "a locked ticket reversed");
     }
 }

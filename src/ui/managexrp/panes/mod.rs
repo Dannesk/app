@@ -200,10 +200,14 @@ pub fn link_word(word: String, color: Color, msg: Option<Message>, cp: &'static 
 }
 
 pub fn swap_word(word: String, color: Color, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'static, Message> {
+    swap_word_sized(word, color, msg, LINK, cp, scale)
+}
+
+pub fn swap_word_sized(word: String, color: Color, msg: Message, size: f32, cp: &'static CompactPalette, scale: f32) -> Element<'static, Message> {
     let content = row![
-        text(word).font(MONO).size(LINK * scale).color(color),
+        text(word).font(MONO).size(size * scale).color(color),
         Space::new().width(6.0 * scale),
-        grid::swap_glyph(LINK * scale, color),
+        grid::swap_glyph(size * scale, color),
     ]
     .align_y(Alignment::Center);
     link_button(content.boxed(), color, Some(msg), cp, scale)

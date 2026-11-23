@@ -215,7 +215,8 @@ pub fn face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         );
     }
     for (b, q) in rows {
-        list = list.push(pair_row(b, q, b == cur_base && q == cur_quote, cp, scale));
+        let picked = (b == cur_base && q == cur_quote) || (b == cur_quote && q == cur_base);
+        list = list.push(pair_row(b, q, picked, cp, scale));
     }
 
     column![

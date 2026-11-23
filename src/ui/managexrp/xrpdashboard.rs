@@ -138,7 +138,7 @@ fn pane_content<'a>(
             PaneKind::Network => (strip("network"), None, network_pane(state, cp, scale)),
             PaneKind::Wallet => (strip(panes_ui::wallet::title(state)), None, panes_ui::wallet::view(state, cp, scale)),
             PaneKind::Ticket => (
-                strip("ticket"),
+                strip(if xrp::trade_locked(state) { "review" } else { "ticket" }),
                 list_meta(PaneKind::Ticket),
                 panes_ui::ticket::view(state, cp, scale),
             ),

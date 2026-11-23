@@ -863,8 +863,16 @@ pub fn handle(state: &mut AppState, chain: Chain, msg: GridMsg) -> Task<Message>
             if chain != Chain::Xrp {
                 return Task::none();
             }
-            state.trade_pair_list = if state.trade_pair_list == Some(kind) { None } else { Some(kind) };
+            let opening = state.trade_pair_list != Some(kind);
+            state.trade_pair_list = opening.then_some(kind);
             state.trade_pair_query.clear();
+            if kind == PaneKind::Ticket {
+                if opening {
+                    crate::controller::xrp::ticket_to_amount(state);
+                } else {
+                    state.request_focus(crate::controller::message::PlainField::TradeAmount);
+                }
+            }
         }
     }
     if chain == Chain::Xrp {
@@ -981,8 +989,8 @@ mod tests {
     #[test]
     fn closing_the_ticket_keeps_the_pair() {
         let mut state = AppState::default();
-        state.trade_pay_asset = "XRP".to_string();
-        state.trade_receive_asset = "RLUSD".to_string();
+        state.trade_base = "XRP".to_string();
+        state.trade_quote = "RLUSD".to_string();
         state.trade_amount = "5".to_string();
         state.replace_secure_field(SecureField::TradeSeed, "x".to_string());
 
@@ -990,8 +998,8 @@ mod tests {
 
         assert_eq!(state.secure_field_len(SecureField::TradeSeed), 0, "the credential stayed");
         assert_eq!(state.trade_amount, "", "the ticket's own input stayed");
-        assert_eq!(state.trade_pay_asset, "XRP", "closing the ticket dropped the pair");
-        assert_eq!(state.trade_receive_asset, "RLUSD", "closing the ticket dropped the pair");
+        assert_eq!(state.trade_base, "XRP", "closing the ticket dropped the pair");
+        assert_eq!(state.trade_quote, "RLUSD", "closing the ticket dropped the pair");
     }
 
     use super::*;

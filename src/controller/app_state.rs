@@ -156,6 +156,7 @@ pub enum TradeView {
     Ticket,
     Limit,
     Review(Box<crate::utils::trade::TradeQuote>),
+    Sign(Box<crate::utils::trade::TradeQuote>),
 }
 
 #[derive(Copy, Debug, Clone, PartialEq, Default)]
@@ -426,16 +427,14 @@ pub struct AppState {
     pub btc_bump_bip39_reveal: bool,
     pub btc_bump_seed_text: SecureString,
     pub btc_bump_seed_reveal: bool,
-    pub trade_pay_asset: String,
-    pub trade_receive_asset: String,
+    pub trade_base: String,
+    pub trade_quote: String,
     pub trade_amount: String,
     pub trade_limit_price: String,
-    pub trade_mode: TradeKind,
+    pub trade_limit_draft: String,
+    pub trade_mode: Option<TradeKind>,
     pub trade_tif: TradeTif,
-
-    pub trade_side: TradeSide,
-
-    pub trade_side_chosen: bool,
+    pub trade_side: Option<TradeSide>,
 
     pub trade_view: TradeView,
 
@@ -657,7 +656,7 @@ impl AppState {
             PlainField::XrpSendTag => &mut self.send_tag_draft,
             PlainField::XrpReceiveTag => &mut self.receive_tag_draft,
             PlainField::TradeAmount => &mut self.trade_amount,
-            PlainField::TradeLimit => &mut self.trade_limit_price,
+            PlainField::TradeLimit => &mut self.trade_limit_draft,
             PlainField::TradePairQuery => &mut self.trade_pair_query,
         }
     }
@@ -1011,14 +1010,14 @@ impl Default for AppState {
             btc_send_bip39_reveal: false,
             btc_send_seed_text: SecureString::input(),
             btc_send_seed_reveal: true,
-            trade_pay_asset: String::new(),
-            trade_receive_asset: String::new(),
+            trade_base: String::new(),
+            trade_quote: String::new(),
             trade_amount: String::new(),
             trade_limit_price: String::new(),
-            trade_mode: TradeKind::Limit,
+            trade_limit_draft: String::new(),
+            trade_mode: None,
             trade_tif: TradeTif::Gtc,
-            trade_side: TradeSide::Buy,
-            trade_side_chosen: false,
+            trade_side: None,
             trade_view: TradeView::Ticket,
             trade_pair_list: None,
             trade_review_fee: None,

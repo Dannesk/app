@@ -39,7 +39,7 @@ fn fmt_xrp(a: f64) -> String {
 }
 
 fn no_pair(state: &AppState) -> bool {
-    state.trade_pay_asset.is_empty() || state.trade_receive_asset.is_empty()
+    state.trade_base.is_empty() || state.trade_quote.is_empty()
 }
 
 pub fn book<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -53,10 +53,9 @@ pub fn book<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
         let asks = display_levels(&book.asks, true, SHOW);
         let bids = display_levels(&book.bids, false, SHOW);
         let picking = trade::manual(state);
-        let reviewing = matches!(state.trade_view, crate::controller::app_state::TradeView::Review(_));
-        let clickable = picking && !reviewing;
+        let clickable = picking && !crate::controller::xrp::trade_locked(state);
         let selected = match &state.trade_view {
-            crate::controller::app_state::TradeView::Review(q) => q.ticket.limit,
+            crate::controller::app_state::TradeView::Review(q) | crate::controller::app_state::TradeView::Sign(q) => q.ticket.limit,
             _ => state.trade_limit_price.trim().parse::<f64>().ok(),
         }
         .filter(|p| *p > 0.0 && picking)

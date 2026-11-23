@@ -22,5 +22,5 @@ pub fn disp(code: &str) -> &str {
 }
 
 pub fn manual(state: &AppState) -> bool {
-    state.trade_mode == TradeKind::Limit
+    state.trade_mode == Some(TradeKind::Limit)
 }
