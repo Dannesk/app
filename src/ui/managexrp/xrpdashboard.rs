@@ -118,7 +118,7 @@ fn pane_content<'a>(
                     .as_deref()
                     .map(|a| xrp::receive_address(state, a))
                     .unwrap_or_else(|| "No Address".to_string());
-                let tagged = xrp::tag_of(&state.receive_tag).is_some();
+                let tagged = xrp::receive_tag_shown(state).is_some();
                 (
                     strip(if tagged { "receive \u{b7} tagged" } else { "receive" }),
                     None,
@@ -286,7 +286,6 @@ fn send_title(state: &AppState) -> &'static str {
 #[derive(Clone, Copy, PartialEq)]
 enum Face {
     Amount,
-    Tag,
     Asset,
     Review,
     Sign,
@@ -296,10 +295,13 @@ fn send_face(state: &AppState) -> Face {
     match state.send_step {
         3 => Face::Sign,
         2 => Face::Review,
-        _ if state.send_tag_editing && !xrp::send_to_xaddress(state) => Face::Tag,
         _ if state.send_asset_picker_open => Face::Asset,
         _ => Face::Amount,
     }
+}
+
+fn tag_open(state: &AppState) -> bool {
+    state.send_tag_editing && !xrp::send_to_xaddress(state)
 }
 
 fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -313,6 +315,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
 
 const FIGURE_SIZES: [f32; 3] = [24.0, 20.0, 16.0];
 const FIGURE_GAP: f32 = 6.0;
+const TAG_GAP: f32 = 10.0;
 pub(crate) const DROW_H: f32 = 18.0;
 pub(crate) const TOTAL_H: f32 = 31.0;
 
@@ -335,7 +338,8 @@ fn send_min_h(state: &AppState, inner: f32, cp: &'static CompactPalette, scale: 
     let rows = if xrpsend::holdings().len() > 1 { 9.0 + screen::ROW_SLOT + 1.0 } else { 0.0 };
     let top = STRIP * 1.3 + 4.0 + screen::boxed_h_seg(&state.send_recipient, inner, ADDR, segment_w(state)) + note + rows;
     let middle = match send_face(state) {
-        Face::Amount | Face::Tag | Face::Asset => STAGE_MIN + STATUS_H,
+        Face::Amount if tag_open(state) => STAGE_MIN + STATUS_H + TAG_GAP + grid::TAG_FIELD_H,
+        Face::Amount | Face::Asset => STAGE_MIN + STATUS_H,
         Face::Review => review_h(state),
         Face::Sign => sign_h(inner, cp, scale),
     };
@@ -398,7 +402,6 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
 
     let (middle, action) = match send_face(state) {
         Face::Amount => amount_face(state, inner, cp, scale),
-        Face::Tag => tag_face(state, inner, cp, scale),
         Face::Asset => asset_face(state, cp, scale),
         Face::Review => review_face(state, cp, scale),
         Face::Sign => sign_face(state, inner, cp, scale),
@@ -554,6 +557,16 @@ fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette,
             HINT * scale,
         ));
     }
+    if tag_open(state) {
+        stage = stage.push(Space::new().height(TAG_GAP * scale).boxed()).push(grid::tag_field(
+            TagPane::Send,
+            &state.send_destination_tag,
+            valid.then_some(Message::SendContinueClicked),
+            state.focus_token(PlainField::XrpSendTag),
+            cp,
+            scale,
+        ));
+    }
 
     let available = crate::controller::xrp::xrp_available();
     let (avail_label, avail_ink) = match tab {
@@ -591,42 +604,6 @@ fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette,
         .height(Length::Fill)
         .boxed();
     (middle, grid::primary("Review", valid, Message::SendContinueClicked, cp, scale))
-}
-
-fn tag_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette, scale: f32) -> FaceParts<'a> {
-    let figure = figure_field(
-        PlainField::XrpSendTag,
-        &state.send_tag_draft,
-        "",
-        "",
-        inner - 2.0 * STAGE_PAD,
-        false,
-        Some(Message::TagSet(TagPane::Send)),
-        state.focus_token(PlainField::XrpSendTag),
-        cp,
-        scale,
-    );
-    let stage = column![
-        screen::unit("destination tag", cp, scale),
-        Space::new().height(8.0 * scale),
-        keyed_column([(Face::Tag, figure)]).boxed(),
-    ]
-    .align_x(Alignment::Center)
-    .width(Length::Fill);
-    let mut status = row![Space::new().width(Length::Fill)].align_y(Alignment::Center).width(Length::Fill);
-    if !state.send_tag_draft.is_empty() {
-        status = status.push(panes_ui::link("Clear", cp.dim, Message::TagDraftCleared(TagPane::Send), cp, scale));
-    }
-    let middle = column![screen::focus_stage(stage.boxed(), PlainField::XrpSendTag, scale), status_row(status.boxed(), scale)]
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .boxed();
-    let action = grid::button_pair(
-        grid::quiet_button("Cancel", Message::TagCancelled(TagPane::Send), cp, scale),
-        grid::primary("Set tag", true, Message::TagSet(TagPane::Send), cp, scale),
-        scale,
-    );
-    (middle, action)
 }
 
 fn asset_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> FaceParts<'a> {
@@ -805,30 +782,33 @@ pub(crate) fn figure_field<'a>(
 
 
 fn receive_line<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    let gap = 7.5 * scale; 
-
+    let gap = 7.5 * scale;
     if state.receive_tag_editing {
-        let draft = state.receive_tag_draft.trim();
-      
-        let ok = !draft.is_empty() && draft.parse::<u32>().is_ok();
+        let set = xrp::tag_of(&state.receive_tag_draft).is_some().then_some(Message::ReceiveTagSet);
         return row![
             grid::line_label("tag", cp, scale),
-            grid::tag_field(TagPane::Receive, &state.receive_tag_draft, cp, scale),
-            grid::line_ok(ok.then_some(Message::TagSet(TagPane::Receive)), cp, scale),
-            grid::line_no(Message::TagCancelled(TagPane::Receive), cp, scale),
+            grid::tag_field(
+                TagPane::Receive,
+                &state.receive_tag_draft,
+                set.clone(),
+                state.focus_token(PlainField::XrpReceiveTag),
+                cp,
+                scale,
+            ),
+            grid::line_ok(set, cp, scale),
+            grid::line_no(Message::ReceiveTagCancelled, cp, scale),
         ]
         .spacing(gap)
         .align_y(Alignment::Center)
         .boxed();
     }
-
     match xrp::tag_of(&state.receive_tag) {
         None => grid::pane_link("Set destination tag", Message::TagEdit(TagPane::Receive), cp, scale),
         Some(tag) => row![
             grid::line_label("tag", cp, scale),
             grid::line_value(tag.to_string(), Message::TagEdit(TagPane::Receive), cp, scale),
             grid::copy_glyph(state.xrp_tag_copied, Message::CopyReceiveTag, cp, scale),
-            grid::line_no(Message::TagCleared(TagPane::Receive), cp, scale),
+            grid::line_no(Message::ReceiveTagCleared, cp, scale),
         ]
         .spacing(gap)
         .align_y(Alignment::Center)

@@ -24,7 +24,7 @@ use crate::controller::app_state::PhraseLine;
 use crate::ui::components::phrase_entry::{self, Entry};
 use crate::ui::managexrp::tokens as tokens_page;
 use crate::utils::fonts::{LIGHT, MONO};
-use crate::utils::plain_field::plain_field_grid_ink_focus;
+use crate::utils::plain_field::plain_field_grid_ink_requested;
 use crate::utils::qr;
 use crate::utils::fonts;
 use crate::utils::sparkline::{fmt_hover_time, ChartInk};
@@ -1049,10 +1049,9 @@ pub fn pane_link<'a>(word: &str, msg: Message, cp: &'static CompactPalette, scal
 
 pub const RECEIVE_LINE_H: f32 = 21.0;
 const LINE_BTN: f32 = 10.0;
-const TAG_FIELD_W: f32 = 100.0; 
-const TAG_FIELD_H: f32 = 20.0; 
-const TAG_FIELD_PAD_H: f32 = 7.0; 
-const TAG_FIELD_RADIUS: f32 = 7.0; 
+const TAG_FIELD_COLS: usize = 11;
+pub const TAG_FIELD_H: f32 = 20.0;
+const TAG_FIELD_PAD_H: f32 = 4.0;
 
 #[allow(clippy::too_many_arguments)]
 pub fn receive_pane<'a>(
@@ -1241,7 +1240,7 @@ pub fn line_label<'a>(word: &str, cp: &'static CompactPalette, scale: f32) -> El
 pub fn line_value<'a>(word: String, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     button(text(word).font(MONO).size(RECEIVE_ADDR * scale))
         .on_press(msg)
-        .padding(Padding::new(1.0 * scale).left(4.0 * scale).right(4.0 * scale))
+        .padding(Padding::new(1.0 * scale).left(TAG_FIELD_PAD_H * scale).right(TAG_FIELD_PAD_H * scale))
         .style(move |_, _| button::Style {
             background: None,
             border: Border { color: Color::TRANSPARENT, width: 0.0, radius: (4.0 * scale).into() },
@@ -1252,22 +1251,27 @@ pub fn line_value<'a>(word: String, msg: Message, cp: &'static CompactPalette, s
         .boxed()
 }
 
-
-pub fn tag_field<'a>(pane: TagPane, draft: &'a str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+pub fn tag_field<'a>(
+    pane: TagPane,
+    value: &'a str,
+    on_submit: Option<Message>,
+    focus: Option<u32>,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
     let field = match pane {
         TagPane::Send => PlainField::XrpSendTag,
         TagPane::Receive => PlainField::XrpReceiveTag,
     };
     let s = RECEIVE_ADDR * scale;
     let advance = s * MONO_ADVANCE;
-    let cols = (((TAG_FIELD_W - 2.0 * TAG_FIELD_PAD_H) * scale) / advance).floor().max(1.0) as usize;
-    let (input, _) = plain_field_grid_ink_focus(
+    let w = TAG_FIELD_COLS as f32 * advance + 2.0 * TAG_FIELD_PAD_H * scale;
+    let input = plain_field_grid_ink_requested(
         field,
-        draft,
-        cols,
-        1,
-        "tag",
-        None,
+        value,
+        TAG_FIELD_COLS,
+        "Enter tag",
+        on_submit,
         advance,
         s * 1.6,
         s,
@@ -1275,20 +1279,21 @@ pub fn tag_field<'a>(pane: TagPane, draft: &'a str, cp: &'static CompactPalette,
         cp.text,
         cp.text,
         cp.faint,
-        Some(fonts::SANS),
-        true,
+        fonts::SANS,
+        focus,
     );
-    container(container(input).width(Length::Fixed(cols as f32 * advance)))
-        .width(Length::Fixed(TAG_FIELD_W * scale))
-        .height(Length::Fixed(TAG_FIELD_H * scale))
-        .align_y(Alignment::Center)
-        .padding(Padding::new(0.0).left(TAG_FIELD_PAD_H * scale).right(TAG_FIELD_PAD_H * scale))
-        .style(move |_| container::Style {
-            background: Some(cp.field.into()),
-            border: Border { color: cp.focus, width: 1.0, radius: (TAG_FIELD_RADIUS * scale).into() },
-            ..Default::default()
-        })
-        .boxed()
+    column![
+        container(input)
+            .width(Length::Fixed(w))
+            .height(Length::Fixed(TAG_FIELD_H * scale - 1.0))
+            .padding(Padding::new(0.0).left(TAG_FIELD_PAD_H * scale).right(TAG_FIELD_PAD_H * scale))
+            .align_y(Alignment::Center),
+        container(Space::new())
+            .width(Length::Fixed(w))
+            .height(Length::Fixed(1.0))
+            .style(move |_| container::Style { background: Some(cp.focus.into()), ..Default::default() }),
+    ]
+    .boxed()
 }
 
 

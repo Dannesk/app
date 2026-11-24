@@ -196,54 +196,41 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
                 after_plain_edit(state, PlainField::XrpSendAmount);
             }
         }
-        Message::TagEdit(pane) => {
-            if pane == TagPane::Send {
-                if state.send_tag_editing {
-                    state.send_tag_editing = false;
-                    state.send_tag_draft.clear();
-                    return Task::none();
-                }
-                if send_to_xaddress(state) {
-                    return Task::none();
-                }
-                unlock_send(state);
-                state.send_asset_picker_open = false;
-                state.request_focus(PlainField::XrpSendTag);
-            }
-            let (set, editing, draft) = tag_slots(state, pane);
-            *draft = set.clone();
-            *editing = true;
-        }
-        Message::TagSet(pane) => {
-            let (set, editing, draft) = tag_slots(state, pane);
-            let d = draft.trim();
-            if !d.is_empty() && d.parse::<u32>().is_err() {
+        Message::TagEdit(TagPane::Send) => {
+            if state.send_tag_editing {
+                state.send_tag_editing = false;
                 return Task::none();
             }
-            *set = d.to_string();
-            draft.clear();
-            *editing = false;
-            if pane == TagPane::Receive {
-                persist_receive_tag(state);
+            if send_to_xaddress(state) {
+                return Task::none();
             }
+            unlock_send(state);
+            state.send_asset_picker_open = false;
+            state.send_tag_editing = true;
+            state.request_focus(PlainField::XrpSendTag);
         }
-        Message::TagCancelled(pane) => {
-            let (_, editing, draft) = tag_slots(state, pane);
-            draft.clear();
-            *editing = false;
+        Message::TagEdit(TagPane::Receive) => {
+            state.receive_tag_draft = state.receive_tag.clone();
+            state.receive_tag_editing = true;
+            state.request_focus(PlainField::XrpReceiveTag);
         }
-        Message::TagDraftCleared(pane) => {
-            let (_, _, draft) = tag_slots(state, pane);
-            draft.clear();
-        }
-        Message::TagCleared(pane) => {
-            let (set, editing, draft) = tag_slots(state, pane);
-            set.clear();
-            draft.clear();
-            *editing = false;
-            if pane == TagPane::Receive {
-                persist_receive_tag(state);
+        Message::ReceiveTagSet => {
+            if tag_of(&state.receive_tag_draft).is_none() {
+                return Task::none();
             }
+            state.receive_tag = std::mem::take(&mut state.receive_tag_draft);
+            state.receive_tag_editing = false;
+            persist_receive_tag(state);
+        }
+        Message::ReceiveTagCancelled => {
+            state.receive_tag_draft.clear();
+            state.receive_tag_editing = false;
+        }
+        Message::ReceiveTagCleared => {
+            state.receive_tag.clear();
+            state.receive_tag_draft.clear();
+            state.receive_tag_editing = false;
+            persist_receive_tag(state);
         }
         Message::CopyReceiveTag => {
             if let Some(tag) = tag_of(&state.receive_tag) {
@@ -265,7 +252,6 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             if state.send_asset_picker_open {
                 unlock_send(state);
                 state.send_tag_editing = false;
-                state.send_tag_draft.clear();
             }
         }
         Message::EnableTokenClicked(code) => {
@@ -553,6 +539,7 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             state.send_error = None;
             state.send_fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
             state.send_tab = send_asset(state);
+            state.send_tag_editing = false;
             state.send_step = 2;
         }
         Message::SendAnchorToggled => {
@@ -566,7 +553,6 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             state.send_recipient.clear();
             state.send_destination_tag.clear();
             state.send_tag_editing = false;
-            state.send_tag_draft.clear();
             state.send_error = None;
         }
         Message::SendReviewCancelled => {
@@ -1188,9 +1174,9 @@ pub fn after_plain_edit(state: &mut AppState, field: PlainField) {
             }
             if send_to_xaddress(state) {
                 state.send_tag_editing = false;
-                state.send_tag_draft.clear();
             }
         }
+        PlainField::XrpSendTag if state.send_step >= 2 => unlock_send(state),
         PlainField::TradeAmount | PlainField::TradeLimit => {
             push_trade_ticket(state);
         }
@@ -1214,18 +1200,15 @@ pub(crate) fn send_to_xaddress(state: &AppState) -> bool {
     dannesk_xrpl_codec::xaddress::resolve(state.send_recipient.trim()).is_some_and(|r| r.from_xaddress)
 }
 
-fn tag_slots(state: &mut AppState, pane: TagPane) -> (&mut String, &mut bool, &mut String) {
-    match pane {
-        TagPane::Send => (&mut state.send_destination_tag, &mut state.send_tag_editing, &mut state.send_tag_draft),
-        TagPane::Receive => (&mut state.receive_tag, &mut state.receive_tag_editing, &mut state.receive_tag_draft),
-    }
-}
-
 // With a tag set, the X-address: QR, address row and copy stay one string.
 pub(crate) fn receive_address(state: &AppState, classic: &str) -> String {
-    tag_of(&state.receive_tag)
+    receive_tag_shown(state)
         .and_then(|tag| dannesk_xrpl_codec::xaddress::encode(classic, Some(tag)))
         .unwrap_or_else(|| classic.to_string())
+}
+
+pub(crate) fn receive_tag_shown(state: &AppState) -> Option<u32> {
+    tag_of(if state.receive_tag_editing { &state.receive_tag_draft } else { &state.receive_tag })
 }
 
 pub(crate) fn tag_of(buf: &str) -> Option<u32> {
@@ -1271,7 +1254,6 @@ pub(crate) fn clear_send_form(state: &mut AppState) {
     state.send_recipient = String::new();
     state.send_destination_tag = String::new();
     state.send_tag_editing = false;
-    state.send_tag_draft = String::new();
     state.send_asset_picker_open = false;
     state.send_amount = String::new();
     state.send_fiat_amount = String::new();

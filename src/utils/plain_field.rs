@@ -65,6 +65,26 @@ pub fn plain_field_grid_requested<'a>(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn plain_field_grid_ink_requested<'a>(
+    field: PlainField,
+    value: &'a str,
+    cols: usize,
+    placeholder: &str,
+    on_submit: Option<Message>,
+    advance: f32,
+    line_height: f32,
+    size: f32,
+    font: Font,
+    text: Color,
+    caret: Color,
+    placeholder_color: Color,
+    placeholder_font: Font,
+    focus: Option<u32>,
+) -> Element<'a, Message> {
+    grid_field(field, value, cols, 1, placeholder, on_submit, advance, line_height, size, font, text, caret, placeholder_color, Some(placeholder_font), false, focus, 0).0
+}
+
+#[allow(clippy::too_many_arguments)]
 fn grid_field<'a>(
     field: PlainField,
     value: &'a str,
