@@ -83,7 +83,7 @@ pub fn render_gate(state: &AppState) -> Element<'_, Message> {
 
     let rule_colour = if erroring { cp.red } else { cp.focus };
     let lit = (clock / BLINK_SECS).fract() < 0.5;
-    let blink = caret(if lit { cp.accent } else { Color::TRANSPARENT }, scale);
+    let blink = caret(if lit { cp.text } else { Color::TRANSPARENT }, scale);
 
     let contents: Element<'_, Message> = if typed == 0 && !erroring {
         row![

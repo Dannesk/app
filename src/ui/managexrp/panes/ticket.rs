@@ -1,7 +1,7 @@
 
 use iced::Widget as _;
 use iced::mouse;
-use iced::widget::{button, column, container, keyed_column, mouse_area, row, text, Column, Row, Space};
+use iced::widget::{button, column, container, mouse_area, row, text, Column, Row, Space};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Shadow, Size};
 
 use crate::channel::CHANNEL;
@@ -14,7 +14,7 @@ use crate::controller::xrp::{
 };
 use crate::ui::components::compact;
 use crate::ui::components::phrase_entry;
-use crate::ui::components::send_screen::{self as screen, status_row, STAGE_PAD};
+use crate::ui::components::send_screen::{self as screen, STAGE_PAD};
 use crate::ui::components::signing::SignFields;
 use crate::ui::components::tui::MONO_ADVANCE;
 use crate::ui::components::tx_panel::Seg;
@@ -48,16 +48,14 @@ const ROW_KEY: f32 = 9.5;
 const ROW_VALUE: f32 = 10.0;
 const ROW_H: f32 = 26.0;
 const FACT_H: f32 = 18.0;
-const LINK: f32 = 8.5;
-const FLAG: f32 = 8.0;
 const CHIP_W: f32 = 40.0;
 const CHIP_H: f32 = 20.0;
 const CHIP: f32 = 8.5;
+const PRICE_STAGE_H: f32 = 90.0;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Face {
     Amount,
-    Price,
     Pair,
     Review,
     Sign,
@@ -70,8 +68,7 @@ fn face(state: &AppState) -> Face {
     match &state.trade_view {
         TradeView::Sign(_) => Face::Sign,
         TradeView::Review(_) => Face::Review,
-        TradeView::Limit if state.trade_mode == Some(TradeKind::Limit) => Face::Price,
-        _ => Face::Amount,
+        TradeView::Ticket => Face::Amount,
     }
 }
 
@@ -92,11 +89,11 @@ pub fn view<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) ->
 }
 
 fn min_h(state: &AppState, inner: f32, cp: &'static CompactPalette, scale: f32) -> f32 {
-    let limit_row = if state.trade_mode == Some(TradeKind::Limit) { ROW_H + 1.0 } else { 0.0 };
+    let price_stage = if state.trade_mode == Some(TradeKind::Limit) { PRICE_STAGE_H } else { 0.0 };
     match (face(state), locked(state)) {
         (Face::Review, Some(q)) => TOP_H + 2.0 * STAGE_PAD + review_rows(q, cp) as f32 * FACT_H + ACTION_H,
         (Face::Sign, _) => TOP_H + sign_h(inner, cp, scale) + ACTION_H,
-        _ => TICKET_MIN_H + limit_row,
+        _ => TICKET_MIN_H + price_stage,
     }
 }
 
@@ -116,7 +113,6 @@ fn form<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette, scale:
         (Face::Review, Some(q)) => review_face(state, q, cp, scale),
         (Face::Sign, Some(q)) => sign_face(state, q, inner, cp, scale),
         (Face::Pair, _) => pair_face(state, cp, scale),
-        (Face::Price, _) => price_face(state, inner, cp, scale),
         _ => amount_face(state, quote, inner, cp, scale),
     };
     column![
@@ -291,7 +287,7 @@ fn mode_seg<'a>(state: &AppState, market_ok: bool, cp: &'static CompactPalette, 
             Segment {
                 label: "Limit",
                 active: state.trade_mode == Some(TradeKind::Limit),
-                msg: Some(Message::TradeLimitOpened),
+                msg: Some(Message::TradeLimitSelected),
                 colour: None,
             },
         ],
@@ -307,7 +303,7 @@ fn figure<'a>(
     placeholder: &'static str,
     room: f32,
     on_submit: Option<Message>,
-    red: bool,
+    ink: Color,
     focus: Option<u32>,
     cp: &'static CompactPalette,
     scale: f32,
@@ -330,8 +326,8 @@ fn figure<'a>(
         s * 1.2,
         s,
         MONO,
-        if red { cp.red } else { cp.text },
-        cp.accent,
+        ink,
+        cp.text,
         cp.faint,
         focus,
     );
@@ -342,12 +338,12 @@ fn figure<'a>(
     .boxed()
 }
 
-fn stage<'a>(content: Element<'a, Message>, field: PlainField, scale: f32) -> Element<'a, Message> {
+fn stage<'a>(content: Element<'a, Message>, field: PlainField, align: Alignment, scale: f32) -> Element<'a, Message> {
     mouse_area(
         container(content)
             .width(Length::Fill)
             .height(Length::Fill)
-            .align_y(Alignment::Center)
+            .align_y(align)
             .padding(Padding::new(8.0 * scale).left(0.0).right(0.0)),
     )
     .on_press(Message::FocusField(field))
@@ -426,22 +422,6 @@ fn stage_note(state: &AppState, quote: Option<&TradeQuote>, cp: &'static Compact
     }
 }
 
-fn link_word<'a>(word: &str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    container(text(format!("{} \u{203a}", word)).font(MONO).size(LINK * scale).color(cp.dim))
-        .padding(Padding::new(3.0 * scale).left(7.0 * scale).right(7.0 * scale))
-        .boxed()
-}
-
-fn flag_tag<'a>(tif: TradeTif, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    container(text(tif_code(tif)).font(MONO).size(FLAG * scale).color(cp.dim))
-        .padding(Padding::new(1.0 * scale).left(4.0 * scale).right(4.0 * scale))
-        .style(move |_| container::Style {
-            border: Border { color: cp.border_soft, width: 1.0, radius: (4.0 * scale).into() },
-            ..Default::default()
-        })
-        .boxed()
-}
-
 fn row26<'a>(key: &'static str, key_ink: Color, value: Element<'a, Message>, tail: Option<Element<'a, Message>>, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     let mut line = row![
         text(key).size(ROW_KEY * scale).color(key_ink),
@@ -483,6 +463,7 @@ fn amount_face<'a>(
     let fee = CHANNEL.xrp_node_rx.borrow().open_ledger_fee;
     let ready = quote.is_some_and(|q| review_ready(q, fee));
     let manual = state.trade_mode == Some(TradeKind::Limit);
+    let price_lit = manual && state.trade_figure == PlainField::TradeLimit;
     let g = gate(state, quote, cp);
 
     let counter_value = quote.and_then(|q| q.counter).filter(|v| *v > 0.0);
@@ -494,24 +475,27 @@ fn amount_face<'a>(
     let counter = swap_word_sized(counter_text, counter_ink, Message::TradePairSwapped, COUNTER, cp, scale);
 
     let field = PlainField::TradeAmount;
+    let amount_ink = if g.red {
+        cp.red
+    } else if price_lit {
+        cp.dim
+    } else {
+        cp.text
+    };
     let mut amount: Column<Element<'_, Message>> = column![
         text(disp(base).to_uppercase()).font(MONO).size(STAGE_LABEL * scale).color(cp.dim),
         Space::new().height(8.0 * scale),
-        keyed_column([(
-            Face::Amount,
-            figure(
-                field,
-                &state.trade_amount,
-                placeholder(base),
-                inner,
-                ready.then_some(Message::TradeReviewPressed),
-                g.red,
-                state.focus_token(field),
-                cp,
-                scale,
-            ),
-        )])
-        .boxed(),
+        figure(
+            field,
+            &state.trade_amount,
+            placeholder(base),
+            inner,
+            ready.then_some(Message::TradeReviewPressed),
+            amount_ink,
+            state.focus_token(field),
+            cp,
+            scale,
+        ),
         Space::new().height(3.0 * scale),
         counter,
     ]
@@ -527,58 +511,19 @@ fn amount_face<'a>(
         );
     }
 
-    let price_row: Element<'a, Message> = if manual {
-        let typed = typed_price(&state.trade_limit_price);
-        let value: Element<'a, Message> = match typed {
-            Some(p) => row![
-                value_runs(
-                    vec![Seg::mono(fmt_price(p), cp.text), Seg::mono(format!(" {q_unit}"), cp.muted)],
-                    scale,
-                ),
-                flag_tag(state.trade_tif, cp, scale),
-            ]
-            .spacing(5.0 * scale)
-            .align_y(Alignment::Center)
-            .boxed(),
-            None => value_runs(vec![Seg::mono(NA, cp.faint)], scale),
-        };
-        let inner_row = row![
-            text("Limit price").size(ROW_KEY * scale).color(cp.dim),
-            Space::new().width(Length::Fill),
-            value,
-            link_word(if typed.is_some() { "Change" } else { "Set" }, cp, scale),
-        ]
-        .spacing(8.0 * scale)
-        .align_y(Alignment::Center);
-        column![
-            compact::hairline(cp.rule),
-            pressable(
-                container(inner_row)
-                    .width(Length::Fill)
-                    .height(Length::Fixed(ROW_H * scale))
-                    .align_y(Alignment::Center)
-                    .boxed(),
-                Some(Message::TradeLimitOpened),
-                cp,
-            ),
-        ]
-        .width(Length::Fill)
-        .boxed()
-    } else {
-        let value = match quote.and_then(|q| q.price_row).filter(|p| *p > 0.0) {
-            Some(p) => value_runs(
-                vec![
-                    Seg::mono(format!("\u{2248} {}", fmt_price(p)), cp.text),
-                    Seg::mono(format!(" {q_unit}"), cp.muted),
-                ],
-                scale,
-            ),
-            None => value_runs(vec![Seg::mono(NA, cp.faint)], scale),
-        };
-        row26("Price", cp.dim, value, None, cp, scale)
-    };
+    let mut figures: Column<Element<'_, Message>> = column![stage(
+        amount.width(Length::Fill).boxed(),
+        field,
+        if manual { Alignment::End } else { Alignment::Center },
+        scale,
+    )]
+    .width(Length::Fill)
+    .height(Length::Fill);
+    if manual {
+        figures = figures.push(price_stage(state, base, quote_asset, inner, ready, price_lit, cp, scale));
+    }
 
-    let tif_row = manual.then(|| {
+    let slot_row: Element<'a, Message> = if manual {
         let mut chips: Row<Element<'_, Message>> = row![].spacing(4.0 * scale).align_y(Alignment::Center);
         for tif in [TradeTif::Gtc, TradeTif::Ioc, TradeTif::Fok] {
             let active = state.trade_tif == tif;
@@ -613,7 +558,19 @@ fn amount_face<'a>(
             );
         }
         row26("Time in force", cp.dim, chips.boxed(), None, cp, scale)
-    });
+    } else {
+        let value = match quote.and_then(|q| q.price_row).filter(|p| *p > 0.0) {
+            Some(p) => value_runs(
+                vec![
+                    Seg::mono(format!("\u{2248} {}", fmt_price(p)), cp.text),
+                    Seg::mono(format!(" {q_unit}"), cp.muted),
+                ],
+                scale,
+            ),
+            None => value_runs(vec![Seg::mono(NA, cp.faint)], scale),
+        };
+        row26("Price", cp.dim, value, None, cp, scale)
+    };
 
     let avail_value = match (trade_pay_asset(state), trade_available(state)) {
         (Some(pay), Some(a)) => value_runs(
@@ -629,27 +586,29 @@ fn amount_face<'a>(
     let max_link = can_max.then(|| link("Max", cp.dim, Message::TradeMaxClicked, cp, scale));
     let avail_row = row26(g.label.0, g.label.1, avail_value, max_link, cp, scale);
 
-    let mut middle: Column<Element<'_, Message>> = column![stage(amount.width(Length::Fill).boxed(), field, scale), price_row]
-        .width(Length::Fill)
-        .height(Length::Fill);
-    if let Some(tif) = tif_row {
-        middle = middle.push(tif);
-    }
     let mark = match state.trade_side {
         Some(TradeSide::Buy) => cp.green,
         Some(TradeSide::Sell) => cp.red,
         None => cp.focus,
     };
     (
-        middle.push(avail_row).boxed(),
+        column![figures, slot_row, avail_row].width(Length::Fill).height(Length::Fill).boxed(),
         grid::marked_button("Review", ready, Message::TradeReviewPressed, mark, cp, scale),
     )
 }
 
-fn price_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette, scale: f32) -> FaceParts<'a> {
-    let (base, quote_asset) = trade_market_pair(state);
-    let draft = state.trade_limit_draft.as_str();
-    let typed = typed_price(draft);
+#[allow(clippy::too_many_arguments)]
+fn price_stage<'a>(
+    state: &'a AppState,
+    base: &str,
+    quote_asset: &str,
+    inner: f32,
+    ready: bool,
+    lit: bool,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
+    let typed = typed_price(&state.trade_limit_price);
     let mid = liquidity::market(base, quote_asset).map(|m| m.mid).filter(|m| *m > 0.0);
     let (mid_line, mid_ink) = match (typed, mid) {
         (Some(p), Some(m)) => {
@@ -664,39 +623,22 @@ fn price_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette, 
     let content = column![
         text(disp(quote_asset).to_uppercase()).font(MONO).size(STAGE_LABEL * scale).color(cp.dim),
         Space::new().height(8.0 * scale),
-        keyed_column([(
-            Face::Price,
-            figure(
-                field,
-                draft,
-                placeholder(quote_asset),
-                inner,
-                typed.is_some().then_some(Message::TradeLimitSet),
-                false,
-                state.focus_token(field),
-                cp,
-                scale,
-            ),
-        )])
-        .boxed(),
+        figure(
+            field,
+            &state.trade_limit_price,
+            placeholder(quote_asset),
+            inner,
+            ready.then_some(Message::TradeReviewPressed),
+            if lit { cp.text } else { cp.dim },
+            state.focus_token(field),
+            cp,
+            scale,
+        ),
         Space::new().height(6.0 * scale),
         text(mid_line).font(MONO).size(COUNTER * scale).color(mid_ink),
     ]
     .align_x(Alignment::Center);
-    let mut status = row![Space::new().width(Length::Fill)].align_y(Alignment::Center).width(Length::Fill);
-    if !draft.is_empty() {
-        status = status.push(link("Clear", cp.dim, Message::TradeLimitCleared, cp, scale));
-    }
-    let middle = column![stage(content.width(Length::Fill).boxed(), field, scale), status_row(status.boxed(), scale)]
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .boxed();
-    let action = grid::button_pair(
-        grid::quiet_button("Cancel", Message::TradeLimitCancelled, cp, scale),
-        grid::primary("Set price", typed.is_some(), Message::TradeLimitSet, cp, scale),
-        scale,
-    );
-    (middle, action)
+    stage(content.width(Length::Fill).boxed(), field, Alignment::Start, scale)
 }
 
 fn pair_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> FaceParts<'a> {

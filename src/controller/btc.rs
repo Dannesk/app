@@ -320,7 +320,6 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
         }
         Message::BtcSendReviewCancelled => {
             unlock_send_review(state);
-            state.request_focus(amount_field(state));
         }
         Message::BtcSendSubmitClicked => {
             if state.btc_send_step != 3 {
@@ -649,14 +648,6 @@ fn close_fee_editor(state: &mut AppState) {
     state.btc_send_fee_lit = None;
     state.btc_send_fee_fresh = false;
     state.btc_send_fee.clear();
-    state.request_focus(amount_field(state));
-}
-
-fn amount_field(state: &AppState) -> PlainField {
-    match state.btc_send_anchor {
-        SendAnchor::Amount => PlainField::BtcSendAmount,
-        SendAnchor::Fiat => PlainField::BtcSendFiat,
-    }
 }
 
 fn follow_send_tier(state: &mut AppState) {

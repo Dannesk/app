@@ -100,6 +100,7 @@ fn grid_field<'a>(
         move |i| Message::PlainEdit(field, SecureOp::Remove(i)),
         move |i, s| Message::PlainEdit(field, SecureOp::Paste(i, s)),
     )
+    .on_focus(Message::FieldClicked(field))
     .size(size)
     .width(Length::Fill)
     .dot_color(text)

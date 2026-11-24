@@ -180,7 +180,7 @@ fn search_field<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
         s,
         MONO,
         cp.text,
-        cp.accent,
+        cp.text,
         cp.faint,
         Some(fonts::SANS),
         true,

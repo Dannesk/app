@@ -52,7 +52,7 @@ fn look(cp: &'static CompactPalette, word: f32, index: f32, s: f32) -> Look {
         faint: cp.faint,
         rule: cp.rule,
         focus: cp.focus,
-        caret: cp.accent,
+        caret: cp.text,
         red: cp.red,
         pill: cp.pill,
     }

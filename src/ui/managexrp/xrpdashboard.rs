@@ -784,7 +784,7 @@ pub(crate) fn figure_field<'a>(
         s,
         MONO,
         if red { cp.red } else { cp.text },
-        cp.accent,
+        cp.text,
         cp.faint,
         focus,
     );

@@ -154,7 +154,6 @@ pub use crate::utils::trade::{TradeKind, TradeSide, TradeTif};
 #[derive(Debug, Clone, PartialEq)]
 pub enum TradeView {
     Ticket,
-    Limit,
     Review(Box<crate::utils::trade::TradeQuote>),
     Sign(Box<crate::utils::trade::TradeQuote>),
 }
@@ -431,7 +430,7 @@ pub struct AppState {
     pub trade_quote: String,
     pub trade_amount: String,
     pub trade_limit_price: String,
-    pub trade_limit_draft: String,
+    pub trade_figure: PlainField,
     pub trade_mode: Option<TradeKind>,
     pub trade_tif: TradeTif,
     pub trade_side: Option<TradeSide>,
@@ -656,7 +655,7 @@ impl AppState {
             PlainField::XrpSendTag => &mut self.send_tag_draft,
             PlainField::XrpReceiveTag => &mut self.receive_tag_draft,
             PlainField::TradeAmount => &mut self.trade_amount,
-            PlainField::TradeLimit => &mut self.trade_limit_draft,
+            PlainField::TradeLimit => &mut self.trade_limit_price,
             PlainField::TradePairQuery => &mut self.trade_pair_query,
         }
     }
@@ -730,6 +729,13 @@ impl AppState {
 
     pub fn focus_token(&self, field: PlainField) -> Option<u32> {
         (self.focus == Some(field)).then_some(self.focus_seq)
+    }
+
+    // The ticket lights the figure pressed last and dims the other.
+    pub fn figure_pressed(&mut self, field: PlainField) {
+        if matches!(field, PlainField::TradeAmount | PlainField::TradeLimit) {
+            self.trade_figure = field;
+        }
     }
 
     pub fn apply_plain_edit(&mut self, field: PlainField, op: SecureOp) -> bool {
@@ -1014,7 +1020,7 @@ impl Default for AppState {
             trade_quote: String::new(),
             trade_amount: String::new(),
             trade_limit_price: String::new(),
-            trade_limit_draft: String::new(),
+            trade_figure: PlainField::TradeAmount,
             trade_mode: None,
             trade_tif: TradeTif::Gtc,
             trade_side: None,

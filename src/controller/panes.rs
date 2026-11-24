@@ -866,12 +866,8 @@ pub fn handle(state: &mut AppState, chain: Chain, msg: GridMsg) -> Task<Message>
             let opening = state.trade_pair_list != Some(kind);
             state.trade_pair_list = opening.then_some(kind);
             state.trade_pair_query.clear();
-            if kind == PaneKind::Ticket {
-                if opening {
-                    crate::controller::xrp::ticket_to_amount(state);
-                } else {
-                    state.request_focus(crate::controller::message::PlainField::TradeAmount);
-                }
+            if kind == PaneKind::Ticket && opening {
+                crate::controller::xrp::unlock_trade(state);
             }
         }
     }

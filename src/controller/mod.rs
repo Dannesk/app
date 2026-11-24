@@ -131,6 +131,11 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         }
         Message::FocusField(field) => {
             state.request_focus(field);
+            state.figure_pressed(field);
+            return Task::none();
+        }
+        Message::FieldClicked(field) => {
+            state.figure_pressed(field);
             return Task::none();
         }
         Message::PlainEdit(field, op) => {

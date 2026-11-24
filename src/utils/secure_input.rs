@@ -142,6 +142,7 @@ pub struct SecureInput<'a, Message> {
     on_remove: Box<dyn Fn(usize) -> Message + 'a>,
     on_paste: Box<dyn Fn(usize, String) -> Message + 'a>,
     on_submit: Option<Message>,
+    on_focus: Option<Message>,
     autofocus: bool,
     focus_token: Option<u32>,
 }
@@ -177,6 +178,7 @@ impl<'a, Message> SecureInput<'a, Message> {
             on_remove: Box::new(on_remove),
             on_paste: Box::new(on_paste),
             on_submit: None,
+            on_focus: None,
             autofocus: false,
             focus_token: None,
         }
@@ -239,6 +241,12 @@ impl<'a, Message> SecureInput<'a, Message> {
 
     pub fn focus_on(mut self, token: u32) -> Self {
         self.focus_token = Some(token);
+        self
+    }
+
+    // Published on a press inside the field, so the app knows which field the user picked.
+    pub fn on_focus(mut self, message: Message) -> Self {
+        self.on_focus = Some(message);
         self
     }
 
@@ -791,6 +799,9 @@ where
                     state.focused = over;
                 }
                 if over {
+                    if let Some(msg) = &self.on_focus {
+                        shell.publish(msg.clone());
+                    }
                     state.window_focused = true;
                     state.touch();
                     if self.box_height.is_some() {

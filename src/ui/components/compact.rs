@@ -307,7 +307,7 @@ fn boxed_at<'a>(
     .size(size)
     .width(Length::Fill)
     .dot_color(p.text)
-    .caret_color(p.accent)
+    .caret_color(p.text)
     .placeholder_color(p.faint)
     .placeholder(placeholder.to_owned())
     .grid(advance, size * 1.6, MONO)

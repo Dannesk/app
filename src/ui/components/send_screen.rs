@@ -144,7 +144,7 @@ fn boxed_field<'a>(
         s,
         MONO,
         cp.text,
-        cp.accent,
+        cp.text,
         cp.faint,
         tail,
     );
