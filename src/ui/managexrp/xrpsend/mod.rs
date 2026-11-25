@@ -24,13 +24,19 @@ pub(crate) const TAG_NONE: &str = "None";
 pub(crate) const X_TAG_NOTE: &str = "Tag from the X-address";
 pub(crate) const CHECKSUM_ERROR: &str = "That address fails its checksum";
 
+const TAG_DIGITS: usize = 11; // one past u32::MAX's ten, so a digit too many shows red
+
 pub(crate) fn tag_typed(candidate: &str) -> Option<String> {
     if !candidate.chars().all(|c| c.is_ascii_digit()) {
         return None;
     }
     let digits = candidate.trim_start_matches('0');
     let tag = if digits.is_empty() && !candidate.is_empty() { "0" } else { digits };
-    (tag.is_empty() || tag.parse::<u32>().is_ok()).then(|| tag.to_string())
+    (tag.len() <= TAG_DIGITS).then(|| tag.to_string())
+}
+
+pub(crate) fn tag_over(tag: &str) -> bool {
+    !tag.trim().is_empty() && tag.trim().parse::<u32>().is_err()
 }
 
 const CLASSIC_MIN: usize = 25;
@@ -211,16 +217,28 @@ mod tests {
     }
 
     #[test]
-    fn a_tag_is_typed_as_a_u32_with_its_zeros_collapsed() {
+    fn a_tag_is_typed_as_eleven_digits_with_its_zeros_collapsed() {
         assert_eq!(tag_typed(""), Some(String::new()));
         assert_eq!(tag_typed("0"), Some("0".to_string()), "0 is a tag");
         assert_eq!(tag_typed("000"), Some("0".to_string()));
         assert_eq!(tag_typed("0104857"), Some("104857".to_string()));
         assert_eq!(tag_typed("4294967295"), Some("4294967295".to_string()));
-        assert_eq!(tag_typed("4294967296"), None, "past a u32 is refused");
-        assert_eq!(tag_typed("12345678901"), None);
+        assert_eq!(tag_typed("4294967296"), Some("4294967296".to_string()), "past a u32 is held, drawn red");
+        assert_eq!(tag_typed("22222222222"), Some("22222222222".to_string()), "an eleventh digit is held, drawn red");
+        assert_eq!(tag_typed("222222222222"), None, "a twelfth digit is refused");
+        assert_eq!(tag_typed("00222222222222"), None);
         assert_eq!(tag_typed("12a"), None);
         assert_eq!(tag_typed("1.5"), None);
+    }
+
+    #[test]
+    fn only_a_tag_past_a_u32_is_over() {
+        for fits in ["", "0", "104857", "2222222222", "4294967295"] {
+            assert!(!tag_over(fits), "{fits:?} drawn red");
+        }
+        for over in ["4294967296", "9999999999", "22222222222"] {
+            assert!(tag_over(over), "{over:?} not drawn red");
+        }
     }
 
     #[test]

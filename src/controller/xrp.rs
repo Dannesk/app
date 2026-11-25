@@ -1545,4 +1545,19 @@ mod tests {
         let _ = handle(&mut state, Message::TradePairSwapped);
         assert_eq!(trade_market_pair(&state), ("XRP", "RLUSD"), "a locked ticket reversed");
     }
+
+    #[test]
+    fn a_tag_past_a_u32_is_held_but_never_set_or_reviewed() {
+        let mut state = AppState::default();
+        assert!(state.apply_plain_edit(PlainField::XrpReceiveTag, SecureOp::Paste(0, "4294967296".to_string())));
+        assert_eq!(state.receive_tag_draft, "4294967296", "the field refused what it should draw red");
+        assert_eq!(tag_of(&state.receive_tag_draft), None, "a tag past a u32 could be set");
+
+        state.send_recipient = "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De".to_string();
+        assert!(state.apply_plain_edit(PlainField::XrpSendTag, SecureOp::Paste(0, "4294967296".to_string())));
+        state.send_amount = "1".to_string();
+        let _ = handle(&mut state, Message::SendContinueClicked);
+        assert_eq!(state.send_error.as_deref(), Some("ERR: INVALID_DESTINATION_TAG"));
+        assert_eq!(state.send_step, 0, "a tag past a u32 reached the review");
+    }
 }

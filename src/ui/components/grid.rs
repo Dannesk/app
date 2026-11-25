@@ -1049,7 +1049,7 @@ pub fn pane_link<'a>(word: &str, msg: Message, cp: &'static CompactPalette, scal
 
 pub const RECEIVE_LINE_H: f32 = 21.0;
 const LINE_BTN: f32 = 10.0;
-const TAG_FIELD_COLS: usize = 11;
+const TAG_FIELD_COLS: usize = 12;
 pub const TAG_FIELD_H: f32 = 20.0;
 const TAG_FIELD_PAD_H: f32 = 4.0;
 
@@ -1256,6 +1256,7 @@ pub fn tag_field<'a>(
     value: &'a str,
     on_submit: Option<Message>,
     focus: Option<u32>,
+    red: bool,
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
@@ -1276,7 +1277,7 @@ pub fn tag_field<'a>(
         s * 1.6,
         s,
         MONO,
-        cp.text,
+        if red { cp.red } else { cp.text },
         cp.text,
         cp.faint,
         fonts::SANS,

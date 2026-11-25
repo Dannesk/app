@@ -304,6 +304,10 @@ fn tag_open(state: &AppState) -> bool {
     state.send_tag_editing && !xrp::send_to_xaddress(state)
 }
 
+fn send_tag_red(state: &AppState) -> bool {
+    !xrp::send_to_xaddress(state) && xrpsend::tag_over(&state.send_destination_tag)
+}
+
 fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     grid::fill_or_scroll_fit(
         move |size: Size| send_min_h(state, (size.width / scale).max(1.0), cp, scale),
@@ -437,15 +441,18 @@ const SEG_PAD_R: f32 = 6.0;
 const SEG_RULE_H: f32 = 15.0;
 const SEG_WORD_W: f32 = 19.0;
 
-fn send_tag(state: &AppState) -> (Option<u32>, bool) {
+fn send_tag(state: &AppState) -> (Option<String>, bool) {
     match dannesk_xrpl_codec::xaddress::resolve(state.send_recipient.trim()) {
-        Some(r) if r.from_xaddress => (r.tag, true),
-        _ => (xrp::tag_of(&state.send_destination_tag), false),
+        Some(r) if r.from_xaddress => (r.tag.map(|t| t.to_string()), true),
+        _ => {
+            let typed = state.send_destination_tag.trim();
+            ((!typed.is_empty()).then(|| typed.to_string()), false)
+        }
     }
 }
 
 fn segment_w(state: &AppState) -> f32 {
-    let chars = send_tag(state).0.map_or(xrpsend::TAG_NONE.len(), |t| t.to_string().len());
+    let chars = send_tag(state).0.map_or(xrpsend::TAG_NONE.len(), |t| t.len());
     1.0 + screen::SEG_INSET
         + SEG_PAD_L
         + SEG_WORD_W
@@ -459,7 +466,8 @@ fn segment_w(state: &AppState) -> f32 {
 fn tag_segment<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> (Element<'a, Message>, f32) {
     let (tag, locked) = send_tag(state);
     let (value, ink) = match tag {
-        Some(t) => (t.to_string(), cp.text),
+        Some(t) if !locked && xrpsend::tag_over(&t) => (t, cp.red),
+        Some(t) => (t, cp.text),
         None => (xrpsend::TAG_NONE.to_string(), cp.faint),
     };
     let mark = if locked { screen::lock(cp, scale) } else { screen::chevron(state.send_tag_editing, cp, scale) };
@@ -500,7 +508,7 @@ fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette,
     let addr_ok = !is_self && resolved.is_some();
     let amount = state.send_amount.trim().parse::<f64>().ok().filter(|v| *v > 0.0);
     let insufficient = amount.is_some_and(|a| !send_fits(state, a));
-    let valid = addr_ok && amount.is_some() && !insufficient;
+    let valid = addr_ok && amount.is_some() && !insufficient && !send_tag_red(state);
     let rate = xrp::send_rate(state);
 
     let anchor_fiat = matches!(state.send_anchor, SendAnchor::Fiat);
@@ -563,6 +571,7 @@ fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette,
             &state.send_destination_tag,
             valid.then_some(Message::SendContinueClicked),
             state.focus_token(PlainField::XrpSendTag),
+            send_tag_red(state),
             cp,
             scale,
         ));
@@ -792,6 +801,7 @@ fn receive_line<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
                 &state.receive_tag_draft,
                 set.clone(),
                 state.focus_token(PlainField::XrpReceiveTag),
+                xrpsend::tag_over(&state.receive_tag_draft),
                 cp,
                 scale,
             ),
