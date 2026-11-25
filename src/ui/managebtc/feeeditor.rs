@@ -5,23 +5,31 @@ use iced::{Alignment, Color, Element, Length, Padding};
 
 use crate::controller::message::{Message, PlainField};
 use crate::ui::components::compact;
-use crate::ui::components::grid::{NA, ROW_KEY};
+use crate::ui::components::grid::{self, NA, RECEIVE_ADDR, ROW_KEY};
 use crate::ui::components::send_screen as screen;
+use crate::ui::components::tui::MONO_ADVANCE;
 use crate::ui::managebtc::btcdashboard::{fee_dot, sats_cost};
 use crate::ui::managebtc::btcsend::Line;
 use crate::ui::managexrp::xrpdashboard;
 use crate::utils::fonts::MONO;
+use crate::utils::plain_field::plain_field_grid_ink_requested;
 use crate::utils::theme::CompactPalette;
 
 const LADDER_W: f32 = 300.0;
 const COST_GAP: f32 = 7.0;
 const LINE_GAP: f32 = 5.0;
-const LADDER_GAP: f32 = 22.0;
+pub(crate) const LADDER_GAP: f32 = 22.0;
 const LADDER_PAD: f32 = 9.0;
 const TIER_PAD_V: f32 = 4.0;
 const TIER_GAP: f32 = 3.0;
 const TIER_RATE: f32 = 9.0;
 const FIGURE_H: f32 = 24.0 * 1.4;
+const RATE_COLS: usize = 6;
+const RATE_PAD_H: f32 = 4.0;
+const RATE_UNIT_GAP: f32 = 4.0;
+const RATE_UNIT: &str = "sat/vB";
+
+pub(crate) const LADDER_H: f32 = 1.0 + LADDER_PAD + 2.0 * TIER_PAD_V + ROW_KEY * 1.3 + TIER_GAP + TIER_RATE * 1.3;
 
 pub(crate) const MIN_H: f32 = screen::UNIT * 1.3
     + 8.0
@@ -99,7 +107,58 @@ fn line<'a>(line: Line, cp: &'static CompactPalette, scale: f32) -> Element<'a, 
         .boxed()
 }
 
-fn ladder<'a>(tiers: [Tier; 4], cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn rate_field<'a>(
+    field: PlainField,
+    value: &'a str,
+    placeholder: &str,
+    on_submit: Option<Message>,
+    focus: Option<u32>,
+    red: bool,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
+    let s = RECEIVE_ADDR * scale;
+    let advance = s * MONO_ADVANCE;
+    let input_w = RATE_COLS as f32 * advance + 2.0 * RATE_PAD_H * scale;
+    let unit_w = RATE_UNIT.len() as f32 * screen::UNIT * scale * MONO_ADVANCE;
+    let w = input_w + RATE_UNIT_GAP * scale + unit_w + RATE_PAD_H * scale;
+    let input = plain_field_grid_ink_requested(
+        field,
+        value,
+        RATE_COLS,
+        placeholder,
+        on_submit,
+        advance,
+        s * 1.6,
+        s,
+        MONO,
+        if red { cp.red } else { cp.text },
+        cp.text,
+        cp.faint,
+        MONO,
+        focus,
+    );
+    let body = row![
+        container(input)
+            .width(Length::Fixed(input_w))
+            .padding(Padding::new(0.0).left(RATE_PAD_H * scale).right(RATE_PAD_H * scale))
+            .align_y(Alignment::Center),
+        Space::new().width(RATE_UNIT_GAP * scale),
+        text(RATE_UNIT).font(MONO).size(screen::UNIT * scale).color(cp.muted).wrapping(Wrapping::None),
+    ]
+    .align_y(Alignment::Center);
+    column![
+        container(body).width(Length::Fixed(w)).height(Length::Fixed(grid::TAG_FIELD_H * scale - 1.0)).align_y(Alignment::Center),
+        container(Space::new())
+            .width(Length::Fixed(w))
+            .height(Length::Fixed(1.0))
+            .style(move |_| container::Style { background: Some(cp.focus.into()), ..Default::default() }),
+    ]
+    .boxed()
+}
+
+pub(crate) fn ladder<'a>(tiers: [Tier; 4], cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     let mut cells: Row<Element<'a, Message>> = row![].width(Length::Fill);
     for t in tiers {
         let live = t.press.is_some();

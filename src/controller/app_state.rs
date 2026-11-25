@@ -394,12 +394,9 @@ pub struct AppState {
     pub btc_send_fiat_amount: String,
     pub btc_send_anchor: SendAnchor,
   
-    pub btc_send_fee: String,
     pub btc_send_fee_tier: BtcFeeTier,
     pub btc_send_custom: String,
-    pub btc_send_fee_face: bool,
-    pub btc_send_fee_lit: Option<BtcFeeTier>,
-    pub btc_send_fee_fresh: bool,
+    pub btc_send_custom_open: bool,
     pub btc_send_locked: Option<u64>,
     pub btc_send_locked_vsize: Option<u64>,
     pub btc_send_locked_rate: Option<f32>,
@@ -646,7 +643,7 @@ impl AppState {
             PlainField::BtcSendRecipient => &mut self.btc_send_recipient,
             PlainField::BtcSendAmount => &mut self.btc_send_amount,
             PlainField::BtcSendFiat => &mut self.btc_send_fiat_amount,
-            PlainField::BtcSendFee => &mut self.btc_send_fee,
+            PlainField::BtcSendFee => &mut self.btc_send_custom,
             PlainField::BtcBumpFee => &mut self.btc_bump_fee,
             PlainField::XrpSendRecipient => &mut self.send_recipient,
             PlainField::XrpSendAmount => &mut self.send_amount,
@@ -662,11 +659,7 @@ impl AppState {
     fn apply_number_edit(&mut self, field: PlainField, op: SecureOp) -> bool {
         let tag = matches!(field, PlainField::XrpSendTag | PlainField::XrpReceiveTag);
         let keep = |s: &str| -> String { s.chars().filter(|c| c.is_ascii_digit() || (!tag && *c == '.')).collect() };
-        let fresh = match field {
-            PlainField::BtcSendFee => self.btc_send_fee_fresh,
-            PlainField::BtcBumpFee => self.btc_bump_fresh,
-            _ => false,
-        };
+        let fresh = field == PlainField::BtcBumpFee && self.btc_bump_fresh;
         let buf = self.plain_field_mut(field).clone();
         let removing = matches!(op, SecureOp::Remove(_));
         let candidate = match op {
@@ -707,16 +700,9 @@ impl AppState {
             self.request_focus(field);
         }
         *self.plain_field_mut(field) = next;
-        match field {
-            PlainField::BtcSendFee => {
-                self.btc_send_fee_fresh = false;
-                self.btc_send_fee_lit = None;
-            }
-            PlainField::BtcBumpFee => {
-                self.btc_bump_fresh = false;
-                self.btc_bump_lit = None;
-            }
-            _ => {}
+        if field == PlainField::BtcBumpFee {
+            self.btc_bump_fresh = false;
+            self.btc_bump_lit = None;
         }
         true
     }
@@ -969,12 +955,9 @@ impl Default for AppState {
             btc_send_amount: String::new(),
             btc_send_fiat_amount: String::new(),
             btc_send_anchor: SendAnchor::Amount,
-            btc_send_fee: String::new(),
             btc_send_fee_tier: BtcFeeTier::Med,
             btc_send_custom: String::new(),
-            btc_send_fee_face: false,
-            btc_send_fee_lit: None,
-            btc_send_fee_fresh: false,
+            btc_send_custom_open: false,
             btc_send_locked: None,
             btc_send_locked_vsize: None,
             btc_send_locked_rate: None,

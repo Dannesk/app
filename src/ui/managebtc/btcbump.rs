@@ -46,7 +46,7 @@ pub fn ready(state: &AppState) -> Option<BumpFee> {
     let q = live_quote(state)?;
     match state.btc_bump_lit.and_then(BtcFeeTier::index) {
         Some(i) => q.tiers[i],
-        None => q.custom.filter(|c| c.rate >= q.min_rate),
+        None => q.custom.filter(|c| c.rate >= q.min_rate && c.rate <= q.max_rate),
     }
 }
 
@@ -64,6 +64,7 @@ fn reading(state: &AppState, q: &BtcBumpQuote, tiers: Option<[f32; 4]>) -> (Opti
     let line = match (positive, typed) {
         (None, _) => Line::Prompt(format!("at least {} sat/vB", rate_text(q.min_rate))),
         (Some(_), Some(c)) if c.rate < q.min_rate => Line::Under(btcsend::below_minimum(q.min_rate)),
+        (Some(_), Some(c)) if c.rate > q.max_rate => Line::Under(btcsend::above_maximum(q.max_rate)),
         (Some(_), Some(c)) => Line::Custom(tiers.map(|t| tx::wait(c.rate, &t))),
         (Some(_), None) => Line::Custom(None),
     };

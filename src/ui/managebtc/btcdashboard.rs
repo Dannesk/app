@@ -437,7 +437,6 @@ fn send_title(state: &AppState) -> &'static str {
 #[derive(Clone, Copy, PartialEq)]
 enum Face {
     Amount,
-    Fee,
     Review,
     Sign,
 }
@@ -446,7 +445,6 @@ fn send_face(state: &AppState) -> Face {
     match state.btc_send_step {
         3 => Face::Sign,
         2 => Face::Review,
-        _ if state.btc_send_fee_face => Face::Fee,
         _ => Face::Amount,
     }
 }
@@ -461,6 +459,10 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
 }
 
 const FEE_ROW_H: f32 = 41.0;
+const RATE_GAP: f32 = 10.0;
+const SEG_RULE_H: f32 = 15.0;
+const SEG_PAD: f32 = 10.0;
+const SEG_GAP: f32 = 6.0;
 
 pub(crate) const TIERS: [BtcFeeTier; 4] = [BtcFeeTier::Minimum, BtcFeeTier::Low, BtcFeeTier::Med, BtcFeeTier::High];
 
@@ -479,9 +481,9 @@ fn recipient_hint(state: &AppState) -> Option<&'static str> {
 fn send_min_h(state: &AppState, inner: f32, cp: &'static CompactPalette, scale: f32) -> f32 {
     let hint = if recipient_hint(state).is_some() { 5.0 + HINT * 1.3 } else { 0.0 };
     let top = STRIP * 1.3 + 4.0 + screen::boxed_h(&state.btc_send_recipient, inner, ADDR) + hint + 8.0 + FEE_ROW_H + 2.0;
+    let rate_field = if state.btc_send_custom_open { RATE_GAP + grid::TAG_FIELD_H } else { 0.0 };
     let middle = match send_face(state) {
-        Face::Amount => STAGE_MIN + STATUS_H,
-        Face::Fee => feeeditor::MIN_H + 2.0 * STAGE_PAD,
+        Face::Amount => STAGE_MIN + STATUS_H + rate_field + feeeditor::LADDER_GAP + feeeditor::LADDER_H,
         Face::Review => 2.0 * STAGE_PAD + 2.0 * xrpdashboard::DROW_H + xrpdashboard::TOTAL_H,
         Face::Sign => sign_h(inner, cp, scale),
     };
@@ -533,7 +535,6 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
 
     let (middle, action) = match send_face(state) {
         Face::Amount => amount_face(state, inner, cp, scale),
-        Face::Fee => fee_face(state, inner, cp, scale),
         Face::Review => review_face(state, cp, scale),
         Face::Sign => sign_face(state, inner, cp, scale),
     };
@@ -567,21 +568,23 @@ fn send_fee_row<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32
     } else {
         quote.as_ref().and_then(|q| btcsend::in_use(state, q))
     };
-    let caption = match state.btc_send_fee_tier {
-        BtcFeeTier::Custom => fee.zip(tiers).map(|(f, t)| Caption::from(btcsend::custom_read(f.fee, &t))),
-        named => tiers.and_then(|t| named.index().map(|i| Caption::Verdict(Verdict::of(&t.map(|q| q.rate), i)))),
+    let max_rate = quote.as_ref().map_or(f32::INFINITY, |q| q.max_rate);
+    let caption = if btcsend::custom_in_use(state) {
+        fee.and_then(|f| btcsend::custom_read(&f, tiers.as_ref(), max_rate)).map(Caption::from)
+    } else {
+        tiers.and_then(|t| state.btc_send_fee_tier.index().map(|i| Caption::Verdict(Verdict::of(&t.map(|q| q.rate), i))))
     };
     let body = fee_choice(
         "Network fee",
-        Some(state.btc_send_fee_tier.label()),
+        Some(btcsend::fee_label(state)),
         caption,
         fee.map_or(RateCell::Dash, |f| RateCell::Text(rate_text(f.rate), f.vsize)),
         fee_cost(fee, price, ccy, cp),
-        state.btc_send_fee_face,
+        state.btc_send_custom_open,
         cp,
         scale,
     );
-    screen::row_button(body, Some(Message::BtcSendFeeFaceToggled), cp, scale)
+    screen::row_button(body, Some(Message::BtcSendCustomToggled), cp, scale)
 }
 
 fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette, scale: f32) -> FaceParts<'a> {
@@ -624,7 +627,7 @@ fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette,
     } else {
         xrp_panes::link_word(twin, twin_ink, None, cp, scale)
     };
-    let stage = column![
+    let mut stage = column![
         screen::unit("btc", cp, scale),
         Space::new().height(8.0 * scale),
         figure,
@@ -633,6 +636,38 @@ fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette,
     ]
     .align_x(Alignment::Center)
     .width(Length::Fill);
+
+    let tiers = quote.as_ref().and_then(|q| q.tiers);
+    if state.btc_send_custom_open {
+        let placeholder = state
+            .btc_send_fee_tier
+            .index()
+            .and_then(|i| tiers.map(|t| rate_text(t[i].rate)))
+            .unwrap_or_else(|| "0.00".to_string());
+        stage = stage.push(Space::new().height(RATE_GAP * scale).boxed()).push(feeeditor::rate_field(
+            PlainField::BtcSendFee,
+            &state.btc_send_custom,
+            &placeholder,
+            gate.ready.then_some(Message::BtcSendContinueClicked),
+            state.focus_token(PlainField::BtcSendFee),
+            gate.blocked,
+            cp,
+            scale,
+        ));
+    }
+    let rates = tiers.map(|t| t.map(|f| f.rate));
+    let custom = btcsend::custom_in_use(state);
+    let ladder = TIERS.map(|t| {
+        let i = t.index().unwrap_or(0);
+        feeeditor::Tier {
+            name: t.label(),
+            rate: tiers.map(|ts| rate_text(ts[i].rate)),
+            dot: rates.map_or(cp.faint, |r| Verdict::of(&r, i).colour(cp)),
+            lit: !custom && state.btc_send_fee_tier == t,
+            press: tiers.is_some().then_some(Message::BtcSendFeeTierSelected(t)),
+        }
+    });
+    stage = stage.push(Space::new().height(feeeditor::LADDER_GAP * scale).boxed()).push(feeeditor::ladder(ladder, cp, scale));
 
     let spendable = quote.as_ref().and_then(|q| q.spendable);
     let dust = quote.as_ref().and_then(|q| q.dust);
@@ -665,45 +700,6 @@ fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette,
         .height(Length::Fill)
         .boxed();
     (middle, grid::primary("Review", gate.ready, Message::BtcSendContinueClicked, cp, scale))
-}
-
-fn fee_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette, scale: f32) -> FaceParts<'a> {
-    let ccy = state.base_currency.code();
-    let price = price::cross("BTC", ccy);
-    let quote = btcsend::quote();
-    let editor = btcsend::editor(state, quote.as_ref());
-    let ready = editor.ready;
-    let tiers = quote.as_ref().and_then(|q| q.tiers);
-    let rates = tiers.map(|t| t.map(|f| f.rate));
-    let ladder = TIERS.map(|t| {
-        let i = t.index().unwrap_or(0);
-        feeeditor::Tier {
-            name: t.label(),
-            rate: tiers.map(|ts| rate_text(ts[i].rate)),
-            dot: rates.map_or(cp.faint, |r| Verdict::of(&r, i).colour(cp)),
-            lit: state.btc_send_fee_lit == Some(t),
-            press: tiers.is_some().then_some(Message::BtcSendFeeTierSelected(t)),
-        }
-    });
-    let parts = feeeditor::Parts {
-        eyebrow: "network fee",
-        field: PlainField::BtcSendFee,
-        text: &state.btc_send_fee,
-        focus: state.focus_token(PlainField::BtcSendFee),
-        cost: editor.cost.map(|c| c.fee),
-        line: editor.line,
-        tiers: ladder,
-        on_submit: ready.then_some(Message::BtcSendSetFee),
-        price,
-        ccy,
-    };
-    let middle = screen::focus_stage(feeeditor::view(parts, inner - 2.0 * STAGE_PAD, cp, scale), PlainField::BtcSendFee, scale);
-    let action = grid::button_pair(
-        grid::quiet_button("Cancel", Message::BtcSendFeeFaceToggled, cp, scale),
-        grid::primary("Set fee", ready, Message::BtcSendSetFee, cp, scale),
-        scale,
-    );
-    (middle, action)
 }
 
 fn send_armed(state: &AppState) -> bool {
@@ -749,7 +745,7 @@ fn review_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32)
             row![
                 text("Network fee").size(ROW_KEY * scale).color(cp.dim),
                 Space::new().width(5.0 * scale),
-                text(state.btc_send_fee_tier.label()).font(MONO).size(HINT * scale).color(cp.faint),
+                text(btcsend::fee_label(state)).font(MONO).size(HINT * scale).color(cp.faint),
                 Space::new().width(Length::Fill),
                 compact::mono_runs(fee_runs, grid::ROW_VALUE * scale),
             ]
@@ -897,13 +893,23 @@ pub(crate) fn fee_choice<'a>(
         RateCell::Text(r, vsize) => rate_and_size(r, vsize, cp, scale),
         RateCell::Dash => text(NA).font(MONO).size(ROW_TOTAL * scale).color(cp.faint).boxed(),
     };
+    let rule = container(Space::new().width(Length::Fixed(1.0)).height(Length::Fixed(SEG_RULE_H * scale)))
+        .style(move |_| container::Style { background: Some(cp.rule.into()), ..Default::default() });
+    let segment = row![
+        rule,
+        Space::new().width(SEG_PAD * scale),
+        text("Custom").size(FEE_NAME * scale).color(cp.text).wrapping(Wrapping::None),
+        Space::new().width(SEG_GAP * scale),
+        container(screen::chevron(open, cp, scale)).width(Length::Fixed(GUTTER_W * scale)).align_x(Alignment::End),
+    ]
+    .align_y(Alignment::Center);
     container(
         row![
             container(left).width(Length::Fill).clip(true),
             column![rate_line, compact::mono_runs(cost, ROW_KEY * scale)]
                 .spacing(2.0 * scale)
                 .align_x(Alignment::End),
-            container(screen::chevron(open, cp, scale)).width(Length::Fixed(GUTTER_W * scale)).align_x(Alignment::End),
+            segment,
         ]
         .spacing(10.0 * scale)
         .align_y(Alignment::Center),

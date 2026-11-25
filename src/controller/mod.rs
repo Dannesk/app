@@ -440,8 +440,7 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::BtcCopyDetail(_)
         | Message::BtcCopyDetailFeedback
         | Message::BtcSendFeeTierSelected(_)
-        | Message::BtcSendFeeFaceToggled
-        | Message::BtcSendSetFee
+        | Message::BtcSendCustomToggled
         | Message::BtcSendMaxClicked
         | Message::BtcSendAnchorToggled
         | Message::BtcSendRecipientCleared

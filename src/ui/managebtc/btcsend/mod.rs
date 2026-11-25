@@ -19,18 +19,20 @@ pub fn typical_vsize() -> u64 {
 
 
 pub fn draft(state: &AppState) -> BtcSendDraft {
-    let custom = (state.btc_send_fee_tier == BtcFeeTier::Custom && !state.btc_send_custom.is_empty())
-        .then(|| state.btc_send_custom.clone());
-    let typed = (state.btc_send_fee_face && state.btc_send_fee_lit.is_none())
-        .then(|| state.btc_send_fee.trim().to_string())
-        .filter(|t| !t.is_empty());
     BtcSendDraft {
         recipient: state.btc_send_recipient.trim().to_string(),
         amount: state.btc_send_amount.trim().to_string(),
-        custom,
-        typed,
+        custom: custom_in_use(state).then(|| state.btc_send_custom.clone()),
         max: state.btc_send_max_on,
     }
+}
+
+pub fn custom_in_use(state: &AppState) -> bool {
+    !state.btc_send_custom.is_empty()
+}
+
+pub fn fee_label(state: &AppState) -> &'static str {
+    if custom_in_use(state) { BtcFeeTier::Custom.label() } else { state.btc_send_fee_tier.label() }
 }
 
 pub fn quote() -> Option<BtcSendQuote> {
@@ -42,10 +44,10 @@ pub fn live_quote(state: &AppState) -> Option<BtcSendQuote> {
 }
 
 pub fn in_use(state: &AppState, q: &BtcSendQuote) -> Option<FeeQuote> {
-    match state.btc_send_fee_tier {
-        BtcFeeTier::Custom => q.custom,
-        named => named.index().and_then(|i| q.tiers.map(|t| t[i])),
+    if custom_in_use(state) {
+        return q.custom;
     }
+    state.btc_send_fee_tier.index().and_then(|i| q.tiers.map(|t| t[i]))
 }
 
 pub(crate) enum Line {
@@ -53,31 +55,6 @@ pub(crate) enum Line {
     Tier(Verdict),
     Custom(Option<Verdict>),
     Under(String),
-}
-
-pub(crate) struct Editor {
-    pub cost: Option<FeeQuote>,
-    pub line: Line,
-    pub ready: bool,
-}
-
-pub(crate) fn editor(state: &AppState, q: Option<&BtcSendQuote>) -> Editor {
-    let tiers = q.and_then(|q| q.tiers);
-    if let Some(i) = state.btc_send_fee_lit.and_then(BtcFeeTier::index) {
-        let cost = tiers.map(|t| t[i]);
-        let line = tiers.map_or(Line::Prompt(OWN_RATE.to_string()), |t| Line::Tier(Verdict::of(&t.map(|f| f.rate), i)));
-        return Editor { cost, line, ready: cost.is_some() };
-    }
-    let positive = state.btc_send_fee.trim().parse::<f32>().ok().filter(|r| r.is_finite() && *r > 0.0);
-    let cost = positive.and(q.filter(|q| q.draft == draft(state))).and_then(|q| q.typed);
-    let line = match (positive, cost.zip(tiers).map(|(c, t)| custom_read(c.fee, &t))) {
-        (None, _) => Line::Prompt(OWN_RATE.to_string()),
-        (Some(_), Some(CustomRead::Warning(w))) => Line::Under(w),
-        (Some(_), Some(CustomRead::Verdict(v))) => Line::Custom(Some(v)),
-        (Some(_), None) => Line::Custom(None),
-    };
-    let ready = cost.is_some() && !matches!(line, Line::Under(_));
-    Editor { cost, line, ready }
 }
 
 pub fn amount_sats(state: &AppState) -> Option<u64> {
@@ -98,11 +75,15 @@ pub(crate) enum CustomRead {
     Warning(String),
 }
 
-pub(crate) fn custom_read(fee: u64, tiers: &[FeeQuote; 4]) -> CustomRead {
-    match (0..4).rev().find(|&i| fee >= tiers[i].fee) {
+pub(crate) fn custom_read(fee: &FeeQuote, tiers: Option<&[FeeQuote; 4]>, max_rate: f32) -> Option<CustomRead> {
+    if fee.rate > max_rate {
+        return Some(CustomRead::Warning(above_maximum(max_rate)));
+    }
+    let tiers = tiers?;
+    Some(match (0..4).rev().find(|&i| fee.fee >= tiers[i].fee) {
         Some(reach) => CustomRead::Verdict(Verdict::of(&tiers.map(|t| t.rate), reach)),
         None => CustomRead::Warning(below_minimum(tiers[0].rate)),
-    }
+    })
 }
 
 
@@ -126,8 +107,8 @@ pub fn gate(state: &AppState, q: Option<&BtcSendQuote>) -> Gate {
     let spendable = q.and_then(|q| q.spendable);
     let insufficient = matches!((amount, fee, spendable), (Some(a), Some(f), Some(s)) if a.saturating_add(f.fee) > s);
     let under_dust = matches!((amount, q.and_then(|q| q.dust)), (Some(a), Some(d)) if a < d);
-    let blocked = state.btc_send_fee_tier == BtcFeeTier::Custom
-        && matches!((fee, q.and_then(|q| q.tiers)), (Some(f), Some(t)) if f.fee < t[0].fee);
+    let blocked = custom_in_use(state)
+        && matches!((fee, q), (Some(f), Some(q)) if f.rate > q.max_rate || q.tiers.is_some_and(|t| f.fee < t[0].fee));
     let addr = state.btc_send_recipient.trim();
     let own = CHANNEL.bitcoin_wallet_rx.borrow().1.clone();
     let addr_ok = is_valid(addr) && !own.as_deref().is_some_and(|o| same_address(o, addr));
@@ -139,13 +120,16 @@ pub fn gate(state: &AppState, q: Option<&BtcSendQuote>) -> Gate {
         && spendable.is_some()
         && !insufficient
         && !under_dust
-        && !blocked
-        && !state.btc_send_fee_face;
+        && !blocked;
     Gate { insufficient, under_dust, blocked, ready }
 }
 
 pub(crate) fn below_minimum(floor: f32) -> String {
     format!("below the {} minimum", rate_text(floor))
+}
+
+pub(crate) fn above_maximum(cap: f32) -> String {
+    format!("above the {} maximum", rate_text(cap))
 }
 
 pub fn rate_typed(candidate: &str) -> Option<String> {
@@ -231,7 +215,6 @@ pub(crate) const SELF_ERROR: &str = "You cannot send to yourself";
 pub(crate) const PREFIX_ERROR: &str = "A bitcoin address starts with 1, 3 or bc1";
 
 pub(crate) const CHECKSUM_ERROR: &str = "That address fails its checksum";
-pub(crate) const OWN_RATE: &str = "your own rate, in sat/vB";
 
 pub(crate) fn dust_words(dust: u64) -> String {
     format!("Minimum {} sat", crate::utils::add_commas(dust as i64))
@@ -243,6 +226,7 @@ pub(crate) const BACK_OF_QUEUE: &str = "back of the queue";
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ws::commands::bitcoin_payment::MAX_FEE_RATE;
 
 
     const REAL: [&str; 5] = [
@@ -370,12 +354,23 @@ mod tests {
     #[test]
     fn a_custom_fee_rounds_down_to_the_tier_it_pays() {
         let t = tiers([15, 19, 48, 154]);
-        assert_eq!(custom_read(71, &t), CustomRead::Verdict(Verdict::ThreeBlocks));
-        assert_eq!(custom_read(154, &t), CustomRead::Verdict(Verdict::NextBlock));
-        assert_eq!(custom_read(19, &t), CustomRead::Verdict(Verdict::SixBlocks));
-        assert_eq!(custom_read(15, &t), CustomRead::Verdict(Verdict::BackOfQueue));
-        assert_eq!(custom_read(14, &t), CustomRead::Warning("below the 0.10 minimum".to_string()));
-        assert_eq!(custom_read(1_540, &t), CustomRead::Verdict(Verdict::NextBlock));
+        let read = |fee: u64| custom_read(&FeeQuote { rate: fee as f32 / 141.0, fee, vsize: 141, max: 0 }, Some(&t), MAX_FEE_RATE);
+        assert_eq!(read(71), Some(CustomRead::Verdict(Verdict::ThreeBlocks)));
+        assert_eq!(read(154), Some(CustomRead::Verdict(Verdict::NextBlock)));
+        assert_eq!(read(19), Some(CustomRead::Verdict(Verdict::SixBlocks)));
+        assert_eq!(read(15), Some(CustomRead::Verdict(Verdict::BackOfQueue)));
+        assert_eq!(read(14), Some(CustomRead::Warning("below the 0.10 minimum".to_string())));
+        assert_eq!(read(1_540), Some(CustomRead::Verdict(Verdict::NextBlock)));
+    }
+
+    #[test]
+    fn a_custom_rate_above_the_node_maximum_is_refused() {
+        let t = tiers([15, 19, 48, 154]);
+        let at = |rate: f32, tiers: Option<&[FeeQuote; 4]>| custom_read(&FeeQuote { rate, fee: (rate * 141.0) as u64, vsize: 141, max: 0 }, tiers, MAX_FEE_RATE);
+        assert_eq!(at(MAX_FEE_RATE, Some(&t)), Some(CustomRead::Verdict(Verdict::NextBlock)));
+        assert_eq!(at(MAX_FEE_RATE + 1.0, Some(&t)), Some(CustomRead::Warning("above the 10000 maximum".to_string())));
+        assert_eq!(at(MAX_FEE_RATE + 1.0, None), Some(CustomRead::Warning("above the 10000 maximum".to_string())));
+        assert_eq!(at(1.0, None), None);
     }
 
     #[test]
