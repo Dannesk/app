@@ -462,7 +462,6 @@ const FEE_ROW_H: f32 = 41.0;
 const RATE_GAP: f32 = 10.0;
 const SEG_RULE_H: f32 = 15.0;
 const SEG_PAD: f32 = 10.0;
-const SEG_GAP: f32 = 6.0;
 
 pub(crate) const TIERS: [BtcFeeTier; 4] = [BtcFeeTier::Minimum, BtcFeeTier::Low, BtcFeeTier::Med, BtcFeeTier::High];
 
@@ -898,8 +897,6 @@ pub(crate) fn fee_choice<'a>(
     let segment = row![
         rule,
         Space::new().width(SEG_PAD * scale),
-        text("Custom").size(FEE_NAME * scale).color(cp.text).wrapping(Wrapping::None),
-        Space::new().width(SEG_GAP * scale),
         container(screen::chevron(open, cp, scale)).width(Length::Fixed(GUTTER_W * scale)).align_x(Alignment::End),
     ]
     .align_y(Alignment::Center);
