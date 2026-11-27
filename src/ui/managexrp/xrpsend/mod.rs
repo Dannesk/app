@@ -84,6 +84,14 @@ pub(crate) struct Holding {
 }
 
 pub(crate) fn holdings() -> Vec<Holding> {
+    assets(false)
+}
+
+pub(crate) fn trustlines() -> Vec<Holding> {
+    assets(true)
+}
+
+fn assets(empty_too: bool) -> Vec<Holding> {
     let (xrp_balance, _, _, _) = *CHANNEL.wallet_balance_rx.borrow();
     let mut out = vec![Holding {
         tab: XrpTokenTab::Xrp,
@@ -93,8 +101,8 @@ pub(crate) fn holdings() -> Vec<Holding> {
         rate_key: "XRP",
     }];
     for t in tokens::TOKENS.iter() {
-        let (balance, _, _, _) = CHANNEL.token(t.code);
-        if crate::controller::xrp::holds(t.code) {
+        let (balance, held, _, _) = CHANNEL.token(t.code);
+        if held && (empty_too || balance > 0.0) {
             out.push(Holding {
                 tab: XrpTokenTab::Token(t.code),
                 symbol: t.display,
@@ -107,17 +115,18 @@ pub(crate) fn holdings() -> Vec<Holding> {
     out
 }
 
-pub fn asset_list<'a>(
+pub(crate) fn asset_list<'a>(
+    held: Vec<Holding>,
     selected: &XrpTokenTab,
     ccy: &'static str,
+    pick: fn(XrpTokenTab) -> Message,
     cp: &'static theme::CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
-    let held = holdings();
     let last = held.len().saturating_sub(1);
     let mut list: Column<Element<'_, Message>> = column![].width(Length::Fill);
     for (i, h) in held.iter().enumerate() {
-        list = list.push(picker_row(h, &h.tab == selected, ccy, cp, scale));
+        list = list.push(picker_row(h, &h.tab == selected, ccy, pick, cp, scale));
         if i != last {
             list = list.push(compact::hairline(cp.rule));
         }
@@ -129,6 +138,7 @@ fn picker_row<'a>(
     h:        &Holding,
     selected: bool,
     ccy:      &'static str,
+    pick:     fn(XrpTokenTab) -> Message,
     cp:       &'static theme::CompactPalette,
     scale:    f32,
 ) -> Element<'a, Message> {
@@ -168,7 +178,7 @@ fn picker_row<'a>(
                 .left(panes::TOKEN_ROW_PAD_H * scale)
                 .right(panes::TOKEN_ROW_PAD_H * scale),
         )
-        .on_press(Message::XrpTokenTabChanged(h.tab.clone()))
+        .on_press(pick(h.tab.clone()))
         .style(move |_, status| screen::row_style(true, status, ROW_RADIUS * scale, cp));
     container(row_button)
         .width(Length::Fill)

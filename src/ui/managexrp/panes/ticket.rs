@@ -41,7 +41,7 @@ const MID: f32 = 12.5;
 const SEG: f32 = 11.0;
 const SEG_H: f32 = 18.0;
 const STAGE_LABEL: f32 = 9.0;
-const FIGURE_SIZES: [f32; 3] = [28.0, 24.0, 20.0];
+use crate::ui::managexrp::xrpdashboard::FIGURE_SIZES;
 const COUNTER: f32 = 10.0;
 const NOTE: f32 = 9.5;
 const ROW_KEY: f32 = 9.5;

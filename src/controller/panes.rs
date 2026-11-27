@@ -933,17 +933,21 @@ mod tests {
                 if (chain, *kind) == (Chain::Xrp, PaneKind::Receive) {
                     state.receive_tag = "7".to_string();
                     state.receive_tag_draft = "12345".to_string();
-                    state.receive_tag_editing = true;
+                    state.receive_edit = crate::controller::app_state::ReceiveEdit::Tag;
+                    state.receive_request = Some((crate::controller::app_state::XrpTokenTab::Xrp, "25".to_string()));
                     clear_pane_form(&mut state, chain, *kind);
                     assert!(state.receive_tag_draft.is_empty());
-                    assert!(!state.receive_tag_editing);
+                    assert_eq!(state.receive_edit, crate::controller::app_state::ReceiveEdit::None);
+                    assert!(state.receive_request.is_none());
                     assert_eq!(state.receive_tag, "7");
                     continue;
                 }
                 if (chain, *kind) == (Chain::Btc, PaneKind::Receive) {
-                    state.btc_copy_feedback = true;
+                    state.btc_receive_editing = true;
+                    state.btc_receive_request = Some("0.001".to_string());
                     clear_pane_form(&mut state, chain, *kind);
-                    assert!(!state.btc_copy_feedback);
+                    assert!(!state.btc_receive_editing);
+                    assert!(state.btc_receive_request.is_none());
                     continue;
                 }
                 let field = match (chain, kind) {

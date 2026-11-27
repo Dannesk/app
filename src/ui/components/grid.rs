@@ -13,7 +13,7 @@ use iced::widget::{button, column, container, mouse_area, opaque, responsive, ri
 use iced::alignment::{Horizontal, Vertical};
 use iced::{Alignment, Border, Color, Element, Length, Padding, Pixels, Point, Rectangle, Shadow, Size, Vector};
 
-use crate::controller::app_state::{AppState, ChartPeriod, EnableInputMode};
+use crate::controller::app_state::{AppState, ChartPeriod, EnableInputMode, ReceiveFlash};
 use crate::controller::message::{Message, PlainField, SecureField, TagPane};
 use crate::controller::panes::{self, Chain, Grid, GridMsg, PaneKind};
 use crate::secure::SecureString;
@@ -547,7 +547,10 @@ pub fn fill_or_scroll_fit<'a>(
 }
 
 const CHART_MIN_H: f32 = 110.0;
-const RECEIVE_MIN_H: f32 = 190.0;
+const RECEIVE_CODE_MIN: f32 = 150.0;
+const RECEIVE_SLOT: f32 = 2.0 * COPY_GLYPH + RECEIVE_GAP;
+const RECEIVE_GAP: f32 = 6.0;
+const RECEIVE_FIELD_COLS: usize = 18;
 
 
 
@@ -966,22 +969,7 @@ pub fn copy_glyph<'a>(copied: bool, msg: Message, cp: &'static CompactPalette, s
     if copied {
         return text("\u{2713} Copied").size(ROW_KEY * scale).color(cp.green).boxed();
     }
-    let g = COPY_GLYPH * scale;
-    button(
-        svg(crate::utils::icons::COPY.clone())
-            .width(Length::Fixed(g))
-            .height(Length::Fixed(g))
-            .style(move |_, status| svg::Style {
-                color: Some(match status {
-                    svg::Status::Hovered => cp.text,
-                    _ => cp.muted,
-                }),
-            }),
-    )
-    .on_press(msg)
-    .padding(Padding::ZERO)
-    .style(bare)
-    .boxed()
+    glyph_button(crate::utils::icons::COPY.clone(), msg, cp, scale)
 }
 
 
@@ -1055,35 +1043,12 @@ const TAG_FIELD_PAD_H: f32 = 4.0;
 
 #[allow(clippy::too_many_arguments)]
 pub fn receive_pane<'a>(
-    payload: String,
-    address: String,
-    tail: usize,
-    copied: bool,
-    on_copy: Message,
-    drop: Option<Message>,
-    line: impl Fn() -> Element<'a, Message> + 'a,
+    rows: impl Fn(f32) -> f32 + 'a,
+    body: impl Fn(f32) -> Element<'a, Message> + 'a,
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
-    fill_or_scroll_by(
-        RECEIVE_MIN_H,
-        move |size: Size| {
-            receive_body(
-                payload.clone(),
-                address.clone(),
-                tail,
-                copied,
-                on_copy.clone(),
-                drop.clone(),
-                line(),
-                size.width,
-                cp,
-                scale,
-            )
-        },
-        cp,
-        scale,
-    )
+    fill_or_scroll_fit(move |size: Size| RECEIVE_CODE_MIN + rows(size.width), move |size: Size| body(size.width), cp, scale)
 }
 
 fn even_lines(s: &str, per_line: usize) -> Vec<String> {
@@ -1095,19 +1060,7 @@ fn even_lines(s: &str, per_line: usize) -> Vec<String> {
     chars.chunks(chars.len().div_ceil(lines)).map(|c| c.iter().collect()).collect()
 }
 
-#[allow(clippy::too_many_arguments)]
-fn receive_body<'a>(
-    payload: String,
-    address: String,
-    tail: usize,
-    copied: bool,
-    on_copy: Message,
-    drop: Option<Message>,
-    line: Element<'a, Message>,
-    width: f32,
-    cp: &'static CompactPalette,
-    scale: f32,
-) -> Element<'a, Message> {
+pub fn receive_code<'a>(payload: String, scale: f32) -> Element<'a, Message> {
     let code = responsive(move |size: Size| {
         let side = size.width.min(size.height).max(0.0);
         let quiet = (side * QR_QUIET).round();
@@ -1132,12 +1085,284 @@ fn receive_body<'a>(
         .boxed()
     });
 
-    let room = width - (COPY_GLYPH + 6.0 + RECEIVE_ADDR_MARGIN) * scale;
+    container(code)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(Padding::new(0.0).top(2.0 * scale).bottom(9.0 * scale))
+        .boxed()
+}
+
+fn receive_lines(address: &str, width: f32, scale: f32) -> Vec<String> {
+    let room = width - (2.0 * (RECEIVE_SLOT + RECEIVE_GAP) + RECEIVE_ADDR_MARGIN) * scale;
     let per_line = (room / (RECEIVE_ADDR * scale * MONO_ADVANCE)).floor().max(1.0) as usize;
+    even_lines(address, per_line)
+}
+
+pub fn receive_rows_h(address: &str, width: f32, lines_under: usize, scale: f32) -> f32 {
+    let lines = receive_lines(address, width, scale).len() as f32;
+    let view = (lines * RECEIVE_ADDR * 1.3).max(COPY_GLYPH) + RECEIVE_GAP + lines_under as f32 * RECEIVE_LINE_H;
+    view.max(TAG_FIELD_H + RECEIVE_GAP + RECEIVE_LINE_H)
+}
+
+pub fn receive_hang<'a>(content: Element<'a, Message>, tools: Element<'a, Message>, scale: f32) -> Element<'a, Message> {
+    let slot = RECEIVE_SLOT * scale;
+    let gap = RECEIVE_GAP * scale;
+    row![
+        Space::new().width(Length::Fill),
+        Space::new().width(Length::Fixed(slot + gap)),
+        content,
+        Space::new().width(Length::Fixed(gap)),
+        container(tools).width(Length::Fixed(slot)),
+        Space::new().width(Length::Fill),
+    ]
+    .align_y(Alignment::Center)
+    .width(Length::Fill)
+    .boxed()
+}
+
+pub fn receive_tools<'a>(
+    flash: Option<ReceiveFlash>,
+    on_copy: Message,
+    on_download: Option<Message>,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
+    let confirm = |word: &str, ink: Color| text(word.to_string()).size(ROW_KEY * scale).color(ink).wrapping(Wrapping::None).boxed();
+    match flash {
+        Some(ReceiveFlash::Copied) | Some(ReceiveFlash::TagCopied) => confirm("\u{2713} Copied", cp.green),
+        Some(ReceiveFlash::Saved) => confirm("\u{2713} Saved", cp.green),
+        Some(ReceiveFlash::SaveFailed) => confirm("Couldn't save", cp.red),
+        None => {
+            let mut tools = row![glyph_button(crate::utils::icons::COPY.clone(), on_copy, cp, scale)].align_y(Alignment::Center);
+            if let Some(msg) = on_download {
+                tools = tools
+                    .push(Space::new().width(Length::Fixed(RECEIVE_GAP * scale)).boxed())
+                    .push(glyph_button(crate::utils::icons::DOWNLOAD.clone(), msg, cp, scale));
+            }
+            tools.boxed()
+        }
+    }
+}
+
+pub fn receive_links<'a>(links: Vec<(&'static str, Message)>, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let mut words = row![].align_y(Alignment::Center);
+    for (i, (word, msg)) in links.into_iter().enumerate() {
+        if i > 0 {
+            words = words.push(rule_v(cp, scale));
+        }
+        words = words.push(receive_word(format!("{word} \u{203a}"), Some(msg), cp.dim, cp, scale));
+    }
+    container(words)
+        .width(Length::Fill)
+        .height(Length::Fixed(RECEIVE_LINE_H * scale))
+        .align_x(Alignment::Center)
+        .align_y(Alignment::Center)
+        .boxed()
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn receive_editor<'a>(
+    left: Element<'a, Message>,
+    field: Element<'a, Message>,
+    right: Element<'a, Message>,
+    set: Option<(&'static str, Option<Message>)>,
+    remove: Option<Message>,
+    cancel: Message,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
+    let gap = 12.0 * scale;
+    let fields = row![
+        container(left).width(Length::Fill).align_x(Alignment::End),
+        Space::new().width(Length::Fixed(gap)),
+        field,
+        Space::new().width(Length::Fixed(gap)),
+        container(right).width(Length::Fill).align_x(Alignment::Start),
+    ]
+    .align_y(Alignment::Center)
+    .height(Length::Fixed(TAG_FIELD_H * scale));
+    let cancel = receive_word("Cancel".to_string(), Some(cancel), cp.dim, cp, scale);
+    let actions = match set {
+        Some((word, msg)) => {
+            let ink = if msg.is_some() { cp.text } else { cp.faint };
+            let mut middle = row![rule_v(cp, scale)].align_y(Alignment::Center);
+            if let Some(remove) = remove {
+                middle = middle
+                    .push(receive_word("Remove".to_string(), Some(remove), cp.dim, cp, scale))
+                    .push(rule_v(cp, scale));
+            }
+            row![
+                container(receive_word(word.to_string(), msg, ink, cp, scale)).width(Length::Fill).align_x(Alignment::End),
+                middle,
+                container(cancel).width(Length::Fill).align_x(Alignment::Start),
+            ]
+            .align_y(Alignment::Center)
+            .boxed()
+        }
+        None => cancel,
+    };
+    column![
+        fields,
+        Space::new().height(Length::Fixed(RECEIVE_GAP * scale)),
+        container(actions)
+            .width(Length::Fill)
+            .height(Length::Fixed(RECEIVE_LINE_H * scale))
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center),
+    ]
+    .width(Length::Fill)
+    .boxed()
+}
+
+pub fn receive_field<'a>(
+    field: PlainField,
+    value: &'a str,
+    placeholder: &str,
+    red: bool,
+    focus: Option<u32>,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
+    let s = RECEIVE_ADDR * scale;
+    let advance = s * MONO_ADVANCE;
+    let shown = if value.is_empty() { placeholder } else { value };
+    let cols = shown.chars().count() + 1;
+    let w = RECEIVE_FIELD_COLS as f32 * advance + 2.0 * TAG_FIELD_PAD_H * scale;
+    let input = plain_field_grid_ink_requested(
+        field,
+        value,
+        cols,
+        placeholder,
+        None,
+        advance,
+        s * 1.6,
+        s,
+        MONO,
+        if red { cp.red } else { cp.text },
+        cp.text,
+        cp.faint,
+        fonts::SANS,
+        focus,
+    );
+    column![
+        container(container(input).width(Length::Fixed(cols as f32 * advance)))
+            .width(Length::Fixed(w))
+            .height(Length::Fixed(TAG_FIELD_H * scale - 1.0))
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center),
+        container(Space::new())
+            .width(Length::Fixed(w))
+            .height(Length::Fixed(1.0))
+            .style(move |_| container::Style { background: Some(cp.focus.into()), ..Default::default() }),
+    ]
+    .boxed()
+}
+
+pub fn receive_chip<'a>(code: &str, open: bool, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let g = 8.0 * scale;
+    let turn = if open { -std::f32::consts::FRAC_PI_2 } else { 0.0 };
+    let chevron = svg(crate::utils::icons::CHEVRON_RIGHT.clone())
+        .width(Length::Fixed(g))
+        .height(Length::Fixed(g))
+        .rotation(iced::Radians(turn))
+        .style(move |_, _| svg::Style { color: Some(if open { cp.green } else { cp.faint }) });
+    button(
+        row![text(code.to_string()).font(MONO).size(STRIP * scale).color(cp.dim), Space::new().width(Length::Fixed(4.0 * scale)), chevron]
+            .align_y(Alignment::Center),
+    )
+    .on_press(msg)
+    .padding(Padding::new(2.0 * scale).left(6.0 * scale).right(4.0 * scale))
+    .style(bare)
+    .boxed()
+}
+
+pub fn receive_request<'a>(
+    figure: String,
+    unit: String,
+    issuer: Option<(String, String)>,
+    msg: Message,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
+    let mut lines = column![hero(figure, unit, cp, scale)].align_x(Alignment::Center);
+    if let Some((name, short)) = issuer {
+        lines = lines
+            .push(Space::new().height(Length::Fixed(3.0 * scale)).boxed())
+            .push(compact::mono_runs(vec![(name, cp.dim), (format!("  \u{b7}  {short}"), cp.muted)], HINT * scale));
+    }
+    container(button(lines).on_press(msg).padding(Padding::new(2.0 * scale)).style(bare))
+        .width(Length::Fill)
+        .align_x(Alignment::Center)
+        .padding(Padding::new(0.0).top(2.0 * scale))
+        .boxed()
+}
+
+pub fn receive_fiat<'a>(draft: &str, rate: f64, ccy: &str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let (word, ink) = match draft.trim().parse::<f64>() {
+        _ if rate <= 0.0 => (NA.to_string(), cp.faint),
+        Ok(v) => (format!("\u{2248} {} {ccy}", crate::utils::money(v * rate)), cp.muted),
+        Err(_) => (format!("\u{2248} 0.00 {ccy}"), cp.faint),
+    };
+    text(word).font(MONO).size(HINT * scale).color(ink).wrapping(Wrapping::None).boxed()
+}
+
+fn receive_word<'a>(word: String, msg: Option<Message>, ink: Color, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let live = msg.is_some();
+    button(text(word).font(fonts::SANS).size(ROW_KEY * scale).wrapping(Wrapping::None))
+        .on_press_maybe(msg)
+        .padding(Padding::new(2.0 * scale).left(8.0 * scale).right(8.0 * scale))
+        .style(move |_, status| {
+            let hot = live && matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: None,
+                border: Border::default(),
+                text_color: if hot { cp.text } else { ink },
+                shadow: Shadow::default(),
+                snap: false,
+            }
+        })
+        .boxed()
+}
+
+fn rule_v<'a>(cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    container(Space::new())
+        .width(Length::Fixed(1.0))
+        .height(Length::Fixed(9.0 * scale))
+        .style(move |_| container::Style { background: Some(cp.border.into()), ..Default::default() })
+        .boxed()
+}
+
+fn glyph_button<'a>(icon: svg::Handle, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let g = COPY_GLYPH * scale;
+    button(
+        svg(icon)
+            .width(Length::Fixed(g))
+            .height(Length::Fixed(g))
+            .style(move |_, status| svg::Style {
+                color: Some(match status {
+                    svg::Status::Hovered => cp.text,
+                    _ => cp.muted,
+                }),
+            }),
+    )
+    .on_press(msg)
+    .padding(Padding::ZERO)
+    .style(bare)
+    .boxed()
+}
+
+pub fn receive_address<'a>(
+    address: &str,
+    tail: usize,
+    width: f32,
+    tools: Element<'a, Message>,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
     let tail_from = address.chars().count().saturating_sub(tail);
     let mut shown: Column<Element<'a, Message>> = column![].align_x(Alignment::Center);
     let mut at = 0;
-    for line in even_lines(&address, per_line) {
+    for line in receive_lines(address, width, scale) {
         let len = line.chars().count();
         let cut = tail_from.saturating_sub(at).min(len);
         let mut spans: Vec<Span<'static, ()>> =
@@ -1154,37 +1379,7 @@ fn receive_body<'a>(
         shown = shown.push(rich_text(spans).wrapping(Wrapping::None).boxed());
         at += len;
     }
-
-    let mut address_row = row![
-        Space::new().width(Length::Fill),
-        shown,
-        Space::new().width(6.0 * scale),
-        copy_glyph(copied, on_copy, cp, scale),
-    ]
-    .align_y(Alignment::Center);
-    if let Some(msg) = drop {
-        address_row = address_row
-            .push(Space::new().width(6.0 * scale).boxed())
-            .push(line_button("Drop", STRIP, cp.muted, cp.text, Some(msg), cp, scale));
-    }
-    address_row = address_row.push(Space::new().width(Length::Fill).boxed());
-
-    column![
-        container(code)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .padding(Padding::new(0.0).top(2.0 * scale).bottom(9.0 * scale)),
-        address_row,
-        Space::new().height(6.0 * scale),
-        container(line)
-            .width(Length::Fill)
-            .height(Length::Fixed(RECEIVE_LINE_H * scale))
-            .align_x(Alignment::Center)
-            .align_y(Alignment::Center),
-    ]
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .boxed()
+    receive_hang(shown.boxed(), tools, scale)
 }
 
 

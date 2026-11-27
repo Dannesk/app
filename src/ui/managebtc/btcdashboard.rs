@@ -108,25 +108,7 @@ fn pane_content<'a>(
             }
             PaneKind::Send => (strip(send_title(state)), None, send_pane(state, cp, scale)),
             PaneKind::Wallet => (strip(panes_ui::wallet::title(state)), None, panes_ui::wallet::view(state, cp, scale)),
-            PaneKind::Receive => {
-                let address = CHANNEL.bitcoin_wallet_rx.borrow().1.clone().unwrap_or_else(|| "No Address".to_string());
-                let line_address = address.clone();
-                (
-                    strip("receive"),
-                    None,
-                    grid::receive_pane(
-                        address.clone(),
-                        address,
-                        ADDR_TAIL,
-                        state.btc_copy_feedback,
-                        Message::BtcCopyAddress,
-                        None,
-                        move || receive_line(&line_address, cp, scale),
-                        cp,
-                        scale,
-                    ),
-                )
-            }
+            PaneKind::Receive => (strip("receive"), None, receive_pane(state, cp, scale)),
             PaneKind::Blocks => (strip("network"), None, blocks_pane(state, cp, scale)),
             PaneKind::Transactions => (
                 strip(panes_ui::transactions::title(state)),
@@ -919,6 +901,93 @@ pub(crate) fn fee_choice<'a>(
 
 
 const ADDR_TAIL: usize = 5;
+
+const REQUEST_H: f32 = 30.0;
+
+fn receive_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let address = CHANNEL.bitcoin_wallet_rx.borrow().1.clone();
+    let payload = address.as_deref().map(|a| crate::controller::btc::btc_receive_payload(state, a)).unwrap_or_default();
+    let shown = address.unwrap_or_else(|| "No Address".to_string());
+    let head = if state.btc_receive_request.is_some() { REQUEST_H } else { 0.0 };
+    let floor = shown.clone();
+    grid::receive_pane(
+        move |width| head + grid::receive_rows_h(&floor, width, 2, scale),
+        move |width| receive_body(state, &shown, &payload, width, cp, scale),
+        cp,
+        scale,
+    )
+}
+
+fn receive_body<'a>(
+    state: &'a AppState,
+    shown: &str,
+    payload: &str,
+    width: f32,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
+    let rows_h = grid::receive_rows_h(shown, width, 2, scale);
+    let mut body = column![].width(Length::Fill).height(Length::Fill);
+    if let Some(amount) = &state.btc_receive_request {
+        body = body.push(grid::receive_request(
+            crate::utils::formatting::request_figure(amount),
+            "BTC".to_string(),
+            None,
+            Message::BtcReceiveAmountEdit,
+            cp,
+            scale,
+        ));
+    }
+    body = body.push(grid::receive_code(payload.to_string(), scale));
+
+    let rows = if state.btc_receive_editing {
+        let ccy = state.base_currency.code();
+        let set = crate::controller::btc::btc_receive_set(state).map(|_| Message::BtcReceiveSet);
+        grid::receive_editor(
+            grid::line_label("btc", cp, scale),
+            grid::receive_field(
+                PlainField::BtcReceiveAmount,
+                &state.btc_receive_amount_draft,
+                "Amount",
+                false,
+                state.focus_token(PlainField::BtcReceiveAmount),
+                cp,
+                scale,
+            ),
+            grid::receive_fiat(&state.btc_receive_amount_draft, crate::utils::price::cross("BTC", ccy), ccy, cp, scale),
+            Some(("Set amount", set)),
+            state.btc_receive_request.is_some().then_some(Message::BtcReceiveRemoved),
+            Message::BtcReceiveCancelled,
+            cp,
+            scale,
+        )
+    } else {
+        let tools = grid::receive_tools(
+            state.btc_receive_flash.map(|(f, _)| f),
+            Message::BtcCopyAddress,
+            Some(Message::BtcReceiveDownload),
+            cp,
+            scale,
+        );
+        let links = if state.btc_receive_request.is_none() {
+            vec![("Request amount", Message::BtcReceiveAmountEdit)]
+        } else {
+            Vec::new()
+        };
+        column![
+            grid::receive_address(shown, ADDR_TAIL, width, tools, cp, scale),
+            Space::new().height(6.0 * scale),
+            container(receive_line(shown, cp, scale))
+                .width(Length::Fill)
+                .height(Length::Fixed(grid::RECEIVE_LINE_H * scale))
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
+            grid::receive_links(links, cp, scale),
+        ]
+        .boxed()
+    };
+    body.push(container(rows).width(Length::Fill).height(Length::Fixed(rows_h * scale)).boxed()).boxed()
+}
 
 fn receive_line<'a>(address: &str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     match crate::btc_script_type::BtcScriptType::of_address(address) {

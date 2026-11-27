@@ -460,7 +460,13 @@ pub fn handle_message(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::BtcBumpCompleted
         | Message::BtcBumpFailed(_)
         | Message::BtcCopyMnemonicFeedback
-        | Message::BtcCopyAddressFeedback
+        | Message::BtcReceiveAmountEdit
+        | Message::BtcReceiveSet
+        | Message::BtcReceiveRemoved
+        | Message::BtcReceiveCancelled
+        | Message::BtcReceiveDownload
+        | Message::BtcReceiveSaved(_)
+        | Message::BtcReceiveFlashElapsed(_)
         | Message::BtcReimportConfirm
         | Message::BtcReimportSuccess
         | Message::BtcReimportFailed(_)

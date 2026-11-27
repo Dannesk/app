@@ -3,7 +3,7 @@ use iced::Task;
 use rand::Rng;
 use crate::controller::message::{Message, PlainField, SecureField};
 use crate::controller::app_state::{
-    AppState, BtcFeeTier, BtcView, EnableInputMode, SendAnchor,
+    AppState, BtcFeeTier, BtcView, EnableInputMode, ReceiveFlash, SendAnchor,
 };
 use crate::ui::managebtc::btcbump;
 use crate::ui::managebtc::btcsend::{self, FeeQuote};
@@ -205,18 +205,37 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
         Message::BtcCopyAddress => {
             let addr = CHANNEL.bitcoin_wallet_rx.borrow().1.clone();
             if let Some(address) = addr {
-                state.btc_copy_feedback = true;
-                return Task::batch([
-                    iced::clipboard::write(address).discard(),
-                    Task::perform(
-                        async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
-                        |_| Message::BtcCopyAddressFeedback,
-                    ),
-                ]);
+                return Task::batch([iced::clipboard::write(address).discard(), btc_receive_flash(state, ReceiveFlash::Copied)]);
             }
         }
-        Message::BtcCopyAddressFeedback => {
-            state.btc_copy_feedback = false;
+        Message::BtcReceiveAmountEdit => {
+            state.btc_receive_amount_draft = state.btc_receive_request.clone().unwrap_or_default();
+            state.btc_receive_editing = true;
+            state.request_focus(PlainField::BtcReceiveAmount);
+        }
+        Message::BtcReceiveSet => {
+            let Some(amount) = btc_receive_set(state) else { return Task::none() };
+            state.btc_receive_request = Some(amount);
+            close_btc_receive_editor(state);
+        }
+        Message::BtcReceiveRemoved => {
+            state.btc_receive_request = None;
+            close_btc_receive_editor(state);
+        }
+        Message::BtcReceiveCancelled => close_btc_receive_editor(state),
+        Message::BtcReceiveDownload => {
+            let addr = CHANNEL.bitcoin_wallet_rx.borrow().1.clone();
+            if let Some(payload) = addr.map(|a| btc_receive_payload(state, &a)).filter(|p| !p.is_empty()) {
+                return crate::controller::xrp::save_code(payload, Message::BtcReceiveSaved);
+            }
+        }
+        Message::BtcReceiveSaved(saved) => {
+            return btc_receive_flash(state, if saved { ReceiveFlash::Saved } else { ReceiveFlash::SaveFailed });
+        }
+        Message::BtcReceiveFlashElapsed(seq) => {
+            if state.btc_receive_flash.is_some_and(|(_, s)| s == seq) {
+                state.btc_receive_flash = None;
+            }
         }
         Message::BtcBalanceUnitToggled => {
             let sats = !state.btc_balance_sats;
@@ -501,7 +520,31 @@ pub(crate) fn set_balance_sats(state: &mut AppState, sats: bool) {
 }
 
 pub(crate) fn clear_btc_receive_line(state: &mut AppState) {
-    state.btc_copy_feedback = false;
+    close_btc_receive_editor(state);
+    state.btc_receive_request = None;
+    state.btc_receive_flash = None;
+}
+
+pub(crate) fn btc_receive_payload(state: &AppState, address: &str) -> String {
+    crate::utils::payment_code::btc_payload(address, state.btc_receive_request.as_deref()).unwrap_or_default()
+}
+
+pub(crate) fn btc_receive_set(state: &AppState) -> Option<String> {
+    if !state.btc_receive_editing {
+        return None;
+    }
+    crate::controller::xrp::request_amount(&state.btc_receive_amount_draft)
+}
+
+fn close_btc_receive_editor(state: &mut AppState) {
+    state.btc_receive_editing = false;
+    state.btc_receive_amount_draft.clear();
+}
+
+fn btc_receive_flash(state: &mut AppState, flash: ReceiveFlash) -> Task<Message> {
+    let seq = crate::controller::xrp::next_flash(state);
+    state.btc_receive_flash = Some((flash, seq));
+    crate::controller::xrp::flash_timer(seq, Message::BtcReceiveFlashElapsed)
 }
 
 pub(crate) fn clear_btc_reimport_form(state: &mut AppState) {
@@ -570,6 +613,7 @@ pub fn after_plain_edit(state: &mut AppState, field: PlainField) {
             push_bump_draft(state);
             return;
         }
+        PlainField::BtcReceiveAmount => return,
         PlainField::BtcSendRecipient if state.btc_send_step >= 2 => unlock_send_review(state),
         _ => {}
     }

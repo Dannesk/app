@@ -1,6 +1,6 @@
 use iced::Task;
 use crate::controller::message::{Message, PlainField, SecureField, TagPane};
-use crate::controller::app_state::{AppState, EnableInputMode, SendAnchor, XrpTokenTab, XrpView, TradeKind, TradeSide, TradeTif, TradeView};
+use crate::controller::app_state::{AppState, EnableInputMode, ReceiveEdit, ReceiveFlash, SendAnchor, XrpTokenTab, XrpView, TradeKind, TradeSide, TradeTif, TradeView};
 use crate::controller::panes::PaneKind;
 use crate::secure::SecureString;
 use crate::channel::CHANNEL;
@@ -145,18 +145,8 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
         Message::CopyAddress => {
             let (_, addr, _, _) = CHANNEL.wallet_balance_rx.borrow().clone();
             if let Some(address) = addr.map(|a| receive_address(state, &a)) {
-                state.xrp_copy_feedback = true;
-                return Task::batch([
-                    iced::clipboard::write(address).discard(),
-                    Task::perform(
-                        async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
-                        |_| Message::CopyAddressFeedback,
-                    ),
-                ]);
+                return Task::batch([iced::clipboard::write(address).discard(), receive_flash(state, ReceiveFlash::Copied)]);
             }
-        }
-        Message::CopyAddressFeedback => {
-            state.xrp_copy_feedback = false;
         }
         Message::WalletCopyAddress => {
             let (_, addr, _, _) = CHANNEL.wallet_balance_rx.borrow().clone();
@@ -210,42 +200,75 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             state.request_focus(PlainField::XrpSendTag);
         }
         Message::TagEdit(TagPane::Receive) => {
+            close_receive_editor(state);
             state.receive_tag_draft = state.receive_tag.clone();
-            state.receive_tag_editing = true;
+            state.receive_edit = ReceiveEdit::Tag;
             state.request_focus(PlainField::XrpReceiveTag);
         }
-        Message::ReceiveTagSet => {
-            if tag_of(&state.receive_tag_draft).is_none() {
-                return Task::none();
+        Message::ReceiveAmountEdit => {
+            close_receive_editor(state);
+            let (asset, amount) = state.receive_request.clone().unwrap_or_default();
+            state.receive_asset = asset;
+            state.receive_amount_draft = amount;
+            state.receive_edit = ReceiveEdit::Amount;
+            state.request_focus(PlainField::XrpReceiveAmount);
+        }
+        Message::ReceiveAssetListToggled => {
+            state.receive_asset_list = !state.receive_asset_list;
+            if !state.receive_asset_list {
+                state.request_focus(PlainField::XrpReceiveAmount);
             }
-            state.receive_tag = std::mem::take(&mut state.receive_tag_draft);
-            state.receive_tag_editing = false;
-            persist_receive_tag(state);
         }
-        Message::ReceiveTagCancelled => {
-            state.receive_tag_draft.clear();
-            state.receive_tag_editing = false;
+        Message::ReceiveAssetPicked(tab) => {
+            state.receive_asset = tab;
+            state.receive_asset_list = false;
+            state.request_focus(PlainField::XrpReceiveAmount);
         }
-        Message::ReceiveTagCleared => {
-            state.receive_tag.clear();
-            state.receive_tag_draft.clear();
-            state.receive_tag_editing = false;
-            persist_receive_tag(state);
+        Message::ReceiveSet => match receive_set(state) {
+            Some(ReceiveSet::Amount(amount)) => {
+                state.receive_request = Some((state.receive_asset.clone(), amount));
+                close_receive_editor(state);
+            }
+            Some(ReceiveSet::Tag(tag)) => {
+                state.receive_tag = tag.to_string();
+                persist_receive_tag(state);
+                close_receive_editor(state);
+            }
+            None => {}
+        },
+        Message::ReceiveRemoved => {
+            match state.receive_edit {
+                ReceiveEdit::Amount => state.receive_request = None,
+                ReceiveEdit::Tag => {
+                    state.receive_tag.clear();
+                    persist_receive_tag(state);
+                }
+                ReceiveEdit::None => return Task::none(),
+            }
+            close_receive_editor(state);
         }
+        Message::ReceiveCancelled => close_receive_editor(state),
         Message::CopyReceiveTag => {
             if let Some(tag) = tag_of(&state.receive_tag) {
-                state.xrp_tag_copied = true;
                 return Task::batch([
                     iced::clipboard::write(tag.to_string()).discard(),
-                    Task::perform(
-                        async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await },
-                        |_| Message::CopyReceiveTagFeedback,
-                    ),
+                    receive_flash(state, ReceiveFlash::TagCopied),
                 ]);
             }
         }
-        Message::CopyReceiveTagFeedback => {
-            state.xrp_tag_copied = false;
+        Message::ReceiveDownload => {
+            let (_, addr, _, _) = CHANNEL.wallet_balance_rx.borrow().clone();
+            if let Some(payload) = addr.map(|a| receive_payload(state, &a)).filter(|p| !p.is_empty()) {
+                return save_code(payload, Message::ReceiveSaved);
+            }
+        }
+        Message::ReceiveSaved(saved) => {
+            return receive_flash(state, if saved { ReceiveFlash::Saved } else { ReceiveFlash::SaveFailed });
+        }
+        Message::ReceiveFlashElapsed(seq) => {
+            if state.receive_flash.is_some_and(|(_, s)| s == seq) {
+                state.receive_flash = None;
+            }
         }
         Message::SendAssetPickerToggled => {
             state.send_asset_picker_open = !state.send_asset_picker_open;
@@ -1157,6 +1180,9 @@ pub fn resync_send_twin(state: &mut AppState) {
 }
 
 pub fn after_plain_edit(state: &mut AppState, field: PlainField) {
+    if matches!(field, PlainField::XrpReceiveAmount | PlainField::XrpReceiveTag) {
+        return;
+    }
     state.send_error = None;
     let rate = send_rate(state);
     match field {
@@ -1207,19 +1233,79 @@ pub(crate) fn receive_address(state: &AppState, classic: &str) -> String {
         .unwrap_or_else(|| classic.to_string())
 }
 
+pub(crate) fn receive_payload(state: &AppState, classic: &str) -> String {
+    let request = state
+        .receive_request
+        .as_ref()
+        .map(|(asset, amount)| crate::utils::payment_code::Request { amount, token: asset.code() });
+    crate::utils::payment_code::xrp_payload(classic, receive_tag_shown(state), request).unwrap_or_default()
+}
+
 pub(crate) fn receive_tag_shown(state: &AppState) -> Option<u32> {
-    tag_of(if state.receive_tag_editing { &state.receive_tag_draft } else { &state.receive_tag })
+    tag_of(&state.receive_tag)
 }
 
 pub(crate) fn tag_of(buf: &str) -> Option<u32> {
     buf.trim().parse::<u32>().ok()
 }
 
+pub(crate) enum ReceiveSet {
+    Amount(String),
+    Tag(u32),
+}
+
+pub(crate) fn receive_set(state: &AppState) -> Option<ReceiveSet> {
+    match state.receive_edit {
+        ReceiveEdit::Amount => request_amount(&state.receive_amount_draft).map(ReceiveSet::Amount),
+        ReceiveEdit::Tag => tag_of(&state.receive_tag_draft).map(ReceiveSet::Tag),
+        ReceiveEdit::None => None,
+    }
+}
+
+pub(crate) fn request_amount(draft: &str) -> Option<String> {
+    let draft = draft.trim();
+    draft.parse::<f64>().is_ok_and(|v| v > 0.0).then(|| draft.to_string())
+}
+
+fn close_receive_editor(state: &mut AppState) {
+    state.receive_edit = ReceiveEdit::None;
+    state.receive_asset_list = false;
+    state.receive_amount_draft.clear();
+    state.receive_tag_draft.clear();
+}
+
+fn receive_flash(state: &mut AppState, flash: ReceiveFlash) -> Task<Message> {
+    let seq = next_flash(state);
+    state.receive_flash = Some((flash, seq));
+    flash_timer(seq, Message::ReceiveFlashElapsed)
+}
+
+pub(crate) fn next_flash(state: &mut AppState) -> u32 {
+    state.receive_flash_seq = state.receive_flash_seq.wrapping_add(1);
+    state.receive_flash_seq
+}
+
+pub(crate) fn flash_timer(seq: u32, done: fn(u32) -> Message) -> Task<Message> {
+    Task::perform(async { tokio::time::sleep(std::time::Duration::from_millis(1500)).await }, move |_| done(seq))
+}
+
+pub(crate) fn save_code(payload: String, done: fn(bool) -> Message) -> Task<Message> {
+    Task::perform(
+        async move {
+            let ink = crate::ui::components::grid::QR_INK;
+            tokio::task::spawn_blocking(move || crate::utils::qr::save_png(&payload, ink).is_some())
+                .await
+                .unwrap_or(false)
+        },
+        done,
+    )
+}
+
 pub(crate) fn clear_receive_form(state: &mut AppState) {
-    state.receive_tag_draft = String::new();
-    state.receive_tag_editing = false;
-    state.xrp_copy_feedback = false;
-    state.xrp_tag_copied = false;
+    close_receive_editor(state);
+    state.receive_request = None;
+    state.receive_asset = XrpTokenTab::Xrp;
+    state.receive_flash = None;
 }
 
 const RECEIVE_TAG_KEY: &str = "receive_tag";

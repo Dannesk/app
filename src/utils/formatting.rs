@@ -40,6 +40,13 @@ pub fn format_usd(val: f64) -> String {
     format_token_amount(val, 4)
 }
 
+pub fn request_figure(amount: &str) -> String {
+    let (int, frac) = amount.trim().split_once('.').unwrap_or((amount.trim(), ""));
+    let int = int.trim_start_matches('0').parse::<i64>().map(add_commas).unwrap_or_else(|_| "0".to_string());
+    let frac = frac.trim_end_matches('0');
+    if frac.is_empty() { int } else { format!("{int}.{frac}") }
+}
+
 pub fn fiat_amount(val: f64) -> String {
     let int_digits = (val.abs().trunc() as u64).to_string().len();
     let decimals = 5usize.saturating_sub(int_digits).clamp(2, 4);

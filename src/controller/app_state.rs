@@ -45,6 +45,22 @@ impl XrpTokenTab {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReceiveEdit {
+    #[default]
+    None,
+    Amount,
+    Tag,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiveFlash {
+    Copied,
+    TagCopied,
+    Saved,
+    SaveFailed,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum BtcView {
     #[default]
@@ -352,12 +368,20 @@ pub struct AppState {
     pub send_destination_tag: String,
     pub send_tag_editing: bool,
     pub receive_tag: String,
-  
-    pub receive_tag_editing: bool,
+
+    pub receive_edit: ReceiveEdit,
     pub receive_tag_draft: String,
- 
-    pub xrp_tag_copied: bool,
- 
+    pub receive_amount_draft: String,
+    pub receive_asset: XrpTokenTab,
+    pub receive_asset_list: bool,
+    pub receive_request: Option<(XrpTokenTab, String)>,
+    pub receive_flash: Option<(ReceiveFlash, u32)>,
+    pub btc_receive_editing: bool,
+    pub btc_receive_amount_draft: String,
+    pub btc_receive_request: Option<String>,
+    pub btc_receive_flash: Option<(ReceiveFlash, u32)>,
+    pub receive_flash_seq: u32,
+
     pub send_amount: String,
     pub send_fiat_amount: String,
     pub send_anchor: SendAnchor,
@@ -650,6 +674,8 @@ impl AppState {
             PlainField::XrpSendFiat => &mut self.send_fiat_amount,
             PlainField::XrpSendTag => &mut self.send_destination_tag,
             PlainField::XrpReceiveTag => &mut self.receive_tag_draft,
+            PlainField::XrpReceiveAmount => &mut self.receive_amount_draft,
+            PlainField::BtcReceiveAmount => &mut self.btc_receive_amount_draft,
             PlainField::TradeAmount => &mut self.trade_amount,
             PlainField::TradeLimit => &mut self.trade_limit_price,
             PlainField::TradePairQuery => &mut self.trade_pair_query,
@@ -727,9 +753,17 @@ impl AppState {
         if matches!(field, PlainField::BtcSendFee | PlainField::BtcBumpFee | PlainField::XrpSendTag | PlainField::XrpReceiveTag) {
             return self.apply_number_edit(field, op);
         }
+        if matches!(field, PlainField::XrpReceiveAmount | PlainField::BtcReceiveAmount) {
+            return self.apply_request_edit(field, op);
+        }
         let accepts = |s: &str, at: usize, add: &str| -> bool {
             match field {
-                PlainField::BtcSendFee | PlainField::BtcBumpFee | PlainField::XrpSendTag | PlainField::XrpReceiveTag => false,
+                PlainField::BtcSendFee
+                | PlainField::BtcBumpFee
+                | PlainField::XrpSendTag
+                | PlainField::XrpReceiveTag
+                | PlainField::XrpReceiveAmount
+                | PlainField::BtcReceiveAmount => false,
                 PlainField::BtcSendAmount
                 | PlainField::BtcSendFiat
                 | PlainField::XrpSendAmount
@@ -786,6 +820,42 @@ impl AppState {
             }
             SecureOp::ToggleReveal => false,
         }
+    }
+
+    fn apply_request_edit(&mut self, field: PlainField, op: SecureOp) -> bool {
+        let (places, digits) = if field == PlainField::BtcReceiveAmount { (8, 16) } else { (6, 15) };
+        let keep = |s: &str| -> String { s.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect() };
+        let buf = self.plain_field_mut(field).clone();
+        let candidate = match op {
+            SecureOp::Insert(i, c) => {
+                let mut next = buf.clone();
+                next.insert_str(byte_index(&buf, i), &keep(&c.to_string()));
+                next
+            }
+            SecureOp::Paste(i, s) => {
+                let mut next = buf.clone();
+                next.insert_str(byte_index(&buf, i), &keep(&s));
+                next
+            }
+            SecureOp::Remove(i) => {
+                if i >= buf.chars().count() {
+                    return false;
+                }
+                let mut next = buf.clone();
+                next.remove(byte_index(&buf, i));
+                next
+            }
+            SecureOp::ToggleReveal => return false,
+        };
+        let (int, frac) = candidate.split_once('.').unwrap_or((&candidate, ""));
+        let fits = frac.bytes().all(|b| b.is_ascii_digit())
+            && frac.len() <= places
+            && int.trim_start_matches('0').len() + frac.len() <= digits;
+        if candidate == buf || !fits {
+            return false;
+        }
+        *self.plain_field_mut(field) = candidate;
+        true
     }
 
     pub fn replace_plain_field(&mut self, field: PlainField, text: String) {
@@ -920,9 +990,18 @@ impl Default for AppState {
             send_destination_tag: String::new(),
             send_tag_editing: false,
             receive_tag: String::new(),
-            receive_tag_editing: false,
+            receive_edit: ReceiveEdit::None,
             receive_tag_draft: String::new(),
-            xrp_tag_copied: false,
+            receive_amount_draft: String::new(),
+            receive_asset: XrpTokenTab::Xrp,
+            receive_asset_list: false,
+            receive_request: None,
+            receive_flash: None,
+            btc_receive_editing: false,
+            btc_receive_amount_draft: String::new(),
+            btc_receive_request: None,
+            btc_receive_flash: None,
+            receive_flash_seq: 0,
             send_amount: String::new(),
             send_fiat_amount: String::new(),
             send_anchor: SendAnchor::Amount,

@@ -135,6 +135,8 @@ pub enum PlainField {
     XrpSendFiat,
     XrpSendTag,
     XrpReceiveTag,
+    XrpReceiveAmount,
+    BtcReceiveAmount,
     TradeAmount,
     TradeLimit,
     TradePairQuery,
@@ -149,6 +151,7 @@ impl PlainField {
                 | Self::BtcSendFiat
                 | Self::BtcSendFee
                 | Self::BtcBumpFee
+                | Self::BtcReceiveAmount
         )
     }
 }
@@ -194,7 +197,6 @@ pub enum Message {
     RemoveXrpWallet,
     XrpWalletRemoved,
     CopyAddress,
-    CopyAddressFeedback,
     WalletCopyAddress,
     WalletCopyAddressFeedback,
     CopyMnemonic,
@@ -202,11 +204,16 @@ pub enum Message {
     XrpTokenTabChanged(XrpTokenTab),
     SendAssetPickerToggled,
     TagEdit(TagPane),
-    ReceiveTagSet,
-    ReceiveTagCancelled,
-    ReceiveTagCleared,
+    ReceiveAmountEdit,
+    ReceiveAssetListToggled,
+    ReceiveAssetPicked(XrpTokenTab),
+    ReceiveSet,
+    ReceiveRemoved,
+    ReceiveCancelled,
     CopyReceiveTag,
-    CopyReceiveTagFeedback,
+    ReceiveDownload,
+    ReceiveSaved(bool),
+    ReceiveFlashElapsed(u32),
     EnableTokenClicked(&'static str),
     EnableDismissed,
     EnableSubmitClicked,
@@ -259,6 +266,13 @@ pub enum Message {
     BtcRemoveWallet,
     BtcWalletRemoved,
     BtcCopyAddress,
+    BtcReceiveAmountEdit,
+    BtcReceiveSet,
+    BtcReceiveRemoved,
+    BtcReceiveCancelled,
+    BtcReceiveDownload,
+    BtcReceiveSaved(bool),
+    BtcReceiveFlashElapsed(u32),
     BtcBalanceUnitToggled,
     EscapeDismiss,
     BtcSendFeeTierSelected(BtcFeeTier),
@@ -283,7 +297,6 @@ pub enum Message {
     BtcBumpFailed(String),
     CopyMnemonicFeedback,
     BtcCopyMnemonicFeedback,
-    BtcCopyAddressFeedback,
     BtcCopyMasterAddress,
     BtcCopyMasterAddressFeedback,
     WindowResized(f32, f32),

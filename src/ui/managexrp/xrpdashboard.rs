@@ -9,7 +9,7 @@ use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Size};
 
 use crate::channel::{Socket, XrpNodeStats as NodeFrame, CHANNEL};
 use crate::ui::components::orbit::{self, Middle, Node, Status};
-use crate::controller::app_state::{AppState, ChartPeriod, EnableInputMode, SendAnchor, XrpTokenTab};
+use crate::controller::app_state::{AppState, ChartPeriod, EnableInputMode, ReceiveEdit, ReceiveFlash, SendAnchor, XrpTokenTab};
 use crate::controller::message::{Message, PlainField, SecureField, TagPane};
 use crate::controller::panes::{Chain, GridMsg, LedgerBar, PaneKind};
 use crate::controller::xrp::{self, send_fits, xrp_fee, xrp_reserve};
@@ -111,29 +111,8 @@ fn pane_content<'a>(
             }
             PaneKind::Send => (strip(send_title(state)), None, send_pane(state, cp, scale)),
             PaneKind::Receive => {
-                let address = CHANNEL
-                    .wallet_balance_rx
-                    .borrow()
-                    .1
-                    .as_deref()
-                    .map(|a| xrp::receive_address(state, a))
-                    .unwrap_or_else(|| "No Address".to_string());
                 let tagged = xrp::receive_tag_shown(state).is_some();
-                (
-                    strip(if tagged { "receive \u{b7} tagged" } else { "receive" }),
-                    None,
-                    grid::receive_pane(
-                        address.clone(),
-                        address,
-                        0,
-                        state.xrp_copy_feedback,
-                        Message::CopyAddress,
-                        None,
-                        move || receive_line(state, cp, scale),
-                        cp,
-                        scale,
-                    ),
-                )
+                (strip(if tagged { "receive \u{b7} tagged" } else { "receive" }), None, receive_pane(state, cp, scale))
             }
             PaneKind::Network => (strip("network"), None, network_pane(state, cp, scale)),
             PaneKind::Wallet => (strip(panes_ui::wallet::title(state)), None, panes_ui::wallet::view(state, cp, scale)),
@@ -317,7 +296,7 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
     )
 }
 
-const FIGURE_SIZES: [f32; 3] = [24.0, 20.0, 16.0];
+pub(crate) const FIGURE_SIZES: [f32; 3] = [24.0, 20.0, 16.0];
 const FIGURE_GAP: f32 = 6.0;
 const TAG_GAP: f32 = 10.0;
 pub(crate) const DROW_H: f32 = 18.0;
@@ -339,8 +318,7 @@ fn send_min_h(state: &AppState, inner: f32, cp: &'static CompactPalette, scale: 
     } else {
         0.0
     };
-    let rows = if xrpsend::holdings().len() > 1 { 9.0 + screen::ROW_SLOT + 1.0 } else { 0.0 };
-    let top = STRIP * 1.3 + 4.0 + screen::boxed_h_seg(&state.send_recipient, inner, ADDR, segment_w(state)) + note + rows;
+    let top = STRIP * 1.3 + 4.0 + screen::boxed_h_seg(&state.send_recipient, inner, ADDR, segment_w(state)) + note;
     let middle = match send_face(state) {
         Face::Amount if tag_open(state) => STAGE_MIN + STATUS_H + TAG_GAP + grid::TAG_FIELD_H,
         Face::Amount | Face::Asset => STAGE_MIN + STATUS_H,
@@ -411,26 +389,14 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
         Face::Sign => sign_face(state, inner, cp, scale),
     };
 
-    let mut form = column![to_block].width(Length::Fill).height(Length::Fill);
-    if xrpsend::holdings().len() > 1 {
-        form = form
-            .push(Space::new().height(8.0 * scale).boxed())
-            .push(compact::hairline(cp.rule))
-            .push(asset_row(state, cp, scale))
-            .push(compact::hairline(cp.rule));
-    }
-    form.push(middle)
+    column![to_block]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .push(middle)
         .push(Space::new().height(10.0 * scale).boxed())
         .push(action)
         .push(Space::new().height(2.0 * scale).boxed())
         .boxed()
-}
-
-fn asset_row<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    let tab = if state.send_step >= 2 { state.send_tab.clone() } else { xrp::send_asset(state) };
-    let value = xrpsend::asset_display(&tab).to_string();
-    let msg = Some(Message::SendAssetPickerToggled);
-    screen::setting_row("Asset", None, value, state.send_asset_picker_open, msg, cp, scale)
 }
 
 const SEG_TAG: f32 = 10.0;
@@ -546,7 +512,11 @@ fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette,
         panes_ui::link_word(twin, twin_ink, None, cp, scale)
     };
     let mut stage = column![
-        screen::unit(display, cp, scale),
+        if xrpsend::holdings().len() > 1 {
+            grid::receive_chip(display, false, Message::SendAssetPickerToggled, cp, scale)
+        } else {
+            screen::unit(display, cp, scale)
+        },
         Space::new().height(8.0 * scale),
         keyed_column([(Face::Amount, figure)]).boxed(),
         Space::new().height(4.0 * scale),
@@ -618,7 +588,14 @@ fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette,
 fn asset_face<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> FaceParts<'a> {
     let middle = column![
         Space::new().height(8.0 * scale),
-        xrpsend::asset_list(&xrp::send_asset(state), state.base_currency.code(), cp, scale),
+        xrpsend::asset_list(
+            xrpsend::holdings(),
+            &xrp::send_asset(state),
+            state.base_currency.code(),
+            Message::XrpTokenTabChanged,
+            cp,
+            scale,
+        ),
     ]
     .width(Length::Fill)
     .height(Length::Fill)
@@ -790,40 +767,160 @@ pub(crate) fn figure_field<'a>(
 }
 
 
-fn receive_line<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    let gap = 7.5 * scale;
-    if state.receive_tag_editing {
-        let set = xrp::tag_of(&state.receive_tag_draft).is_some().then_some(Message::ReceiveTagSet);
-        return row![
-            grid::line_label("tag", cp, scale),
-            grid::tag_field(
-                TagPane::Receive,
-                &state.receive_tag_draft,
-                set.clone(),
-                state.focus_token(PlainField::XrpReceiveTag),
-                xrpsend::tag_over(&state.receive_tag_draft),
+const REQUEST_H: f32 = 30.0;
+const REQUEST_ISSUER_H: f32 = 14.0;
+
+fn receive_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let classic = CHANNEL.wallet_balance_rx.borrow().1.clone();
+    let shown = classic.as_deref().map(|a| xrp::receive_address(state, a)).unwrap_or_else(|| "No Address".to_string());
+    let payload = classic.as_deref().map(|a| xrp::receive_payload(state, a)).unwrap_or_default();
+    let under = 1 + xrp::receive_tag_shown(state).is_some() as usize;
+    let head = match &state.receive_request {
+        None => 0.0,
+        Some((XrpTokenTab::Xrp, _)) => REQUEST_H,
+        Some(_) => REQUEST_H + REQUEST_ISSUER_H,
+    };
+    let floor = shown.clone();
+    grid::receive_pane(
+        move |width| head + grid::receive_rows_h(&floor, width, under, scale),
+        move |width| receive_body(state, &shown, &payload, width, cp, scale),
+        cp,
+        scale,
+    )
+}
+
+fn receive_body<'a>(
+    state: &'a AppState,
+    shown: &str,
+    payload: &str,
+    width: f32,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
+    let tag = xrp::receive_tag_shown(state);
+    let flash = state.receive_flash.map(|(f, _)| f);
+    let listing = state.receive_edit == ReceiveEdit::Amount && state.receive_asset_list;
+    let rows_h = grid::receive_rows_h(shown, width, 1 + tag.is_some() as usize, scale);
+
+    let mut body = column![].width(Length::Fill).height(Length::Fill);
+    if listing {
+        let list = xrpsend::asset_list(
+            xrpsend::trustlines(),
+            &state.receive_asset,
+            state.base_currency.code(),
+            Message::ReceiveAssetPicked,
+            cp,
+            scale,
+        );
+        body = body.push(container(list).width(Length::Fill).height(Length::Fill).padding(Padding::new(0.0).top(4.0 * scale)).boxed());
+    } else {
+        if let Some((asset, amount)) = &state.receive_request {
+            body = body.push(receive_request(asset, amount, cp, scale));
+        }
+        body = body.push(grid::receive_code(payload.to_string(), scale));
+    }
+
+    let rows = match state.receive_edit {
+        ReceiveEdit::None => {
+            let tools = grid::receive_tools(
+                flash.filter(|f| *f != ReceiveFlash::TagCopied),
+                Message::CopyAddress,
+                Some(Message::ReceiveDownload),
                 cp,
                 scale,
-            ),
-            grid::line_ok(set, cp, scale),
-            grid::line_no(Message::ReceiveTagCancelled, cp, scale),
-        ]
-        .spacing(gap)
-        .align_y(Alignment::Center)
-        .boxed();
-    }
-    match xrp::tag_of(&state.receive_tag) {
-        None => grid::pane_link("Set destination tag", Message::TagEdit(TagPane::Receive), cp, scale),
-        Some(tag) => row![
-            grid::line_label("tag", cp, scale),
-            grid::line_value(tag.to_string(), Message::TagEdit(TagPane::Receive), cp, scale),
-            grid::copy_glyph(state.xrp_tag_copied, Message::CopyReceiveTag, cp, scale),
-            grid::line_no(Message::ReceiveTagCleared, cp, scale),
-        ]
-        .spacing(gap)
-        .align_y(Alignment::Center)
-        .boxed(),
-    }
+            );
+            let mut rows = column![grid::receive_address(shown, 0, width, tools, cp, scale), Space::new().height(6.0 * scale)];
+            if let Some(tag) = tag {
+                let tools = grid::receive_tools(
+                    flash.filter(|f| *f == ReceiveFlash::TagCopied),
+                    Message::CopyReceiveTag,
+                    None,
+                    cp,
+                    scale,
+                );
+                let words = row![
+                    grid::line_label("tag", cp, scale),
+                    Space::new().width(6.0 * scale),
+                    grid::line_value(tag.to_string(), Message::TagEdit(TagPane::Receive), cp, scale),
+                ]
+                .align_y(Alignment::Center);
+                rows = rows.push(
+                    container(grid::receive_hang(words.boxed(), tools, scale))
+                        .height(Length::Fixed(grid::RECEIVE_LINE_H * scale))
+                        .align_y(Alignment::Center)
+                        .boxed(),
+                );
+            }
+            let mut links = Vec::new();
+            if state.receive_request.is_none() {
+                links.push(("Request amount", Message::ReceiveAmountEdit));
+            }
+            if tag.is_none() {
+                links.push(("Set destination tag", Message::TagEdit(TagPane::Receive)));
+            }
+            rows.push(grid::receive_links(links, cp, scale)).boxed()
+        }
+        ReceiveEdit::Amount => {
+            let asset = &state.receive_asset;
+            let rate_key = asset.code().map_or("XRP", tokens::rate_key);
+            let ccy = state.base_currency.code();
+            let set = xrp::receive_set(state).map(|_| Message::ReceiveSet);
+            grid::receive_editor(
+                grid::receive_chip(xrpsend::asset_display(asset), listing, Message::ReceiveAssetListToggled, cp, scale),
+                grid::receive_field(
+                    PlainField::XrpReceiveAmount,
+                    &state.receive_amount_draft,
+                    "Amount",
+                    false,
+                    state.focus_token(PlainField::XrpReceiveAmount),
+                    cp,
+                    scale,
+                ),
+                grid::receive_fiat(&state.receive_amount_draft, price::cross(rate_key, ccy), ccy, cp, scale),
+                (!listing).then_some(("Set amount", set)),
+                state.receive_request.is_some().then_some(Message::ReceiveRemoved),
+                if listing { Message::ReceiveAssetListToggled } else { Message::ReceiveCancelled },
+                cp,
+                scale,
+            )
+        }
+        ReceiveEdit::Tag => {
+            let set = xrp::receive_set(state).map(|_| Message::ReceiveSet);
+            grid::receive_editor(
+                grid::line_label("tag", cp, scale),
+                grid::receive_field(
+                    PlainField::XrpReceiveTag,
+                    &state.receive_tag_draft,
+                    "Enter tag",
+                    xrpsend::tag_over(&state.receive_tag_draft),
+                    state.focus_token(PlainField::XrpReceiveTag),
+                    cp,
+                    scale,
+                ),
+                Space::new().boxed(),
+                Some(("Set tag", set)),
+                tag.is_some().then_some(Message::ReceiveRemoved),
+                Message::ReceiveCancelled,
+                cp,
+                scale,
+            )
+        }
+    };
+    body.push(container(rows).width(Length::Fill).height(Length::Fixed(rows_h * scale)).boxed()).boxed()
+}
+
+fn receive_request<'a>(asset: &XrpTokenTab, amount: &str, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let issuer = asset.code().and_then(tokens::by_code).map(|t| {
+        (t.issuer_name.to_string(), crate::ui::managexrp::tokens::short_issuer(t.issuer))
+    });
+    grid::receive_request(
+        crate::utils::formatting::request_figure(amount),
+        xrpsend::asset_display(asset).to_string(),
+        issuer,
+        Message::ReceiveAmountEdit,
+        cp,
+        scale,
+    )
 }
 
 const FEE_WORDS: [&str; 3] = ["quiet", "busy", "congested"];
