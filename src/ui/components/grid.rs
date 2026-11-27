@@ -967,9 +967,19 @@ pub fn swap_glyph<'a>(text_size: f32, color: Color) -> Element<'a, Message> {
 
 pub fn copy_glyph<'a>(copied: bool, msg: Message, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
     if copied {
-        return text("\u{2713} Copied").size(ROW_KEY * scale).color(cp.green).boxed();
+        return done_mark(cp, scale);
     }
     glyph_button(crate::utils::icons::COPY.clone(), msg, cp, scale)
+}
+
+fn done_mark<'a>(cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
+    let g = COPY_GLYPH * scale;
+    container(text("\u{2713}").size(ROW_KEY * scale).color(cp.green))
+        .width(Length::Fixed(g))
+        .height(Length::Fixed(g))
+        .align_x(Alignment::Center)
+        .align_y(Alignment::Center)
+        .boxed()
 }
 
 
@@ -1037,7 +1047,6 @@ pub fn pane_link<'a>(word: &str, msg: Message, cp: &'static CompactPalette, scal
 
 pub const RECEIVE_LINE_H: f32 = 21.0;
 const LINE_BTN: f32 = 10.0;
-const TAG_FIELD_COLS: usize = 12;
 pub const TAG_FIELD_H: f32 = 20.0;
 const TAG_FIELD_PAD_H: f32 = 4.0;
 
@@ -1127,21 +1136,20 @@ pub fn receive_tools<'a>(
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
-    let confirm = |word: &str, ink: Color| text(word.to_string()).size(ROW_KEY * scale).color(ink).wrapping(Wrapping::None).boxed();
-    match flash {
-        Some(ReceiveFlash::Copied) | Some(ReceiveFlash::TagCopied) => confirm("\u{2713} Copied", cp.green),
-        Some(ReceiveFlash::Saved) => confirm("\u{2713} Saved", cp.green),
-        Some(ReceiveFlash::SaveFailed) => confirm("Couldn't save", cp.red),
-        None => {
-            let mut tools = row![glyph_button(crate::utils::icons::COPY.clone(), on_copy, cp, scale)].align_y(Alignment::Center);
-            if let Some(msg) = on_download {
-                tools = tools
-                    .push(Space::new().width(Length::Fixed(RECEIVE_GAP * scale)).boxed())
-                    .push(glyph_button(crate::utils::icons::DOWNLOAD.clone(), msg, cp, scale));
-            }
-            tools.boxed()
-        }
+    if flash == Some(ReceiveFlash::SaveFailed) {
+        return text("Couldn't save").size(ROW_KEY * scale).color(cp.red).wrapping(Wrapping::None).boxed();
     }
+    let copied = matches!(flash, Some(ReceiveFlash::Copied | ReceiveFlash::TagCopied));
+    let mut tools = row![copy_glyph(copied, on_copy, cp, scale)].align_y(Alignment::Center);
+    if let Some(msg) = on_download {
+        let save = if flash == Some(ReceiveFlash::Saved) {
+            done_mark(cp, scale)
+        } else {
+            glyph_button(crate::utils::icons::DOWNLOAD.clone(), msg, cp, scale)
+        };
+        tools = tools.push(Space::new().width(Length::Fixed(RECEIVE_GAP * scale)).boxed()).push(save);
+    }
+    tools.boxed()
 }
 
 pub fn receive_links<'a>(links: Vec<(&'static str, Message)>, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -1444,52 +1452,6 @@ pub fn line_value<'a>(word: String, msg: Message, cp: &'static CompactPalette, s
             snap: false,
         })
         .boxed()
-}
-
-pub fn tag_field<'a>(
-    pane: TagPane,
-    value: &'a str,
-    on_submit: Option<Message>,
-    focus: Option<u32>,
-    red: bool,
-    cp: &'static CompactPalette,
-    scale: f32,
-) -> Element<'a, Message> {
-    let field = match pane {
-        TagPane::Send => PlainField::XrpSendTag,
-        TagPane::Receive => PlainField::XrpReceiveTag,
-    };
-    let s = RECEIVE_ADDR * scale;
-    let advance = s * MONO_ADVANCE;
-    let w = TAG_FIELD_COLS as f32 * advance + 2.0 * TAG_FIELD_PAD_H * scale;
-    let input = plain_field_grid_ink_requested(
-        field,
-        value,
-        TAG_FIELD_COLS,
-        "Enter tag",
-        on_submit,
-        advance,
-        s * 1.6,
-        s,
-        MONO,
-        if red { cp.red } else { cp.text },
-        cp.text,
-        cp.faint,
-        fonts::SANS,
-        focus,
-    );
-    column![
-        container(input)
-            .width(Length::Fixed(w))
-            .height(Length::Fixed(TAG_FIELD_H * scale - 1.0))
-            .padding(Padding::new(0.0).left(TAG_FIELD_PAD_H * scale).right(TAG_FIELD_PAD_H * scale))
-            .align_y(Alignment::Center),
-        container(Space::new())
-            .width(Length::Fixed(w))
-            .height(Length::Fixed(1.0))
-            .style(move |_| container::Style { background: Some(cp.focus.into()), ..Default::default() }),
-    ]
-    .boxed()
 }
 
 

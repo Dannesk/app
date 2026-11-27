@@ -4,7 +4,7 @@ use iced::mouse;
 use iced::widget::canvas::{self, Canvas, Frame};
 use iced::widget::pane_grid::Pane;
 use iced::widget::text::Wrapping;
-use iced::widget::{button, column, container, keyed_column, row, text, Column, Space};
+use iced::widget::{button, column, container, keyed_column, mouse_area, row, text, Column, Space};
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Size};
 
 use crate::channel::{Socket, XrpNodeStats as NodeFrame, CHANNEL};
@@ -18,7 +18,7 @@ use crate::ui::components::send_screen::{self as screen, stage_box, status_row, 
 use crate::ui::components::phrase_entry;
 use crate::ui::components::signing::SignFields;
 use crate::ui::components::tui::MONO_ADVANCE;
-use crate::utils::plain_field::plain_field_grid_requested;
+use crate::utils::plain_field::{plain_field_grid_blur, plain_field_grid_requested};
 use crate::utils::{fiat_amount, money};
 use crate::ui::components::compact;
 use crate::ui::managexrp::panes as panes_ui;
@@ -279,12 +279,20 @@ fn send_face(state: &AppState) -> Face {
     }
 }
 
-fn tag_open(state: &AppState) -> bool {
+fn tag_editing(state: &AppState) -> bool {
     state.send_tag_editing && !xrp::send_to_xaddress(state)
 }
 
 fn send_tag_red(state: &AppState) -> bool {
     !xrp::send_to_xaddress(state) && xrpsend::tag_over(&state.send_destination_tag)
+}
+
+fn send_valid(state: &AppState) -> bool {
+    let (_, own_xrp, _, _) = CHANNEL.wallet_balance_rx.borrow().clone();
+    let addr_ok = dannesk_xrpl_codec::xaddress::resolve(state.send_recipient.trim())
+        .is_some_and(|r| own_xrp.as_deref() != Some(r.classic.as_str()));
+    let amount = state.send_amount.trim().parse::<f64>().ok().filter(|v| *v > 0.0);
+    addr_ok && amount.is_some_and(|a| send_fits(state, a)) && !send_tag_red(state)
 }
 
 fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
@@ -298,7 +306,6 @@ fn send_pane<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -
 
 pub(crate) const FIGURE_SIZES: [f32; 3] = [24.0, 20.0, 16.0];
 const FIGURE_GAP: f32 = 6.0;
-const TAG_GAP: f32 = 10.0;
 pub(crate) const DROW_H: f32 = 18.0;
 pub(crate) const TOTAL_H: f32 = 31.0;
 
@@ -311,16 +318,9 @@ fn recipient_hint(state: &AppState) -> Option<&'static str> {
 }
 
 fn send_min_h(state: &AppState, inner: f32, cp: &'static CompactPalette, scale: f32) -> f32 {
-    let note = if recipient_hint(state).is_some() {
-        5.0 + HINT * 1.3
-    } else if xrp::send_to_xaddress(state) {
-        5.0 + ROW_KEY * 1.3
-    } else {
-        0.0
-    };
+    let note = if recipient_hint(state).is_some() { 5.0 + HINT * 1.3 } else { 0.0 };
     let top = STRIP * 1.3 + 4.0 + screen::boxed_h_seg(&state.send_recipient, inner, ADDR, segment_w(state)) + note;
     let middle = match send_face(state) {
-        Face::Amount if tag_open(state) => STAGE_MIN + STATUS_H + TAG_GAP + grid::TAG_FIELD_H,
         Face::Amount | Face::Asset => STAGE_MIN + STATUS_H,
         Face::Review => review_h(state),
         Face::Sign => sign_h(inner, cp, scale),
@@ -376,10 +376,6 @@ fn send_form<'a>(state: &'a AppState, size: Size, cp: &'static CompactPalette, s
         to_block = to_block
             .push(Space::new().height(5.0 * scale).boxed())
             .push(compact::mono_runs(vec![(note.to_string(), cp.red)], HINT * scale));
-    } else if xrp::send_to_xaddress(state) {
-        to_block = to_block
-            .push(Space::new().height(5.0 * scale).boxed())
-            .push(text(xrpsend::X_TAG_NOTE).size(ROW_KEY * scale).color(cp.muted).boxed());
     }
 
     let (middle, action) = match send_face(state) {
@@ -406,53 +402,115 @@ const SEG_PAD_L: f32 = 8.0;
 const SEG_PAD_R: f32 = 6.0;
 const SEG_RULE_H: f32 = 15.0;
 const SEG_WORD_W: f32 = 19.0;
+const SEG_EMBEDDED_W: f32 = 50.0;
+const SEG_CLEAR: f32 = 9.0;
+const SEG_CLEAR_W: f32 = 12.0;
 
-fn send_tag(state: &AppState) -> (Option<String>, bool) {
+enum Slot {
+    Rest(Option<String>),
+    Editing,
+    Embedded(bool),
+}
+
+fn slot(state: &AppState) -> Slot {
     match dannesk_xrpl_codec::xaddress::resolve(state.send_recipient.trim()) {
-        Some(r) if r.from_xaddress => (r.tag.map(|t| t.to_string()), true),
+        Some(r) if r.from_xaddress => Slot::Embedded(r.tag.is_some()),
+        _ if state.send_tag_editing => Slot::Editing,
         _ => {
             let typed = state.send_destination_tag.trim();
-            ((!typed.is_empty()).then(|| typed.to_string()), false)
+            Slot::Rest((!typed.is_empty()).then(|| typed.to_string()))
         }
     }
 }
 
 fn segment_w(state: &AppState) -> f32 {
-    let chars = send_tag(state).0.map_or(xrpsend::TAG_NONE.len(), |t| t.len());
-    1.0 + screen::SEG_INSET
-        + SEG_PAD_L
-        + SEG_WORD_W
-        + SEG_GAP
-        + chars as f32 * SEG_VALUE * MONO_ADVANCE
-        + SEG_GAP
-        + screen::GUTTER_W
-        + SEG_PAD_R
+    let mono = |chars: usize| chars as f32 * SEG_VALUE * MONO_ADVANCE;
+    let value = match slot(state) {
+        Slot::Rest(tag) => mono(tag.map_or(xrpsend::TAG_NONE.len(), |t| t.len())),
+        Slot::Editing => mono(xrpsend::TAG_COLS) + SEG_GAP + SEG_CLEAR_W,
+        Slot::Embedded(true) => SEG_EMBEDDED_W,
+        Slot::Embedded(false) => mono(xrpsend::TAG_NONE.len()),
+    };
+    1.0 + screen::SEG_INSET + SEG_PAD_L + SEG_WORD_W + SEG_GAP + value + SEG_PAD_R
 }
 
 fn tag_segment<'a>(state: &'a AppState, cp: &'static CompactPalette, scale: f32) -> (Element<'a, Message>, f32) {
-    let (tag, locked) = send_tag(state);
-    let (value, ink) = match tag {
-        Some(t) if !locked && xrpsend::tag_over(&t) => (t, cp.red),
-        Some(t) => (t, cp.text),
-        None => (xrpsend::TAG_NONE.to_string(), cp.faint),
+    let word = |w: &str, ink: Color| -> Element<'a, Message> {
+        text(w.to_string()).size(SEG_TAG * scale).color(ink).wrapping(Wrapping::None).boxed()
     };
-    let mark = if locked { screen::lock(cp, scale) } else { screen::chevron(state.send_tag_editing, cp, scale) };
-    let content = row![
-        text("Tag").size(SEG_TAG * scale).color(cp.dim).wrapping(Wrapping::None),
-        text(value).font(MONO).size(SEG_VALUE * scale).color(ink).wrapping(Wrapping::None),
-        container(mark).width(Length::Fixed(screen::GUTTER_W * scale)).align_x(Alignment::Center),
-    ]
-    .spacing(SEG_GAP * scale)
-    .align_y(Alignment::Center);
-    let live = !locked;
-    let press = button(container(content).height(Length::Fill).align_y(Alignment::Center))
-        .on_press_maybe(live.then_some(Message::TagEdit(TagPane::Send)))
-        .height(Length::Fill)
-        .padding(Padding::new(0.0).left(SEG_PAD_L * scale).right(SEG_PAD_R * scale))
-        .style(move |_, status| screen::row_style(live, status, screen::SMALL_RADIUS * scale, cp));
+    let digits = |v: String, ink: Color| -> Element<'a, Message> {
+        text(v).font(MONO).size(SEG_VALUE * scale).color(ink).wrapping(Wrapping::None).boxed()
+    };
+    let pad = Padding::new(0.0).left(SEG_PAD_L * scale).right(SEG_PAD_R * scale);
+    let slot: Element<'a, Message> = match slot(state) {
+        Slot::Embedded(tagged) => {
+            let value = if tagged {
+                container(word(xrpsend::TAG_EMBEDDED, cp.dim)).width(Length::Fixed(SEG_EMBEDDED_W * scale)).boxed()
+            } else {
+                digits(xrpsend::TAG_NONE.to_string(), cp.dim)
+            };
+            container(row![word("Tag", cp.muted), value].spacing(SEG_GAP * scale).align_y(Alignment::Center))
+                .height(Length::Fill)
+                .align_y(Alignment::Center)
+                .padding(pad)
+                .boxed()
+        }
+        Slot::Editing => {
+            let tag = state.send_destination_tag.as_str();
+            let s = SEG_VALUE * scale;
+            let advance = s * MONO_ADVANCE;
+            let input = plain_field_grid_blur(
+                PlainField::XrpSendTag,
+                tag,
+                xrpsend::TAG_COLS,
+                send_valid(state).then_some(Message::SendContinueClicked),
+                advance,
+                s * 1.6,
+                s,
+                MONO,
+                if send_tag_red(state) { cp.red } else { cp.text },
+                cp.text,
+                state.focus_token(PlainField::XrpSendTag),
+                Message::SendTagLeft,
+            );
+            let clear: Element<'a, Message> = if tag.is_empty() {
+                Space::new().boxed()
+            } else {
+                mouse_area(text("\u{2715}").size(SEG_CLEAR * scale).color(cp.muted))
+                    .on_press(Message::SendTagCleared)
+                    .interaction(mouse::Interaction::Pointer)
+                    .boxed()
+            };
+            let body = row![
+                word("Tag", cp.text),
+                container(input).width(Length::Fixed(xrpsend::TAG_COLS as f32 * advance)),
+                container(clear).width(Length::Fixed(SEG_CLEAR_W * scale)).align_x(Alignment::Center),
+            ]
+            .spacing(SEG_GAP * scale)
+            .align_y(Alignment::Center);
+            mouse_area(container(body).height(Length::Fill).align_y(Alignment::Center).padding(pad))
+                .on_press(Message::TagEdit(TagPane::Send))
+                .interaction(mouse::Interaction::Text)
+                .boxed()
+        }
+        Slot::Rest(tag) => {
+            let (value, ink) = match tag {
+                Some(t) if xrpsend::tag_over(&t) => (t, cp.red),
+                Some(t) => (t, cp.text),
+                None => (xrpsend::TAG_NONE.to_string(), cp.faint),
+            };
+            let content = row![word("Tag", cp.text), digits(value, ink)].spacing(SEG_GAP * scale).align_y(Alignment::Center);
+            button(container(content).height(Length::Fill).align_y(Alignment::Center))
+                .on_press(Message::TagEdit(TagPane::Send))
+                .height(Length::Fill)
+                .padding(pad)
+                .style(move |_, status| screen::row_style(true, status, screen::SMALL_RADIUS * scale, cp))
+                .boxed()
+        }
+    };
     let rule = container(Space::new().width(Length::Fixed(1.0)).height(Length::Fixed(SEG_RULE_H * scale)))
         .style(move |_| container::Style { background: Some(cp.rule.into()), ..Default::default() });
-    let segment = row![rule, Space::new().width(screen::SEG_INSET * scale), press]
+    let segment = row![rule, Space::new().width(screen::SEG_INSET * scale), slot]
         .height(Length::Fill)
         .align_y(Alignment::Center);
     (segment.boxed(), segment_w(state))
@@ -466,15 +524,9 @@ fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette,
     let display = xrpsend::asset_display(&tab);
     let unit = display.to_string();
     let ccy = state.base_currency.code();
-    let (_, own_xrp, _, _) = CHANNEL.wallet_balance_rx.borrow().clone();
-    let resolved = dannesk_xrpl_codec::xaddress::resolve(state.send_recipient.trim());
-    let is_self = resolved
-        .as_ref()
-        .is_some_and(|r| own_xrp.as_deref() == Some(r.classic.as_str()));
-    let addr_ok = !is_self && resolved.is_some();
     let amount = state.send_amount.trim().parse::<f64>().ok().filter(|v| *v > 0.0);
     let insufficient = amount.is_some_and(|a| !send_fits(state, a));
-    let valid = addr_ok && amount.is_some() && !insufficient && !send_tag_red(state);
+    let valid = send_valid(state);
     let rate = xrp::send_rate(state);
 
     let anchor_fiat = matches!(state.send_anchor, SendAnchor::Fiat);
@@ -484,13 +536,19 @@ fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette,
     } else {
         (PlainField::XrpSendAmount, state.send_amount.as_str(), asset_placeholder, String::new())
     };
-    let figure = figure_field(
+    let figure = figure_inked(
         field,
         typed,
         placeholder,
         &figure_unit,
         inner - 2.0 * STAGE_PAD,
-        insufficient,
+        if insufficient {
+            cp.red
+        } else if tag_editing(state) {
+            cp.dim
+        } else {
+            cp.text
+        },
         valid.then_some(Message::SendContinueClicked),
         state.focus_token(field),
         cp,
@@ -535,18 +593,6 @@ fn amount_face<'a>(state: &'a AppState, inner: f32, cp: &'static CompactPalette,
             HINT * scale,
         ));
     }
-    if tag_open(state) {
-        stage = stage.push(Space::new().height(TAG_GAP * scale).boxed()).push(grid::tag_field(
-            TagPane::Send,
-            &state.send_destination_tag,
-            valid.then_some(Message::SendContinueClicked),
-            state.focus_token(PlainField::XrpSendTag),
-            send_tag_red(state),
-            cp,
-            scale,
-        ));
-    }
-
     let available = crate::controller::xrp::xrp_available();
     let (avail_label, avail_ink) = match tab {
         _ if !insufficient => ("available", cp.muted),
@@ -726,6 +772,22 @@ pub(crate) fn figure_field<'a>(
     cp: &'static CompactPalette,
     scale: f32,
 ) -> Element<'a, Message> {
+    figure_inked(field, value, placeholder, unit, room, if red { cp.red } else { cp.text }, on_submit, focus, cp, scale)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn figure_inked<'a>(
+    field: PlainField,
+    value: &'a str,
+    placeholder: &str,
+    unit: &str,
+    room: f32,
+    ink: Color,
+    on_submit: Option<Message>,
+    focus: Option<u32>,
+    cp: &'static CompactPalette,
+    scale: f32,
+) -> Element<'a, Message> {
     let shown = if value.is_empty() { placeholder } else { value };
     let cols = shown.chars().count() + 1;
     let lead = if unit.is_empty() { 1.0 } else { 0.0 };
@@ -746,7 +808,7 @@ pub(crate) fn figure_field<'a>(
         s * 1.4,
         s,
         MONO,
-        if red { cp.red } else { cp.text },
+        ink,
         cp.text,
         cp.faint,
         focus,

@@ -21,7 +21,7 @@ pub fn plain_field_grid_ink<'a>(
     placeholder_color: Color,
     tail: usize,
 ) -> (Element<'a, Message>, usize) {
-    grid_field(field, value, cols, min_rows, placeholder, on_submit, advance, line_height, size, font, text, caret, placeholder_color, None, false, None, tail)
+    grid_field(field, value, cols, min_rows, placeholder, on_submit, advance, line_height, size, font, text, caret, placeholder_color, None, false, None, tail, None)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -42,7 +42,7 @@ pub fn plain_field_grid_ink_focus<'a>(
     placeholder_font: Option<Font>,
     autofocus: bool,
 ) -> (Element<'a, Message>, usize) {
-    grid_field(field, value, cols, min_rows, placeholder, on_submit, advance, line_height, size, font, text, caret, placeholder_color, placeholder_font, autofocus, None, 0)
+    grid_field(field, value, cols, min_rows, placeholder, on_submit, advance, line_height, size, font, text, caret, placeholder_color, placeholder_font, autofocus, None, 0, None)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -61,7 +61,7 @@ pub fn plain_field_grid_requested<'a>(
     placeholder_color: Color,
     focus: Option<u32>,
 ) -> Element<'a, Message> {
-    grid_field(field, value, cols, 1, placeholder, on_submit, advance, line_height, size, font, text, caret, placeholder_color, None, false, focus, 0).0
+    grid_field(field, value, cols, 1, placeholder, on_submit, advance, line_height, size, font, text, caret, placeholder_color, None, false, focus, 0, None).0
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -81,7 +81,25 @@ pub fn plain_field_grid_ink_requested<'a>(
     placeholder_font: Font,
     focus: Option<u32>,
 ) -> Element<'a, Message> {
-    grid_field(field, value, cols, 1, placeholder, on_submit, advance, line_height, size, font, text, caret, placeholder_color, Some(placeholder_font), false, focus, 0).0
+    grid_field(field, value, cols, 1, placeholder, on_submit, advance, line_height, size, font, text, caret, placeholder_color, Some(placeholder_font), false, focus, 0, None).0
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn plain_field_grid_blur<'a>(
+    field: PlainField,
+    value: &'a str,
+    cols: usize,
+    on_submit: Option<Message>,
+    advance: f32,
+    line_height: f32,
+    size: f32,
+    font: Font,
+    text: Color,
+    caret: Color,
+    focus: Option<u32>,
+    on_blur: Message,
+) -> Element<'a, Message> {
+    grid_field(field, value, cols, 1, "", on_submit, advance, line_height, size, font, text, caret, text, None, false, focus, 0, Some(on_blur)).0
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -103,6 +121,7 @@ fn grid_field<'a>(
     autofocus: bool,
     focus: Option<u32>,
     tail: usize,
+    on_blur: Option<Message>,
 ) -> (Element<'a, Message>, usize) {
     let multiline = min_rows > 1;
     let len = value.chars().count();
@@ -147,6 +166,9 @@ fn grid_field<'a>(
     }
     if tail > 0 {
         input = input.underline_tail(tail);
+    }
+    if let Some(msg) = on_blur {
+        input = input.on_blur(msg);
     }
 
     (input.boxed(), rows)

@@ -21,10 +21,11 @@ pub(crate) const OVER_AVAILABLE: &str = "More than available";
 pub(crate) const NO_XRP_FOR_FEE: &str = "No XRP available for the network fee";
 pub(crate) const PREFIX_ERROR: &str = "An XRP address starts with r, or X for an X-address";
 pub(crate) const TAG_NONE: &str = "None";
-pub(crate) const X_TAG_NOTE: &str = "Tag from the X-address";
+pub(crate) const TAG_EMBEDDED: &str = "embedded";
 pub(crate) const CHECKSUM_ERROR: &str = "That address fails its checksum";
 
 const TAG_DIGITS: usize = 11; // one past u32::MAX's ten, so a digit too many shows red
+pub(crate) const TAG_COLS: usize = TAG_DIGITS + 1;
 
 pub(crate) fn tag_typed(candidate: &str) -> Option<String> {
     if !candidate.chars().all(|c| c.is_ascii_digit()) {

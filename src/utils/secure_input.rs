@@ -143,6 +143,7 @@ pub struct SecureInput<'a, Message> {
     on_paste: Box<dyn Fn(usize, String) -> Message + 'a>,
     on_submit: Option<Message>,
     on_focus: Option<Message>,
+    on_blur: Option<Message>,
     autofocus: bool,
     focus_token: Option<u32>,
 }
@@ -179,6 +180,7 @@ impl<'a, Message> SecureInput<'a, Message> {
             on_paste: Box::new(on_paste),
             on_submit: None,
             on_focus: None,
+            on_blur: None,
             autofocus: false,
             focus_token: None,
         }
@@ -247,6 +249,11 @@ impl<'a, Message> SecureInput<'a, Message> {
     // Published on a press inside the field, so the app knows which field the user picked.
     pub fn on_focus(mut self, message: Message) -> Self {
         self.on_focus = Some(message);
+        self
+    }
+
+    pub fn on_blur(mut self, message: Message) -> Self {
+        self.on_blur = Some(message);
         self
     }
 
@@ -795,6 +802,9 @@ where
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let bounds = layout.bounds();
                 let over = cursor.is_over(bounds);
+                if state.focused && !over && let Some(msg) = &self.on_blur {
+                    shell.publish(msg.clone());
+                }
                 if state.focused != over {
                     state.focused = over;
                 }

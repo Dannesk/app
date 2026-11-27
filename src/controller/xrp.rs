@@ -187,10 +187,6 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             }
         }
         Message::TagEdit(TagPane::Send) => {
-            if state.send_tag_editing {
-                state.send_tag_editing = false;
-                return Task::none();
-            }
             if send_to_xaddress(state) {
                 return Task::none();
             }
@@ -198,6 +194,15 @@ pub fn handle(state: &mut AppState, message: Message) -> Task<Message> {
             state.send_asset_picker_open = false;
             state.send_tag_editing = true;
             state.request_focus(PlainField::XrpSendTag);
+        }
+        Message::SendTagLeft => {
+            state.send_tag_editing = false;
+        }
+        Message::SendTagCleared => {
+            state.send_destination_tag.clear();
+            state.send_tag_editing = true;
+            state.request_focus(PlainField::XrpSendTag);
+            after_plain_edit(state, PlainField::XrpSendTag);
         }
         Message::TagEdit(TagPane::Receive) => {
             close_receive_editor(state);
@@ -1200,6 +1205,7 @@ pub fn after_plain_edit(state: &mut AppState, field: PlainField) {
             }
             if send_to_xaddress(state) {
                 state.send_tag_editing = false;
+                state.send_destination_tag.clear();
             }
         }
         PlainField::XrpSendTag if state.send_step >= 2 => unlock_send(state),
@@ -1645,5 +1651,37 @@ mod tests {
         let _ = handle(&mut state, Message::SendContinueClicked);
         assert_eq!(state.send_error.as_deref(), Some("ERR: INVALID_DESTINATION_TAG"));
         assert_eq!(state.send_step, 0, "a tag past a u32 reached the review");
+    }
+
+    #[test]
+    fn an_x_address_drops_a_typed_tag_for_good() {
+        let classic = "rpcbQcdbjQrPvAVDzymF95vqht9M4wAzkc";
+        let mut state = AppState::default();
+        state.send_recipient = classic.to_string();
+        let _ = handle(&mut state, Message::TagEdit(TagPane::Send));
+        assert!(state.apply_plain_edit(PlainField::XrpSendTag, SecureOp::Paste(0, "77".to_string())));
+
+        state.replace_plain_field(PlainField::XrpSendRecipient, "X7Yoo9fNvD5LCE49ScoNk3EKPL9wVee2mbUcQgFj8AXmcVt".to_string());
+        after_plain_edit(&mut state, PlainField::XrpSendRecipient);
+        assert_eq!(state.send_destination_tag, "", "a typed tag survived the X-address");
+        assert!(!state.send_tag_editing);
+        let _ = handle(&mut state, Message::TagEdit(TagPane::Send));
+        assert!(!state.send_tag_editing, "an X-address tag opened for editing");
+
+        state.replace_plain_field(PlainField::XrpSendRecipient, classic.to_string());
+        after_plain_edit(&mut state, PlainField::XrpSendRecipient);
+        assert_eq!(state.send_destination_tag, "", "the typed tag came back with the classic address");
+    }
+
+    #[test]
+    fn clearing_the_tag_keeps_the_caret_in_the_slot() {
+        let mut state = AppState::default();
+        let _ = handle(&mut state, Message::TagEdit(TagPane::Send));
+        assert!(state.apply_plain_edit(PlainField::XrpSendTag, SecureOp::Paste(0, "104829".to_string())));
+        let _ = handle(&mut state, Message::SendTagLeft);
+        let _ = handle(&mut state, Message::SendTagCleared);
+        assert_eq!(state.send_destination_tag, "");
+        assert!(state.send_tag_editing, "the press that clears left the slot");
+        assert_eq!(state.focus, Some(PlainField::XrpSendTag));
     }
 }

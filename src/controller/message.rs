@@ -204,6 +204,8 @@ pub enum Message {
     XrpTokenTabChanged(XrpTokenTab),
     SendAssetPickerToggled,
     TagEdit(TagPane),
+    SendTagLeft,
+    SendTagCleared,
     ReceiveAmountEdit,
     ReceiveAssetListToggled,
     ReceiveAssetPicked(XrpTokenTab),
