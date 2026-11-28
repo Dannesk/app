@@ -8,23 +8,23 @@ description = "DeFi Wallet for XRPL and Bitcoin."
 
 [dependencies]
 
-dannesk-core = { git = "https://github.com/Dannesk/dannesk-core", rev = "8eb148f0af22fbf56241ec71de6cca0e4d3ea400" }  # our rust core
-dannesk-btc-codec = { git = "https://github.com/Dannesk/dannesk-btc-codec", rev = "f206fd8c19c10fb49b9629f100a7a1888dd1ad2e" }  # our Bitcoin keys, addresses and transactions, under MIT
-dannesk-xrpl-codec = { git = "https://github.com/Dannesk/dannesk-xrpl-codec", rev = "4aa3822b8355f27cd45f793871a3af946329c60f" }  # our XRPL transaction and address codec, under MIT
+dannesk-core = { git = "https://github.com/Dannesk/dannesk-core", rev = "19e694bbaf3a976093b85de34e205c61f674759c" }  # our rust core
+dannesk-btc-codec = { git = "https://github.com/Dannesk/dannesk-btc-codec", rev = "74a94be6df08135deaaffe36f1b3b693584594a1" }  # our Bitcoin keys, addresses and transactions, under MIT
+dannesk-xrpl-codec = { git = "https://github.com/Dannesk/dannesk-xrpl-codec", rev = "6923f5c0fb9c84ce4b55a6768c4a15accb8a4f9e" }  # our XRPL transaction and address codec, under MIT
 iced = { git = "https://github.com/iced-rs/iced", rev = "98bd48fe011efc0ec5819fee0fa7673a7169ff11", features = ["tokio", "wgpu", "svg", "canvas", "advanced"] }
 chrono = "0.4.45"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
-tokio = { version = "1.53.3", features = ["full"] }
-zeroize = { version = "1.9", features = ["derive", "serde"] }
-rand = "0.10.3"
+serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["full"] }
+zeroize = { version = "1.9.2", features = ["derive", "serde"] }
+rand = "0.10.4"
 base64 = "0.23.1"
 dirs = "7.0.0"
-qrcode = { version = "0.14.1", default-features = false }  
+qrcode = { version = "0.15.0", default-features = false }  
 png = "0.18.1"  # decodes the X11 window icon (src/icon.rs)
-sha2 = "0.11.0"
-libc = { version = "0.2.190", optional = true } 
-arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }  
+sha2 = "0.11.2"
+libc = { version = "0.2.191", optional = true } 
+arboard = { version = "3.7.0", default-features = false, features = ["wayland-data-control"] }  
 
 [features]
 startup-trace = ["dep:libc"]
