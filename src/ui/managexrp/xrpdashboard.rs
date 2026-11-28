@@ -40,7 +40,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let cp = theme::compact(&state.theme);
     let scale = state.scale();
     let g = &state.xrp_grid;
-    let host = grid::Host { chain: Chain::Xrp, title: "XRP", grid: g, wrap: Message::Grid };
+    let host = grid::Host { chain: Chain::Xrp, grid: g, wrap: Message::Grid };
     grid::screen(host, state, pane_content, cp, scale)
 }
 

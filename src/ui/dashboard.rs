@@ -66,7 +66,7 @@ pub const DOCK_H: f32 = 2.0 * DOCK_PAD_V + DOCK_ROW;
 
 pub fn tab_label(tab: &Tab) -> &'static str {
     match tab {
-        Tab::Balance => "Balance",
+        Tab::Balance => "BALANCE",
         Tab::Xrp     => "XRP",
         Tab::Btc     => "BTC",
     }

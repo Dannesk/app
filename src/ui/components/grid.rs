@@ -31,7 +31,6 @@ use crate::utils::sparkline::{fmt_hover_time, ChartInk};
 use crate::utils::theme::CompactPalette;
 
 
-pub const TITLE: f32 = 12.5;
 pub const BAR_BUTTON: f32 = 9.0;
 pub const STRIP: f32 = 8.5;
 pub const PILL: f32 = 8.0;
@@ -94,7 +93,6 @@ pub const NA: &str = "\u{2014}";
 pub struct Host<'a> {
     pub chain: Chain,
 
-    pub title: &'static str,
     pub grid: &'a Grid,
 
     pub wrap: fn(GridMsg) -> Message,
@@ -136,7 +134,7 @@ pub fn screen<'a>(
 
 
 fn top_bar<'a>(host: Host<'a>, cp: &'static CompactPalette, scale: f32) -> Element<'a, Message> {
-    let bar = row![text(host.title).size(TITLE * scale).color(cp.text)]
+    let bar = row![compact::corner_button(crate::utils::icons::SLIDERS.clone(), Message::OpenSettings, cp, scale)]
         .align_y(Alignment::Center)
         .height(Length::Fill)
         .push(Space::new().width(Length::Fill).boxed())
