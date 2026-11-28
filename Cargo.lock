@@ -843,7 +843,7 @@ dependencies = [
 [[package]]
 name = "dannesk-core"
 version = "0.1.0"
-source = "git+https://github.com/Dannesk/dannesk-core?rev=19e694bbaf3a976093b85de34e205c61f674759c#19e694bbaf3a976093b85de34e205c61f674759c"
+source = "git+https://github.com/Dannesk/dannesk-core?rev=9e980ed3c4e961ec67ce8623632cf26c15cb7ec4#9e980ed3c4e961ec67ce8623632cf26c15cb7ec4"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -871,7 +871,7 @@ dependencies = [
 [[package]]
 name = "dannesk-noise-protocol"
 version = "0.1.0"
-source = "git+https://github.com/Dannesk/dannesk-noise-protocol?rev=afc9ea8c209e6e2a6838f9b0fb4cb84c30491ad9#afc9ea8c209e6e2a6838f9b0fb4cb84c30491ad9"
+source = "git+https://github.com/Dannesk/dannesk-noise-protocol?rev=dedaad4d2d1bff66d7639c43f0fc3c2cf3316b30#dedaad4d2d1bff66d7639c43f0fc3c2cf3316b30"
 dependencies = [
  "aes-gcm",
  "hmac",
